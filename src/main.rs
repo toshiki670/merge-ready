@@ -1,3 +1,8 @@
+mod application;
+mod domain;
+mod infra;
+mod presentation;
+
 fn main() {
-    println!("Hello, world!");
+    application::run(&infra::gh::GhClient);
 }

@@ -64,6 +64,30 @@ fn test_ci_fail_wins_over_ci_action() {
     cmd(&env).assert().success().stdout("✗ ci-fail").stderr("");
 }
 
+// ─── CI 未設定 ──────────────────────────────────────────────────────────────
+
+/// `gh pr checks` が "no checks reported" で失敗 → 空リスト扱い → `✓ merge-ready`
+#[test]
+fn test_no_ci_checks_merge_ready() {
+    let env = TestEnv::with_no_ci_checks(
+        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}"#,
+    );
+    cmd(&env)
+        .assert()
+        .success()
+        .stdout("✓ merge-ready")
+        .stderr("");
+}
+
+/// `gh pr checks` が "no checks reported" + `review` あり → CI なし扱いで `⚠ review` のみ出力
+#[test]
+fn test_no_ci_checks_with_review() {
+    let env = TestEnv::with_no_ci_checks(
+        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"CHANGES_REQUESTED"}"#,
+    );
+    cmd(&env).assert().success().stdout("⚠ review").stderr("");
+}
+
 // ─── review との複合出力 ──────────────────────────────────────────────────
 
 /// `ci-fail` + `review` → 両方をスペース区切りで出力（`ci_checks` は `review` を抑制しない）

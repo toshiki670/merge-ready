@@ -1,0 +1,21 @@
+[package]
+name = "merge-ready"
+version = "0.1.0"
+edition = "2024"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+pedantic = "warn"
+
+[dependencies]
+
+[[test]]
+name = "e2e"
+path = "tests/e2e/mod.rs"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"

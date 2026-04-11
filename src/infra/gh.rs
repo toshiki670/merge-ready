@@ -26,9 +26,7 @@ struct GhPrView {
 #[derive(Deserialize)]
 struct GhCheckItem {
     bucket: String,
-    // `state` フィールドは JSON に必ず存在するが、判定には使用しない
-    #[allow(dead_code)]
-    state: String,
+    // `state` は JSON に存在するが判定に不要なため宣言しない（serde はデフォルトで無視する）
 }
 
 // ── GhClient ────────────────────────────────────────────────────────────────

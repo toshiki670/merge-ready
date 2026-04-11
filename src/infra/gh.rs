@@ -54,7 +54,14 @@ impl PrClient for GhClient {
     }
 
     fn pr_checks(&self) -> Result<Vec<CheckBucket>, PrClientError> {
-        let bytes = run_gh(&["pr", "checks", "--json", "bucket,state"])?;
+        let bytes = match run_gh(&["pr", "checks", "--json", "bucket,state"]) {
+            Ok(b) => b,
+            // CI が未設定のブランチではチェックなし（正常）として扱う
+            Err(PrClientError::ApiError(msg)) if msg.contains("no checks reported") => {
+                return Ok(vec![]);
+            }
+            Err(e) => return Err(e),
+        };
         let items: Vec<GhCheckItem> =
             serde_json::from_slice(&bytes).map_err(|e| PrClientError::ApiError(e.to_string()))?;
         Ok(items.iter().map(|c| translate_bucket(&c.bucket)).collect())

@@ -225,7 +225,11 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         let lock: LockFile =
             serde_json::from_str(&content).expect("lock file should contain valid JSON");
-        assert_eq!(lock.pid, std::process::id(), "pid should match current process");
+        assert_eq!(
+            lock.pid,
+            std::process::id(),
+            "pid should match current process"
+        );
         assert!(lock.locked_at > 0, "locked_at should be non-zero");
     }
 

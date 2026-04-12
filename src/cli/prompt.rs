@@ -2,7 +2,7 @@ use crate::application::cache::DisplayAction;
 use crate::application::errors::{ErrorPresenter, ErrorToken};
 use crate::cli::args::PromptArgs;
 
-pub(crate) fn run(args: PromptArgs) {
+pub(crate) fn run(args: &PromptArgs) {
     if args.refresh {
         run_refresh();
     } else if args.no_cache {

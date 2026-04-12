@@ -13,11 +13,11 @@ use super::helpers::TestEnv;
 /// merge-ready のバイナリ名
 const BIN: &str = "merge-ready";
 
-/// fake git が返す remote URL から生成される repo_id
-/// `git remote get-url origin` → "https://github.com/test/repo.git"
+/// fake git が返すワークツリーパスから生成される repo_id
+/// `git rev-parse --show-toplevel` → "/fake/repo"
 /// → 英数字と `-` 以外を `_` に置換
-/// → "https___github_com_test_repo_git"
-const FAKE_REPO_ID: &str = "https___github_com_test_repo_git";
+/// → "_fake_repo"
+const FAKE_REPO_ID: &str = "_fake_repo";
 
 /// マージ可能な PR の `gh pr view` JSON（キャッシュテスト用の最小セット）
 /// `baseRefName` / `headRefName` を空にすることで `gh repo view` 呼び出しを回避し
@@ -177,8 +177,7 @@ fn now_secs() -> u64 {
 fn state_json_path(home: &std::path::Path) -> std::path::PathBuf {
     home.join(".cache")
         .join("merge-ready")
-        .join(FAKE_REPO_ID)
-        .join("state.json")
+        .join(format!("{FAKE_REPO_ID}.json"))
 }
 
 /// 指定した home_dir の下に state.json を書き込む

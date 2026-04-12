@@ -1,12 +1,13 @@
 use std::process::Command;
 
-/// `git remote get-url origin` からリポジトリ ID を生成する。
+/// `git rev-parse --show-toplevel` からワークツリーの ID を生成する。
 ///
-/// 生成されたIDはキャッシュのディレクトリ名として使用する。
-/// 取得失敗時（非 git ディレクトリ、git がない、remote が未設定等）は `None` を返す。
+/// 生成された ID はキャッシュのファイル名として使用する。
+/// worktree ごとに固有のパスが返るため、同一リモートの worktree 間で衝突しない。
+/// 取得失敗時（非 git ディレクトリ、git がない等）は `None` を返す。
 pub fn get() -> Option<String> {
     let output = Command::new("git")
-        .args(["remote", "get-url", "origin"])
+        .args(["rev-parse", "--show-toplevel"])
         .output()
         .ok()?;
 
@@ -14,17 +15,17 @@ pub fn get() -> Option<String> {
         return None;
     }
 
-    let url = String::from_utf8_lossy(&output.stdout);
-    let url = url.trim();
+    let path = String::from_utf8_lossy(&output.stdout);
+    let path = path.trim();
 
-    if url.is_empty() {
+    if path.is_empty() {
         return None;
     }
 
-    // 英数字と `-` 以外を `_` に置換してファイルシステムセーフなIDを生成
-    // 例: "https://github.com/test/repo.git" → "https___github_com_test_repo_git"
+    // 英数字と `-` 以外を `_` に置換してファイルシステムセーフな ID を生成
+    // 例: "/home/user/repos/my-project" → "_home_user_repos_my-project"
     Some(
-        url.chars()
+        path.chars()
             .map(|c| {
                 if c.is_alphanumeric() || c == '-' {
                     c

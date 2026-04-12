@@ -200,19 +200,19 @@ impl TestEnv {
         let bin_dir = tempdir().expect("failed to create bin_dir");
         let home_dir = tempdir().expect("failed to create home_dir");
 
-        // git remote get-url origin のみ exit 1、他は通常通り
+        // rev-parse --show-toplevel のみ exit 1、他は通常通り
         let git_script = r#"#!/bin/sh
 case "$*" in
   *'rev-parse --is-inside-work-tree'*)
     echo 'true'; exit 0 ;;
   *'rev-parse --show-toplevel'*)
-    echo '/fake/repo'; exit 0 ;;
+    echo 'not a git repository' >&2; exit 1 ;;
   *'branch --show-current'*)
     echo 'main'; exit 0 ;;
   *'rev-parse --abbrev-ref HEAD'*)
     echo 'main'; exit 0 ;;
   *'remote get-url origin'*)
-    echo 'no remote' >&2; exit 1 ;;
+    echo 'https://github.com/test/repo.git'; exit 0 ;;
   *)
     exit 0 ;;
 esac

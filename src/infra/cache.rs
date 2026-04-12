@@ -91,8 +91,7 @@ fn cache_path(repo_id: &str) -> Option<std::path::PathBuf> {
         std::path::Path::new(&home)
             .join(".cache")
             .join(CACHE_DIR_NAME)
-            .join(repo_id)
-            .join("state.json"),
+            .join(format!("{repo_id}.json")),
     )
 }
 

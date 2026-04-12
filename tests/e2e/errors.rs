@@ -23,7 +23,7 @@ fn test_gh_not_installed() {
     let env = TestEnv::without_gh();
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.arg("prompt")
+    cmd.args(["prompt", "--no-cache"])
         .assert()
         .success()
         .stdout("! gh auth login")
@@ -39,7 +39,7 @@ fn test_gh_not_logged_in() {
     );
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.arg("prompt")
+    cmd.args(["prompt", "--no-cache"])
         .assert()
         .success()
         .stdout("! gh auth login")
@@ -55,7 +55,7 @@ fn test_bad_credentials() {
     );
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.arg("prompt")
+    cmd.args(["prompt", "--no-cache"])
         .assert()
         .success()
         .stdout("! gh auth login")
@@ -70,7 +70,7 @@ fn test_api_error() {
     let env = TestEnv::with_error("HTTP 500: Internal Server Error", 1);
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.arg("prompt")
+    cmd.args(["prompt", "--no-cache"])
         .assert()
         .success()
         .stdout("✗ api-error")
@@ -86,7 +86,7 @@ fn test_no_network() {
     );
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.arg("prompt")
+    cmd.args(["prompt", "--no-cache"])
         .assert()
         .success()
         .stdout("✗ api-error")
@@ -102,7 +102,7 @@ fn test_rate_limited() {
     );
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.arg("prompt")
+    cmd.args(["prompt", "--no-cache"])
         .assert()
         .success()
         .stdout("✗ rate-limited")
@@ -120,7 +120,7 @@ fn test_error_log_written() {
 
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.arg("prompt").assert().success();
+    cmd.args(["prompt", "--no-cache"]).assert().success();
 
     assert!(log_path.exists(), "error.log が作成されていない");
     let content = std::fs::read_to_string(&log_path).unwrap();

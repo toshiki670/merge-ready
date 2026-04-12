@@ -1,20 +1,10 @@
 use crate::application::OutputToken;
-use crate::application::errors::{ErrorLogger, ErrorPresenter};
 use crate::domain::ci_checks::{CheckBucket, CiChecksRepository, CiStatus};
+use crate::domain::error::RepositoryError;
 
-/// CI チェック結果を取得する。失敗時は `None` を返してエラー出力する。
-pub fn fetch(
-    repo: &impl CiChecksRepository,
-    err_logger: &impl ErrorLogger,
-    err_presenter: &impl ErrorPresenter,
-) -> Option<Vec<CheckBucket>> {
-    match repo.fetch_check_buckets() {
-        Ok(buckets) => Some(buckets),
-        Err(e) => {
-            super::errors::handle(e, err_logger, err_presenter);
-            None
-        }
-    }
+/// CI チェック結果を取得する。失敗時は `Err` を返す（エラー表示は呼び出し元が担う）。
+pub fn fetch(repo: &impl CiChecksRepository) -> Result<Vec<CheckBucket>, RepositoryError> {
+    repo.fetch_check_buckets()
 }
 
 /// CI チェック結果を集約・評価し、該当するトークンを返す

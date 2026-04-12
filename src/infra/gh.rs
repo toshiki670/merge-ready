@@ -1,6 +1,6 @@
-use std::cell::OnceCell;
 use std::io::ErrorKind;
 use std::process::Command;
+use std::sync::OnceLock;
 
 use serde::Deserialize;
 
@@ -51,13 +51,15 @@ struct GhCompare {
 
 pub struct GhClient {
     /// `gh pr view` の結果をキャッシュする（複数トレイト実装によるコマンド多重実行を防ぐ）
-    pr_view_cache: OnceCell<GhPrView>,
+    ///
+    /// `OnceLock` を使用してスレッド間でのキャッシュ共有を安全にする（並列フェッチ対応）。
+    pr_view_cache: OnceLock<GhPrView>,
 }
 
 impl GhClient {
     pub fn new() -> Self {
         Self {
-            pr_view_cache: OnceCell::new(),
+            pr_view_cache: OnceLock::new(),
         }
     }
 

@@ -20,5 +20,10 @@ path = "tests/e2e/mod.rs"
 
 [dev-dependencies]
 assert_cmd = "2"
+criterion = { version = "0.5", features = ["html_reports"] }
 predicates = "3"
 tempfile = "3"
+
+[[bench]]
+name = "hot_path"
+harness = false

@@ -25,10 +25,14 @@ fn render_error(token: ErrorToken) -> &'static str {
     }
 }
 
+/// トークン列を文字列に変換する
+pub fn render_to_string(tokens: &[OutputToken]) -> String {
+    tokens.iter().map(render).collect::<Vec<_>>().join(" ")
+}
+
 /// トークン列を `stdout` に出力する（末尾改行なし）
 pub fn display(tokens: &[OutputToken]) {
-    let rendered: Vec<&str> = tokens.iter().map(render).collect();
-    print!("{}", rendered.join(" "));
+    print!("{}", render_to_string(tokens));
 }
 
 pub struct Presenter;

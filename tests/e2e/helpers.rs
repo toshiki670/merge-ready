@@ -27,6 +27,8 @@ case "$*" in
     echo 'main'; exit 0 ;;
   *'rev-parse --abbrev-ref HEAD'*)
     echo 'main'; exit 0 ;;
+  *'remote get-url origin'*)
+    echo 'https://github.com/test/repo.git'; exit 0 ;;
   *)
     exit 0 ;;
 esac
@@ -193,6 +195,37 @@ impl TestEnv {
         Self { bin_dir, home_dir }
     }
 
+    /// `git remote get-url origin` が失敗するシナリオ（キャッシュ対象外のテスト用）
+    pub fn without_git_remote() -> Self {
+        let bin_dir = tempdir().expect("failed to create bin_dir");
+        let home_dir = tempdir().expect("failed to create home_dir");
+
+        // rev-parse --show-toplevel のみ exit 1、他は通常通り
+        let git_script = r#"#!/bin/sh
+case "$*" in
+  *'rev-parse --is-inside-work-tree'*)
+    echo 'true'; exit 0 ;;
+  *'rev-parse --show-toplevel'*)
+    echo 'not a git repository' >&2; exit 1 ;;
+  *'branch --show-current'*)
+    echo 'main'; exit 0 ;;
+  *'rev-parse --abbrev-ref HEAD'*)
+    echo 'main'; exit 0 ;;
+  *'remote get-url origin'*)
+    echo 'https://github.com/test/repo.git'; exit 0 ;;
+  *)
+    exit 0 ;;
+esac
+"#;
+        write_executable(bin_dir.path().join("git"), git_script);
+
+        // gh は応答しないようにする（呼ばれるべきでない）
+        let gh_script = "#!/bin/sh\necho 'gh should not be called' >&2\nexit 1\n";
+        write_executable(bin_dir.path().join("gh"), gh_script);
+
+        Self { bin_dir, home_dir }
+    }
+
     /// `PATH` 文字列を返す（`bin_dir` を先頭に追加）
     pub fn path_env(&self) -> String {
         format!("{}:/bin:/usr/bin", self.bin_dir.path().display())
@@ -203,10 +236,19 @@ impl TestEnv {
         self.home_dir.path()
     }
 
-    /// `Command` に `PATH` / `HOME` をまとめて設定する
+    /// `Command` に `PATH` / `HOME` をまとめて設定する（キャッシュ無効）
+    ///
+    /// サブコマンドと `--no-cache` は呼び出し元が追加すること。
     pub fn apply(&self, cmd: &mut assert_cmd::Command) {
         cmd.env("PATH", self.path_env());
         cmd.env("HOME", self.home());
+    }
+
+    /// `Command` に `PATH` / `HOME` / `prompt` サブコマンドをまとめて設定する（キャッシュ有効）
+    pub fn apply_with_cache(&self, cmd: &mut assert_cmd::Command) {
+        cmd.env("PATH", self.path_env());
+        cmd.env("HOME", self.home());
+        cmd.arg("prompt");
     }
 }
 

@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 
+use super::prompt::PromptArgs;
+
 #[derive(Parser)]
 #[command(
     name = "merge-ready",
@@ -14,6 +16,6 @@ pub(crate) struct Cli {
 #[derive(Subcommand)]
 pub(crate) enum Command {
     /// Show PR merge status for your shell prompt
-    #[command(after_help = super::help::PROMPT_AFTER_HELP)]
-    Prompt,
+    #[command(after_help = super::prompt::AFTER_HELP)]
+    Prompt(PromptArgs),
 }

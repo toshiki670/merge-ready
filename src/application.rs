@@ -1,8 +1,10 @@
 mod branch_sync;
+pub(crate) mod cache;
 mod ci_checks;
 pub(super) mod errors;
 mod merge_ready;
 mod pr_state;
+pub(crate) mod prompt;
 mod review;
 
 use crate::domain::{
@@ -28,15 +30,19 @@ pub enum OutputToken {
 ///
 /// 表示すべきトークンを返す。呼び出し元が表示処理を担う。
 /// PR が対象外（クローズ等）または取得失敗の場合は空 `Vec` を返す。
+///
+/// `branch_sync` と `ci_checks` のフェッチは独立した gh 呼び出しを必要とするため、
+/// `std::thread::scope` を使って並列実行する。
 pub fn run<C, L, P>(client: &C, err_logger: &L, err_presenter: &P) -> Vec<OutputToken>
 where
     C: PrStateRepository
         + BranchSyncRepository
         + CiChecksRepository
         + ReviewRepository
-        + MergeReadinessRepository,
-    L: ErrorLogger,
-    P: ErrorPresenter,
+        + MergeReadinessRepository
+        + Sync,
+    L: ErrorLogger + Sync,
+    P: ErrorPresenter + Sync,
 {
     let Some(lifecycle) = pr_state::fetch(client, err_logger, err_presenter) else {
         return vec![];
@@ -45,12 +51,26 @@ where
         return vec![];
     }
 
-    let Some(sync_status) = branch_sync::fetch(client, err_logger, err_presenter) else {
-        return vec![];
+    // branch_sync と ci_checks は独立した gh 呼び出しを必要とするため並列フェッチ
+    // review と merge_ready はキャッシュ済みの pr_view データを使用するため追加呼び出しなし
+    let (sync_result, ci_result) = std::thread::scope(|s| {
+        let sync_handle = s.spawn(|| branch_sync::fetch(client));
+        let ci_handle = s.spawn(|| ci_checks::fetch(client));
+        (
+            sync_handle.join().expect("branch_sync thread panicked"),
+            ci_handle.join().expect("ci_checks thread panicked"),
+        )
+    });
+
+    // 両方失敗した場合でも err_presenter への通知は 1 回だけ（重複表示を防ぐ）
+    let (sync_status, buckets) = match (sync_result, ci_result) {
+        (Ok(s), Ok(b)) => (s, b),
+        (Err(e), _) | (_, Err(e)) => {
+            errors::handle(e, err_logger, err_presenter);
+            return vec![];
+        }
     };
-    let Some(buckets) = ci_checks::fetch(client, err_logger, err_presenter) else {
-        return vec![];
-    };
+
     let Some(review_status) = review::fetch(client, err_logger, err_presenter) else {
         return vec![];
     };

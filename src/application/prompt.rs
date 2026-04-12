@@ -1,8 +1,8 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::application::cache::{CachePort, DisplayAction};
-use crate::application::errors::{ErrorPresenter, ErrorToken, ErrorLogger};
 use crate::application::OutputToken;
+use crate::application::cache::{CachePort, DisplayAction};
+use crate::application::errors::{ErrorLogger, ErrorPresenter, ErrorToken};
 use crate::domain::{
     branch_sync::BranchSyncRepository, ci_checks::CiChecksRepository,
     merge_ready::MergeReadinessRepository, pr_state::PrStateRepository, review::ReviewRepository,

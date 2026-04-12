@@ -12,7 +12,7 @@ Developers working with GitHub PRs face a common friction:
 
 ## Solution
 
-`merge-ready` analyzes your current branch's PR state and outputs **only what matters for merging**:
+`merge-ready prompt` analyzes your current branch's PR state and outputs **only what matters for merging**:
 
 ✗ conflict          → Merge is blocked by conflicts
 ⚠ update-branch     → Branch needs rebasing
@@ -22,6 +22,8 @@ Developers working with GitHub PRs face a common friction:
 ✓ merge-ready       → Ready to merge!
 
 No noise. No context switching. One glance at your prompt tells you exactly what to do next.
+
+Run `merge-ready` without arguments to show CLI help.
 
 ## Features
 

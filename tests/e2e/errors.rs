@@ -23,7 +23,11 @@ fn test_gh_not_installed() {
     let env = TestEnv::without_gh();
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.assert().success().stdout("! gh auth login").stderr("");
+    cmd.arg("prompt")
+        .assert()
+        .success()
+        .stdout("! gh auth login")
+        .stderr("");
 }
 
 /// `gh` が `exit code 4` を返す（未ログイン）→ `! gh auth login`
@@ -35,7 +39,11 @@ fn test_gh_not_logged_in() {
     );
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.assert().success().stdout("! gh auth login").stderr("");
+    cmd.arg("prompt")
+        .assert()
+        .success()
+        .stdout("! gh auth login")
+        .stderr("");
 }
 
 /// `gh` が `exit 1` + `HTTP 401: Bad credentials` → `! gh auth login`
@@ -47,10 +55,14 @@ fn test_bad_credentials() {
     );
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.assert().success().stdout("! gh auth login").stderr("");
+    cmd.arg("prompt")
+        .assert()
+        .success()
+        .stdout("! gh auth login")
+        .stderr("");
 }
 
-// ─── API エラー ───────────────��───────────────────────────────────────────
+// ─── API エラー ───────────────────────────────────────────────────────────
 
 /// `gh` が `exit 1` + `HTTP 500` → `✗ api-error`
 #[test]
@@ -58,7 +70,11 @@ fn test_api_error() {
     let env = TestEnv::with_error("HTTP 500: Internal Server Error", 1);
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.assert().success().stdout("✗ api-error").stderr("");
+    cmd.arg("prompt")
+        .assert()
+        .success()
+        .stdout("✗ api-error")
+        .stderr("");
 }
 
 /// `gh` が `exit 1` + `connection refused`（ネットワーク不通）→ `✗ api-error`
@@ -70,7 +86,11 @@ fn test_no_network() {
     );
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.assert().success().stdout("✗ api-error").stderr("");
+    cmd.arg("prompt")
+        .assert()
+        .success()
+        .stdout("✗ api-error")
+        .stderr("");
 }
 
 /// `gh` が `exit 1` + `API rate limit exceeded` → `✗ rate-limited`
@@ -82,7 +102,11 @@ fn test_rate_limited() {
     );
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.assert().success().stdout("✗ rate-limited").stderr("");
+    cmd.arg("prompt")
+        .assert()
+        .success()
+        .stdout("✗ rate-limited")
+        .stderr("");
 }
 
 // ─── エラーログ ───────────────────────────────────────────────────────────
@@ -96,7 +120,7 @@ fn test_error_log_written() {
 
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.assert().success();
+    cmd.arg("prompt").assert().success();
 
     assert!(log_path.exists(), "error.log が作成されていない");
     let content = std::fs::read_to_string(&log_path).unwrap();

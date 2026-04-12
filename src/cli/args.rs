@@ -1,0 +1,19 @@
+use clap::{Parser, Subcommand};
+
+#[derive(Parser)]
+#[command(
+    name = "merge-ready",
+    about = "PR merge status for your shell prompt",
+    version
+)]
+pub(crate) struct Cli {
+    #[command(subcommand)]
+    pub(crate) command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+pub(crate) enum Command {
+    /// Show PR merge status for your shell prompt
+    #[command(after_help = super::help::PROMPT_AFTER_HELP)]
+    Prompt,
+}

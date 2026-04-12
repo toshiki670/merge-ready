@@ -1,7 +1,10 @@
+mod args;
+
 use std::process::Stdio;
 
 use crate::application::prompt::{PromptEffect, RepoIdPort};
-use crate::cli::args::PromptArgs;
+
+pub(super) use args::PromptArgs;
 
 struct InfraRepoIdPort;
 

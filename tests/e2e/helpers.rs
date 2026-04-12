@@ -27,6 +27,8 @@ case "$*" in
     echo 'main'; exit 0 ;;
   *'rev-parse --abbrev-ref HEAD'*)
     echo 'main'; exit 0 ;;
+  *'remote get-url origin'*)
+    echo 'https://github.com/test/repo.git'; exit 0 ;;
   *)
     exit 0 ;;
 esac
@@ -193,6 +195,37 @@ impl TestEnv {
         Self { bin_dir, home_dir }
     }
 
+    /// `git remote get-url origin` が失敗するシナリオ（キャッシュ対象外のテスト用）
+    pub fn without_git_remote() -> Self {
+        let bin_dir = tempdir().expect("failed to create bin_dir");
+        let home_dir = tempdir().expect("failed to create home_dir");
+
+        // git remote get-url origin のみ exit 1、他は通常通り
+        let git_script = r#"#!/bin/sh
+case "$*" in
+  *'rev-parse --is-inside-work-tree'*)
+    echo 'true'; exit 0 ;;
+  *'rev-parse --show-toplevel'*)
+    echo '/fake/repo'; exit 0 ;;
+  *'branch --show-current'*)
+    echo 'main'; exit 0 ;;
+  *'rev-parse --abbrev-ref HEAD'*)
+    echo 'main'; exit 0 ;;
+  *'remote get-url origin'*)
+    echo 'no remote' >&2; exit 1 ;;
+  *)
+    exit 0 ;;
+esac
+"#;
+        write_executable(bin_dir.path().join("git"), git_script);
+
+        // gh は応答しないようにする（呼ばれるべきでない）
+        let gh_script = "#!/bin/sh\necho 'gh should not be called' >&2\nexit 1\n";
+        write_executable(bin_dir.path().join("gh"), gh_script);
+
+        Self { bin_dir, home_dir }
+    }
+
     /// `PATH` 文字列を返す（`bin_dir` を先頭に追加）
     pub fn path_env(&self) -> String {
         format!("{}:/bin:/usr/bin", self.bin_dir.path().display())
@@ -204,7 +237,17 @@ impl TestEnv {
     }
 
     /// `Command` に `PATH` / `HOME` をまとめて設定する
+    ///
+    /// キャッシュを無効化（`MERGE_READY_NO_CACHE=1`）して既存テストを隔離する。
+    /// キャッシュ挙動を検証するテストは `TestEnv::apply_with_cache()` を使うこと。
     pub fn apply(&self, cmd: &mut assert_cmd::Command) {
+        cmd.env("PATH", self.path_env());
+        cmd.env("HOME", self.home());
+        cmd.env("MERGE_READY_NO_CACHE", "1");
+    }
+
+    /// キャッシュを有効にした状態で `PATH` / `HOME` を設定する（キャッシュ専用テスト用）
+    pub fn apply_with_cache(&self, cmd: &mut assert_cmd::Command) {
         cmd.env("PATH", self.path_env());
         cmd.env("HOME", self.home());
     }

@@ -1,4 +1,5 @@
 mod branch_sync;
+mod cache;
 mod ci_checks;
 mod errors;
 mod helpers;

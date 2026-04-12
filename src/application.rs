@@ -28,15 +28,19 @@ pub enum OutputToken {
 ///
 /// 表示すべきトークンを返す。呼び出し元が表示処理を担う。
 /// PR が対象外（クローズ等）または取得失敗の場合は空 `Vec` を返す。
+///
+/// `branch_sync` と `ci_checks` のフェッチは独立した gh 呼び出しを必要とするため、
+/// `std::thread::scope` を使って並列実行する。
 pub fn run<C, L, P>(client: &C, err_logger: &L, err_presenter: &P) -> Vec<OutputToken>
 where
     C: PrStateRepository
         + BranchSyncRepository
         + CiChecksRepository
         + ReviewRepository
-        + MergeReadinessRepository,
-    L: ErrorLogger,
-    P: ErrorPresenter,
+        + MergeReadinessRepository
+        + Sync,
+    L: ErrorLogger + Sync,
+    P: ErrorPresenter + Sync,
 {
     let Some(lifecycle) = pr_state::fetch(client, err_logger, err_presenter) else {
         return vec![];
@@ -45,12 +49,24 @@ where
         return vec![];
     }
 
-    let Some(sync_status) = branch_sync::fetch(client, err_logger, err_presenter) else {
+    // branch_sync と ci_checks は独立した gh 呼び出しを必要とするため並列フェッチ
+    // review と merge_ready はキャッシュ済みの pr_view データを使用するため追加呼び出しなし
+    let (sync_result, ci_result) = std::thread::scope(|s| {
+        let sync_handle = s.spawn(|| branch_sync::fetch(client, err_logger, err_presenter));
+        let ci_handle = s.spawn(|| ci_checks::fetch(client, err_logger, err_presenter));
+        (
+            sync_handle.join().expect("branch_sync thread panicked"),
+            ci_handle.join().expect("ci_checks thread panicked"),
+        )
+    });
+
+    let Some(sync_status) = sync_result else {
         return vec![];
     };
-    let Some(buckets) = ci_checks::fetch(client, err_logger, err_presenter) else {
+    let Some(buckets) = ci_result else {
         return vec![];
     };
+
     let Some(review_status) = review::fetch(client, err_logger, err_presenter) else {
         return vec![];
     };

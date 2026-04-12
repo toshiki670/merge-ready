@@ -116,6 +116,45 @@ impl TestEnv {
         Self { bin_dir, home_dir }
     }
 
+    /// Compare API がエラーを返すシナリオ用の `fake gh` を配置する。
+    ///
+    /// `pr view` JSON には `baseRefName` / `headRefName` を含めること（API を呼ぶため）。
+    /// `repo view` は正常に応答し、`api compare` のみ `exit 1` で失敗する。
+    pub fn with_compare_error(pr_view_json: &str, pr_checks_json: Option<&str>) -> Self {
+        let (bin_dir, home_dir) = Self::setup();
+
+        let checks_block = match pr_checks_json {
+            Some(j) => format!("printf '%s' '{j}'\n"),
+            None => "printf 'unexpected pr checks call' >&2\nexit 1\n".to_string(),
+        };
+
+        let script = format!(
+            "#!/bin/sh\n\
+             case \"$*\" in\n\
+               *'pr view'*)\n\
+                 printf '%s' '{pr_view_json}'\n\
+                 ;;\n\
+               *'pr checks'*)\n\
+                 {checks_block}\
+                 ;;\n\
+               *'repo view'*)\n\
+                 printf '{{\"nameWithOwner\":\"owner/repo\"}}'\n\
+                 ;;\n\
+               *'api'*'compare'*)\n\
+                 printf 'API error' >&2\n\
+                 exit 1\n\
+                 ;;\n\
+               *)\n\
+                 printf 'unknown gh command: %s' \"$*\" >&2\n\
+                 exit 127\n\
+                 ;;\n\
+             esac\n"
+        );
+
+        write_executable(bin_dir.path().join("gh"), &script);
+        Self { bin_dir, home_dir }
+    }
+
     /// エラー系: 指定した `exit_code` と `stderr` メッセージを返す `fake gh` を配置する。
     pub fn with_error(stderr_msg: &str, exit_code: u8) -> Self {
         let (bin_dir, home_dir) = Self::setup();

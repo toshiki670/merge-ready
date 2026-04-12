@@ -51,7 +51,7 @@ fn test_refresh_mode_writes_cache() {
     let mut cmd = Command::cargo_bin(BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.arg("--refresh");
-    // --refresh は stdout に何も出力しない
+    // prompt --refresh は stdout に何も出力しない
     cmd.assert().success().stdout(predicate::str::is_empty());
 
     // state.json が作成されていること
@@ -89,7 +89,7 @@ fn test_cache_fresh_returns_cached_output() {
     let mut cmd = Command::cargo_bin(BIN).unwrap();
     cmd.env("PATH", broken_env.path_env()); // 壊れた gh の PATH
     cmd.env("HOME", env.home()); // キャッシュが存在する HOME
-    // MERGE_READY_NO_CACHE は設定しない（キャッシュ有効）
+    cmd.arg("prompt"); // キャッシュ有効モード
 
     cmd.assert()
         .success()
@@ -124,7 +124,7 @@ fn test_stale_cache_is_updated_by_refresh() {
     // stale_ttl より古いキャッシュを作成
     write_state_json(env.home(), stale_output, now_secs() - 10);
 
-    // --refresh を明示的に実行
+    // prompt --refresh を明示的に実行
     let mut refresh_cmd = Command::cargo_bin(BIN).unwrap();
     env.apply_with_cache(&mut refresh_cmd);
     refresh_cmd.arg("--refresh");

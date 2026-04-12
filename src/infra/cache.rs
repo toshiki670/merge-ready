@@ -64,7 +64,6 @@ fn check_raw(repo_id: &str) -> RawCacheStatus {
 ///
 /// ディレクトリが存在しない場合は自動的に作成する。
 /// 書き込み失敗は静かに握り潰す。
-#[allow(dead_code)]
 pub fn write(repo_id: &str, output: &str) {
     let Some(state_path) = cache_path(repo_id) else {
         return;

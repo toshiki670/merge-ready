@@ -236,16 +236,19 @@ esac
         self.home_dir.path()
     }
 
-    /// `Command` に `PATH` / `HOME` をまとめて設定する
+    /// `Command` に `PATH` / `HOME` をまとめて設定する（キャッシュ無効）
+    ///
+    /// サブコマンドと `--no-cache` は呼び出し元が追加すること。
     pub fn apply(&self, cmd: &mut assert_cmd::Command) {
         cmd.env("PATH", self.path_env());
         cmd.env("HOME", self.home());
     }
 
-    /// キャッシュを有効にした状態で `PATH` / `HOME` を設定する（キャッシュ専用テスト用）
+    /// `Command` に `PATH` / `HOME` / `prompt` サブコマンドをまとめて設定する（キャッシュ有効）
     pub fn apply_with_cache(&self, cmd: &mut assert_cmd::Command) {
         cmd.env("PATH", self.path_env());
         cmd.env("HOME", self.home());
+        cmd.arg("prompt");
     }
 }
 

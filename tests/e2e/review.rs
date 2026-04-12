@@ -16,7 +16,7 @@ fn test_review_changes_requested() {
     );
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);
-    cmd.arg("prompt")
+    cmd.args(["prompt", "--no-cache"])
         .assert()
         .success()
         .stdout("⚠ review")

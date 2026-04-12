@@ -8,7 +8,7 @@ use assert_cmd::Command;
 fn cmd(env: &TestEnv) -> Command {
     let mut c = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut c);
-    c.arg("prompt");
+    c.args(["prompt", "--no-cache"]);
     c
 }
 

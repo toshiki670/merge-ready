@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
@@ -15,5 +15,15 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     /// Show PR merge status for your shell prompt
     #[command(after_help = super::help::PROMPT_AFTER_HELP)]
-    Prompt,
+    Prompt(PromptArgs),
+}
+
+#[derive(Args)]
+pub(crate) struct PromptArgs {
+    /// Bypass cache and fetch fresh data directly
+    #[arg(long)]
+    pub(crate) no_cache: bool,
+    /// Fetch fresh data and update cache without displaying output
+    #[arg(long, hide = true)]
+    pub(crate) refresh: bool,
 }

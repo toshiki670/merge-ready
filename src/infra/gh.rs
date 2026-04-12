@@ -12,6 +12,17 @@ use crate::infra::pr_client::{PrClient, PrClientError, PrViewData};
 // ── gh コマンドの生 JSON 構造（infra 内にのみ存在）──────────────────────────
 
 #[derive(Deserialize)]
+struct GhRepoView {
+    #[serde(rename = "nameWithOwner")]
+    name_with_owner: String,
+}
+
+#[derive(Deserialize)]
+struct GhCompare {
+    behind_by: u64,
+}
+
+#[derive(Deserialize)]
 struct GhPrView {
     state: String,
     #[serde(rename = "isDraft")]
@@ -21,6 +32,11 @@ struct GhPrView {
     merge_state_status: String,
     #[serde(rename = "reviewDecision")]
     review_decision: Option<String>,
+    // compare API 用（フィールドが存在しない場合はデフォルト値を使用）
+    #[serde(rename = "baseRefName", default)]
+    base_ref_name: String,
+    #[serde(rename = "headRefName", default)]
+    head_ref_name: String,
 }
 
 #[derive(Deserialize)]
@@ -39,13 +55,14 @@ impl PrClient for GhClient {
             "pr",
             "view",
             "--json",
-            "state,isDraft,mergeable,mergeStateStatus,reviewDecision",
+            "state,isDraft,mergeable,mergeStateStatus,reviewDecision,baseRefName,headRefName",
         ])?;
         let raw: GhPrView =
             serde_json::from_slice(&bytes).map_err(|e| PrClientError::ApiError(e.to_string()))?;
+        let behind_by = fetch_behind_by(&raw.base_ref_name, &raw.head_ref_name);
         Ok(PrViewData {
             lifecycle: translate_lifecycle(&raw.state),
-            sync_status: translate_sync(&raw.mergeable, &raw.merge_state_status),
+            sync_status: translate_sync(&raw.mergeable, behind_by),
             review_status: translate_review(raw.review_decision.as_deref()),
             merge_readiness: translate_merge_readiness(raw.is_draft, &raw.merge_state_status),
         })
@@ -76,13 +93,40 @@ fn translate_lifecycle(state: &str) -> PrLifecycle {
     }
 }
 
-fn translate_sync(mergeable: &str, merge_state_status: &str) -> BranchSyncStatus {
+fn translate_sync(mergeable: &str, behind_by: u64) -> BranchSyncStatus {
     if mergeable == "CONFLICTING" {
         BranchSyncStatus::Conflicting
-    } else if merge_state_status == "BEHIND" {
+    } else if behind_by > 0 {
         BranchSyncStatus::Behind
     } else {
         BranchSyncStatus::Clean
+    }
+}
+
+/// GitHub Compare API でベースブランチとの差分コミット数を取得する。
+///
+/// `base_ref` / `head_ref` が空（テスト用フィクスチャや旧形式 JSON）の場合は
+/// API を呼ばずに `0` を返す。API 呼び出しに失敗した場合も `0` を返す（劣化動作）。
+fn fetch_behind_by(base_ref: &str, head_ref: &str) -> u64 {
+    if base_ref.is_empty() || head_ref.is_empty() {
+        return 0;
+    }
+
+    let name_with_owner = match run_gh(&["repo", "view", "--json", "nameWithOwner"]) {
+        Ok(bytes) => match serde_json::from_slice::<GhRepoView>(&bytes) {
+            Ok(r) => r.name_with_owner,
+            Err(_) => return 0,
+        },
+        Err(_) => return 0,
+    };
+
+    let path = format!("repos/{name_with_owner}/compare/{base_ref}...{head_ref}");
+
+    match run_gh(&["api", &path]) {
+        Ok(bytes) => serde_json::from_slice::<GhCompare>(&bytes)
+            .map(|c| c.behind_by)
+            .unwrap_or(0),
+        Err(_) => 0,
     }
 }
 

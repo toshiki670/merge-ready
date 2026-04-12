@@ -61,6 +61,50 @@ impl TestEnv {
                *'pr checks'*)\n\
                  {checks_block}\
                  ;;\n\
+               *'api'*'compare'*)\n\
+                 printf '{{\"behind_by\":0}}'\n\
+                 ;;\n\
+               *)\n\
+                 printf 'unknown gh command: %s' \"$*\" >&2\n\
+                 exit 127\n\
+                 ;;\n\
+             esac\n"
+        );
+
+        write_executable(bin_dir.path().join("gh"), &script);
+        Self { bin_dir, home_dir }
+    }
+
+    /// compare API が `behind_by` を返すシナリオ用の `fake gh` を配置する。
+    ///
+    /// `pr view` JSON には `baseRefName` / `headRefName` を含めること。
+    pub fn with_behind_by(
+        pr_view_json: &str,
+        pr_checks_json: Option<&str>,
+        behind_by: u64,
+    ) -> Self {
+        let (bin_dir, home_dir) = Self::setup();
+
+        let checks_block = match pr_checks_json {
+            Some(j) => format!("printf '%s' '{j}'\n"),
+            None => "printf 'unexpected pr checks call' >&2\nexit 1\n".to_string(),
+        };
+
+        let script = format!(
+            "#!/bin/sh\n\
+             case \"$*\" in\n\
+               *'pr view'*)\n\
+                 printf '%s' '{pr_view_json}'\n\
+                 ;;\n\
+               *'pr checks'*)\n\
+                 {checks_block}\
+                 ;;\n\
+               *'repo view'*)\n\
+                 printf '{{\"nameWithOwner\":\"owner/repo\"}}'\n\
+                 ;;\n\
+               *'api'*'compare'*)\n\
+                 printf '{{\"behind_by\":{behind_by}}}'\n\
+                 ;;\n\
                *)\n\
                  printf 'unknown gh command: %s' \"$*\" >&2\n\
                  exit 127\n\

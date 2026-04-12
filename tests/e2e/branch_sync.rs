@@ -27,12 +27,13 @@ fn test_conflict() {
     cmd(&env).assert().success().stdout("✗ conflict").stderr("");
 }
 
-/// `mergeStateStatus == BEHIND` → `✗ update-branch`
+/// compare API の `behind_by > 0` → `✗ update-branch`（ブランチ保護設定に依存しない）
 #[test]
 fn test_update_branch() {
-    let env = TestEnv::new(
-        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BEHIND","reviewDecision":null}"#,
+    let env = TestEnv::with_behind_by(
+        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":null,"baseRefName":"main","headRefName":"feat/test"}"#,
         Some(r#"[{"bucket":"pass","state":"SUCCESS"}]"#),
+        1,
     );
     cmd(&env)
         .assert()

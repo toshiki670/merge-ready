@@ -128,7 +128,10 @@ fn test_stale_cache_is_updated_by_refresh() {
     let mut refresh_cmd = Command::cargo_bin(BIN).unwrap();
     env.apply_with_cache(&mut refresh_cmd);
     refresh_cmd.arg("--refresh");
-    refresh_cmd.assert().success().stdout(predicate::str::is_empty());
+    refresh_cmd
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
 
     // state.json の fetched_at_secs が更新されていること
     let state = read_state_json(env.home()).expect("state.json should exist");

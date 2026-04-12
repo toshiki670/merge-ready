@@ -23,5 +23,15 @@ pub fn get() -> Option<String> {
 
     // 英数字と `-` 以外を `_` に置換してファイルシステムセーフなIDを生成
     // 例: "https://github.com/test/repo.git" → "https___github_com_test_repo_git"
-    Some(url.chars().map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' }).collect())
+    Some(
+        url.chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect(),
+    )
 }

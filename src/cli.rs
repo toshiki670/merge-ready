@@ -1,5 +1,4 @@
 mod args;
-mod help;
 mod prompt;
 
 use args::{Cli, Command};

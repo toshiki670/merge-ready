@@ -4,6 +4,7 @@
 
 use super::helpers::TestEnv;
 use assert_cmd::Command;
+use predicates::prelude::PredicateBooleanExt;
 
 const MERGE_READY_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}"#;
 const MERGE_READY_PR_CHECKS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS"}]"#;
@@ -35,7 +36,7 @@ fn test_prompt_subcommand() {
         .stdout("✓ merge-ready");
 }
 
-/// `help` サブコマンド → "Usage:" を含む / exit 0
+/// `help` サブコマンド → "Usage:" を含む、"Output tokens:" を含まない / exit 0
 #[test]
 fn test_help_subcommand() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
@@ -43,10 +44,11 @@ fn test_help_subcommand() {
         .arg("help")
         .assert()
         .success()
-        .stdout(predicates::str::contains("Usage:"));
+        .stdout(predicates::str::contains("Usage:"))
+        .stdout(predicates::str::contains("Output tokens:").not());
 }
 
-/// `--help` フラグ → "Usage:" を含む / exit 0
+/// `--help` フラグ → "Usage:" を含む、"Output tokens:" を含まない / exit 0
 #[test]
 fn test_help_flag_long() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
@@ -54,10 +56,11 @@ fn test_help_flag_long() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicates::str::contains("Usage:"));
+        .stdout(predicates::str::contains("Usage:"))
+        .stdout(predicates::str::contains("Output tokens:").not());
 }
 
-/// `-h` フラグ → "Usage:" を含む / exit 0
+/// `-h` フラグ → "Usage:" を含む、"Output tokens:" を含まない / exit 0
 #[test]
 fn test_help_flag_short() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
@@ -65,7 +68,41 @@ fn test_help_flag_short() {
         .arg("-h")
         .assert()
         .success()
-        .stdout(predicates::str::contains("Usage:"));
+        .stdout(predicates::str::contains("Usage:"))
+        .stdout(predicates::str::contains("Output tokens:").not());
+}
+
+/// `help prompt` → "Output tokens:" を含む / exit 0
+#[test]
+fn test_help_prompt_subcommand() {
+    let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
+    cmd(&env)
+        .args(["help", "prompt"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Output tokens:"));
+}
+
+/// `prompt --help` → "Output tokens:" を含む / exit 0
+#[test]
+fn test_prompt_help_flag() {
+    let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
+    cmd(&env)
+        .args(["prompt", "--help"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Output tokens:"));
+}
+
+/// `prompt -h` → "Output tokens:" を含む / exit 0
+#[test]
+fn test_prompt_help_flag_short() {
+    let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
+    cmd(&env)
+        .args(["prompt", "-h"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Output tokens:"));
 }
 
 /// `--version` フラグ → バージョン文字列を含む / exit 0

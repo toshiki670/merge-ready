@@ -153,9 +153,7 @@ fn test_no_git_remote_shows_nothing() {
 
     let mut cmd = Command::cargo_bin(BIN).unwrap();
     env.apply_with_cache(&mut cmd);
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::is_empty());
+    cmd.assert().success().stdout(predicate::str::is_empty());
 
     // キャッシュが作成されていないこと
     let state_path = state_json_path(env.home());

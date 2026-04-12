@@ -16,7 +16,9 @@ pub(crate) enum DisplayAction {
     Display(String),
     /// 表示してからバックグラウンドリフレッシュを要求する
     DisplayAndRefresh(String),
-    /// "? loading" を表示してバックグラウンドリフレッシュを要求する
+    /// "? loading" を表示してバックグラウンドリフレッシュを要求する（git リポジトリは存在する）
+    LoadingWithRefresh,
+    /// "? loading" を表示するのみ（git リポジトリが取得できない）
     Loading,
 }
 
@@ -28,6 +30,6 @@ pub(crate) fn resolve(repo_id: Option<&str>, cache: &impl CachePort) -> DisplayA
     match cache.check(id) {
         CacheState::Fresh(s) => DisplayAction::Display(s),
         CacheState::Stale(s) => DisplayAction::DisplayAndRefresh(s),
-        CacheState::Miss => DisplayAction::Loading,
+        CacheState::Miss => DisplayAction::LoadingWithRefresh,
     }
 }

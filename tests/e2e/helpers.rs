@@ -163,6 +163,30 @@ impl TestEnv {
         Self { bin_dir, home_dir }
     }
 
+    /// CI 未設定シナリオ: `gh pr view` は成功するが `gh pr checks` が
+    /// `"no checks reported"` で `exit 1` を返す。
+    pub fn with_no_ci_checks(pr_view_json: &str) -> Self {
+        let (bin_dir, home_dir) = Self::setup();
+        let script = format!(
+            "#!/bin/sh\n\
+             case \"$*\" in\n\
+               *'pr view'*)\n\
+                 printf '%s' '{pr_view_json}'\n\
+                 ;;\n\
+               *'pr checks'*)\n\
+                 printf \"%s\" \"no checks reported on the 'test-branch' branch\" >&2\n\
+                 exit 1\n\
+                 ;;\n\
+               *)\n\
+                 printf 'unknown gh command: %s' \"$*\" >&2\n\
+                 exit 127\n\
+                 ;;\n\
+             esac\n"
+        );
+        write_executable(bin_dir.path().join("gh"), &script);
+        Self { bin_dir, home_dir }
+    }
+
     /// `gh` バイナリが `PATH` に存在しないシナリオ（`fake git` と `home_dir` は用意する）
     pub fn without_gh() -> Self {
         let (bin_dir, home_dir) = Self::setup();

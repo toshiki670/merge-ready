@@ -1,4 +1,5 @@
 mod branch_sync;
+pub(crate) mod cache;
 mod ci_checks;
 pub(super) mod errors;
 mod merge_ready;

@@ -93,7 +93,6 @@ impl BranchSyncRepository for GhClient {
     }
 }
 
-
 impl CiChecksRepository for GhClient {
     fn fetch_check_buckets(&self) -> Result<Vec<CheckBucket>, RepositoryError> {
         let bytes = match run_gh(&["pr", "checks", "--json", "bucket,state"]) {
@@ -120,7 +119,10 @@ impl ReviewRepository for GhClient {
 impl MergeReadinessRepository for GhClient {
     fn fetch_readiness(&self) -> Result<MergeReadiness, RepositoryError> {
         let raw = self.pr_view_cached()?;
-        Ok(translate_merge_readiness(raw.is_draft, &raw.merge_state_status))
+        Ok(translate_merge_readiness(
+            raw.is_draft,
+            &raw.merge_state_status,
+        ))
     }
 }
 

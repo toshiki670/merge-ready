@@ -1,5 +1,5 @@
-use crate::application::errors::{ErrorLogger, ErrorPresenter};
 use crate::application::OutputToken;
+use crate::application::errors::{ErrorLogger, ErrorPresenter};
 use crate::domain::review::{ReviewRepository, ReviewStatus};
 
 /// レビュー状態を取得する。失敗時は `None` を返してエラー出力する。

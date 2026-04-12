@@ -7,8 +7,7 @@ mod review;
 
 use crate::domain::{
     branch_sync::BranchSyncRepository, ci_checks::CiChecksRepository,
-    merge_ready::MergeReadinessRepository, pr_state::PrStateRepository,
-    review::ReviewRepository,
+    merge_ready::MergeReadinessRepository, pr_state::PrStateRepository, review::ReviewRepository,
 };
 use errors::{ErrorLogger, ErrorPresenter};
 
@@ -71,7 +70,9 @@ where
     }
 
     // ブロッカーがなければマージ可否を判定
-    if tokens.is_empty() && let Some(t) = merge_ready::check(&readiness) {
+    if tokens.is_empty()
+        && let Some(t) = merge_ready::check(&readiness)
+    {
         tokens.push(t);
     }
 

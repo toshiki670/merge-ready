@@ -8,6 +8,8 @@ use crate::application::cache::{CachePort, CacheState};
 const DEFAULT_STALE_TTL_SECS: u64 = 5;
 /// PID 未書き込み状態のロックファイルに対する猶予期間（親プロセスがクラッシュした場合の安全弁）
 const EMPTY_LOCK_TTL_SECS: u64 = 5;
+/// リフレッシュ子プロセスがハングした場合のロック強制解除までの最大年齢（gh タイムアウト安全弁）
+const MAX_LOCK_AGE_SECS: u64 = 60;
 const CACHE_DIR_NAME: &str = "merge-ready";
 
 #[derive(Serialize, Deserialize)]
@@ -128,19 +130,23 @@ pub fn release_refresh_lock(repo_id: &str) {
 
 /// ロックファイルが示すプロセスが生存しているかを確認する。
 ///
+/// - 最大年齢（`MAX_LOCK_AGE_SECS`）を超えている → stale（gh ハング時の安全弁）
 /// - PID あり → `kill -0 <pid>` でプロセス生存確認
 /// - PID なし（直前に取得済みで未書き込み）→ mtime が `EMPTY_LOCK_TTL_SECS` 以内なら生存扱い
 fn is_lock_alive(path: &std::path::Path) -> bool {
+    let age = lock_age_secs(path);
+
+    // 最大年齢チェック: PID が生きていても一定時間後は stale とみなす
+    if age.is_some_and(|a| a >= MAX_LOCK_AGE_SECS) {
+        return false;
+    }
+
     let content = fs::read_to_string(path).unwrap_or_default();
     let trimmed = content.trim();
 
     if trimmed.is_empty() {
         // 親が lock を取得した直後で PID 未書き込み状態。短い猶予期間で生存扱いとする
-        return fs::metadata(path)
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| SystemTime::now().duration_since(t).ok())
-            .is_some_and(|age| age.as_secs() < EMPTY_LOCK_TTL_SECS);
+        return age.is_some_and(|a| a < EMPTY_LOCK_TTL_SECS);
     }
 
     trimmed.parse::<u32>().is_ok_and(|pid| {
@@ -150,6 +156,15 @@ fn is_lock_alive(path: &std::path::Path) -> bool {
             .status()
             .is_ok_and(|s| s.success())
     })
+}
+
+/// ロックファイルの作成からの経過秒数を返す。取得失敗時は `None`。
+fn lock_age_secs(path: &std::path::Path) -> Option<u64> {
+    fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| SystemTime::now().duration_since(t).ok())
+        .map(|d| d.as_secs())
 }
 
 fn lock_path(repo_id: &str) -> Option<std::path::PathBuf> {

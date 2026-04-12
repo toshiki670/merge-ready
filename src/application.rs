@@ -53,19 +53,21 @@ where
     // branch_sync と ci_checks は独立した gh 呼び出しを必要とするため並列フェッチ
     // review と merge_ready はキャッシュ済みの pr_view データを使用するため追加呼び出しなし
     let (sync_result, ci_result) = std::thread::scope(|s| {
-        let sync_handle = s.spawn(|| branch_sync::fetch(client, err_logger, err_presenter));
-        let ci_handle = s.spawn(|| ci_checks::fetch(client, err_logger, err_presenter));
+        let sync_handle = s.spawn(|| branch_sync::fetch(client));
+        let ci_handle = s.spawn(|| ci_checks::fetch(client));
         (
             sync_handle.join().expect("branch_sync thread panicked"),
             ci_handle.join().expect("ci_checks thread panicked"),
         )
     });
 
-    let Some(sync_status) = sync_result else {
-        return vec![];
-    };
-    let Some(buckets) = ci_result else {
-        return vec![];
+    // 両方失敗した場合でも err_presenter への通知は 1 回だけ（重複表示を防ぐ）
+    let (sync_status, buckets) = match (sync_result, ci_result) {
+        (Ok(s), Ok(b)) => (s, b),
+        (Err(e), _) | (_, Err(e)) => {
+            errors::handle(e, err_logger, err_presenter);
+            return vec![];
+        }
     };
 
     let Some(review_status) = review::fetch(client, err_logger, err_presenter) else {

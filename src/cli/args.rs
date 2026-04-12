@@ -24,6 +24,6 @@ pub(crate) struct PromptArgs {
     #[arg(long)]
     pub(crate) no_cache: bool,
     /// Fetch fresh data and update cache without displaying output
-    #[arg(long, hide = true)]
+    #[arg(long, hide = true, conflicts_with = "no_cache")]
     pub(crate) refresh: bool,
 }

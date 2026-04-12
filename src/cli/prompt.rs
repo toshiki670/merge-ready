@@ -3,7 +3,7 @@ mod cached;
 mod direct;
 mod refresh;
 
-pub(super) use args::{PROMPT_AFTER_HELP, PromptArgs};
+pub(super) use args::{AFTER_HELP, PromptArgs};
 
 pub(crate) fn run(args: &PromptArgs) {
     if args.refresh {

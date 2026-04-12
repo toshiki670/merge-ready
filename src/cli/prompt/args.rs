@@ -1,6 +1,6 @@
 use clap::Args;
 
-pub(crate) const PROMPT_AFTER_HELP: &str = "Output tokens:
+pub(crate) const AFTER_HELP: &str = "Output tokens:
   ✓ merge-ready    Ready to merge
   ⚠ review         Review requested
   ⚠ ci-action      CI checks in progress

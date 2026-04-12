@@ -237,13 +237,9 @@ esac
     }
 
     /// `Command` に `PATH` / `HOME` をまとめて設定する
-    ///
-    /// キャッシュを無効化（`MERGE_READY_NO_CACHE=1`）して既存テストを隔離する。
-    /// キャッシュ挙動を検証するテストは `TestEnv::apply_with_cache()` を使うこと。
     pub fn apply(&self, cmd: &mut assert_cmd::Command) {
         cmd.env("PATH", self.path_env());
         cmd.env("HOME", self.home());
-        cmd.env("MERGE_READY_NO_CACHE", "1");
     }
 
     /// キャッシュを有効にした状態で `PATH` / `HOME` を設定する（キャッシュ専用テスト用）

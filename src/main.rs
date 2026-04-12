@@ -3,7 +3,7 @@ mod domain;
 mod infra;
 mod presentation;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
@@ -22,8 +22,7 @@ Output tokens:
   ✗ ci-fail        CI checks failed
   ✗ conflict       Branch has merge conflicts
   ✗ update-branch  Branch is behind base branch
-  ? sync-unknown   Branch sync status unknown
-  ? loading        Status loading (first run)"
+  ? sync-unknown   Branch sync status unknown"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -39,7 +38,10 @@ enum Command {
 fn main() {
     let cli = Cli::parse();
     match cli.command {
-        Some(Command::Prompt) | None => run_check(),
+        Some(Command::Prompt) => run_check(),
+        None => {
+            let _ = Cli::command().print_help();
+        }
     }
 }
 

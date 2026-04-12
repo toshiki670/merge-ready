@@ -14,11 +14,14 @@ fn cmd(env: &TestEnv) -> Command {
     c
 }
 
-/// 引数なし（デフォルト動作）→ PR ステータスを出力する（後方互換）
+/// 引数なし → ヘルプを表示する
 #[test]
-fn test_default_no_args() {
+fn test_default_no_args_shows_help() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
-    cmd(&env).assert().success().stdout("✓ merge-ready");
+    cmd(&env)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Usage:"));
 }
 
 /// `prompt` サブコマンド → 引数なしと同一の出力

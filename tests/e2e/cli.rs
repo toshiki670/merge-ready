@@ -25,7 +25,7 @@ fn test_default_no_args_shows_help() {
         .stdout(predicates::str::contains("Usage:"));
 }
 
-/// `prompt` サブコマンド → 引数なしと同一の出力
+/// `prompt` サブコマンド → PR ステータスを出力する
 #[test]
 fn test_prompt_subcommand() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));

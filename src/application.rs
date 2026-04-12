@@ -10,38 +10,56 @@ use crate::domain::{
     merge_ready::MergeReadinessRepository, pr_state::PrStateRepository,
     review::ReviewRepository,
 };
+use errors::{ErrorLogger, ErrorPresenter};
+
+/// アプリケーション層が返す出力トークンの意味オブジェクト
+///
+/// 文字列表現への変換は presentation 層が担う。
+pub enum OutputToken {
+    Conflict,
+    UpdateBranch,
+    SyncUnknown,
+    CiFail,
+    CiAction,
+    ReviewRequested,
+    MergeReady,
+}
 
 /// PR マージ可否チェックのユースケース
-pub fn run<C>(client: &C)
+///
+/// 表示すべきトークンを返す。呼び出し元が表示処理を担う。
+/// PR が対象外（クローズ等）または取得失敗の場合は空 `Vec` を返す。
+pub fn run<C, L, P>(client: &C, err_logger: &L, err_presenter: &P) -> Vec<OutputToken>
 where
     C: PrStateRepository
         + BranchSyncRepository
         + CiChecksRepository
         + ReviewRepository
         + MergeReadinessRepository,
+    L: ErrorLogger,
+    P: ErrorPresenter,
 {
-    let Some(lifecycle) = pr_state::fetch(client) else {
-        return;
+    let Some(lifecycle) = pr_state::fetch(client, err_logger, err_presenter) else {
+        return vec![];
     };
-
     if !pr_state::is_open(&lifecycle) {
-        return;
+        return vec![];
     }
 
-    let Some(sync_status) = branch_sync::fetch(client) else {
-        return;
+    let Some(sync_status) = branch_sync::fetch(client, err_logger, err_presenter) else {
+        return vec![];
     };
-    let Some(buckets) = ci_checks::fetch(client) else {
-        return;
+    let Some(buckets) = ci_checks::fetch(client, err_logger, err_presenter) else {
+        return vec![];
     };
-    let Some(review_status) = review::fetch(client) else {
-        return;
+    let Some(review_status) = review::fetch(client, err_logger, err_presenter) else {
+        return vec![];
     };
-    let Some(readiness) = merge_ready::fetch(client) else {
-        return;
+    let Some(readiness) = merge_ready::fetch(client, err_logger, err_presenter) else {
+        return vec![];
     };
 
-    let mut tokens: Vec<&'static str> = Vec::new();
+    let mut tokens: Vec<OutputToken> = Vec::new();
     if let Some(t) = branch_sync::check(&sync_status) {
         tokens.push(t);
     }
@@ -52,5 +70,10 @@ where
         tokens.push(t);
     }
 
-    merge_ready::display(&readiness, &tokens);
+    // ブロッカーがなければマージ可否を判定
+    if tokens.is_empty() && let Some(t) = merge_ready::check(&readiness) {
+        tokens.push(t);
+    }
+
+    tokens
 }

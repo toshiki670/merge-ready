@@ -42,6 +42,20 @@ fn test_update_branch() {
         .stderr("");
 }
 
+/// compare API が失敗した場合 → `? sync-unknown`
+#[test]
+fn test_compare_api_error() {
+    let env = TestEnv::with_compare_error(
+        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":null,"baseRefName":"main","headRefName":"feat/test"}"#,
+        Some(r#"[{"bucket":"pass","state":"SUCCESS"}]"#),
+    );
+    cmd(&env)
+        .assert()
+        .success()
+        .stdout("? sync-unknown")
+        .stderr("");
+}
+
 // ─── 同期状態内の優先度 ───────────────────────────────────────────────────
 
 /// `CONFLICTING` かつ `BEHIND` → `conflict` のみ表示（`update-branch` は抑制される）

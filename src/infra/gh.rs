@@ -72,7 +72,7 @@ impl GhClient {
             "state,isDraft,mergeable,mergeStateStatus,reviewDecision,baseRefName,headRefName",
         ])?;
         let raw: GhPrView = serde_json::from_slice(&bytes)
-            .map_err(|e| RepositoryError::ApiError(e.to_string()))?;
+            .map_err(|e| RepositoryError::Unexpected(e.to_string()))?;
         let _ = self.pr_view_cache.set(raw);
         Ok(self.pr_view_cache.get().expect("just set"))
     }
@@ -93,18 +93,19 @@ impl BranchSyncRepository for GhClient {
     }
 }
 
+
 impl CiChecksRepository for GhClient {
     fn fetch_check_buckets(&self) -> Result<Vec<CheckBucket>, RepositoryError> {
         let bytes = match run_gh(&["pr", "checks", "--json", "bucket,state"]) {
             Ok(b) => b,
             // CI が未設定のブランチではチェックなし（正常）として扱う
-            Err(RepositoryError::ApiError(msg)) if msg.contains("no checks reported") => {
+            Err(RepositoryError::Unexpected(msg)) if msg.contains("no checks reported") => {
                 return Ok(vec![]);
             }
             Err(e) => return Err(e),
         };
         let items: Vec<GhCheckItem> = serde_json::from_slice(&bytes)
-            .map_err(|e| RepositoryError::ApiError(e.to_string()))?;
+            .map_err(|e| RepositoryError::Unexpected(e.to_string()))?;
         Ok(items.iter().map(|c| translate_bucket(&c.bucket)).collect())
     }
 }
@@ -133,31 +134,36 @@ fn translate_lifecycle(state: &str) -> PrLifecycle {
     }
 }
 
-fn translate_sync(mergeable: &str, behind_by: u64) -> BranchSyncStatus {
+fn translate_sync(mergeable: &str, behind_by: Option<u64>) -> BranchSyncStatus {
     if mergeable == "CONFLICTING" {
+        // conflict は Compare API に依らず判定可能なので Unknown より優先
         BranchSyncStatus::Conflicting
-    } else if behind_by > 0 {
-        BranchSyncStatus::Behind
     } else {
-        BranchSyncStatus::Clean
+        match behind_by {
+            None => BranchSyncStatus::Unknown,
+            Some(0) => BranchSyncStatus::Clean,
+            Some(_) => BranchSyncStatus::Behind,
+        }
     }
 }
 
 /// GitHub Compare API でベースブランチとの差分コミット数を取得する。
 ///
-/// `base_ref` / `head_ref` が空（テスト用フィクスチャや旧形式 JSON）の場合は
-/// API を呼ばずに `0` を返す。API 呼び出しに失敗した場合も `0` を返す（劣化動作）。
-fn fetch_behind_by(base_ref: &str, head_ref: &str) -> u64 {
+/// `base_ref` / `head_ref` が空の場合（`baseRefName` / `headRefName` フィールドが
+/// 存在しない旧形式 JSON 等）は `Some(0)` を返す（フィールドなし ≒ 追跡不要）。
+/// Compare API 呼び出しに失敗した場合は `None` を返す。
+/// 呼び出し元は `None` を `BranchSyncStatus::Unknown`（同期状態判定不能）として扱う。
+fn fetch_behind_by(base_ref: &str, head_ref: &str) -> Option<u64> {
     if base_ref.is_empty() || head_ref.is_empty() {
-        return 0;
+        return Some(0);
     }
 
     let name_with_owner = match run_gh(&["repo", "view", "--json", "nameWithOwner"]) {
         Ok(bytes) => match serde_json::from_slice::<GhRepoView>(&bytes) {
             Ok(r) => r.name_with_owner,
-            Err(_) => return 0,
+            Err(_) => return None,
         },
-        Err(_) => return 0,
+        Err(_) => return None,
     };
 
     let path = format!("repos/{name_with_owner}/compare/{base_ref}...{head_ref}");
@@ -165,8 +171,8 @@ fn fetch_behind_by(base_ref: &str, head_ref: &str) -> u64 {
     match run_gh(&["api", &path]) {
         Ok(bytes) => serde_json::from_slice::<GhCompare>(&bytes)
             .map(|c| c.behind_by)
-            .unwrap_or(0),
-        Err(_) => 0,
+            .ok(),
+        Err(_) => None,
     }
 }
 
@@ -196,28 +202,54 @@ fn translate_bucket(bucket: &str) -> CheckBucket {
 
 // ── gh コマンド実行・エラー判別 ──────────────────────────────────────────────
 
-fn run_gh(args: &[&str]) -> Result<Vec<u8>, RepositoryError> {
-    let output = Command::new("gh").args(args).output();
-    match output {
-        Err(e) if e.kind() == ErrorKind::NotFound => Err(RepositoryError::NotInstalled),
-        Err(e) => Err(RepositoryError::ApiError(e.to_string())),
-        Ok(out) if out.status.success() => Ok(out.stdout),
-        Ok(out) => {
-            let exit_code = out.status.code().unwrap_or(1);
-            let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-            Err(classify_error(exit_code, &stderr))
+/// gh CLI 固有のエラー種別（infra 内にのみ存在）
+enum GhError {
+    /// gh バイナリが見つからない
+    NotInstalled,
+    /// 認証エラー（exit 4 / HTTP 401）
+    AuthRequired,
+    /// 対象 PR が存在しない
+    NoPr,
+    /// API レート制限
+    RateLimited,
+    /// その他の CLI エラー
+    ApiError(String),
+}
+
+impl From<GhError> for RepositoryError {
+    fn from(e: GhError) -> Self {
+        match e {
+            GhError::NotInstalled | GhError::AuthRequired => RepositoryError::Unauthenticated,
+            GhError::NoPr => RepositoryError::NotFound,
+            GhError::RateLimited => RepositoryError::RateLimited,
+            GhError::ApiError(msg) => RepositoryError::Unexpected(msg),
         }
     }
 }
 
-fn classify_error(exit_code: i32, stderr: &str) -> RepositoryError {
+fn run_gh(args: &[&str]) -> Result<Vec<u8>, RepositoryError> {
+    let output = Command::new("gh").args(args).output();
+    let gh_err = match output {
+        Err(e) if e.kind() == ErrorKind::NotFound => GhError::NotInstalled,
+        Err(e) => GhError::ApiError(e.to_string()),
+        Ok(out) if out.status.success() => return Ok(out.stdout),
+        Ok(out) => {
+            let exit_code = out.status.code().unwrap_or(1);
+            let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+            classify_gh_error(exit_code, &stderr)
+        }
+    };
+    Err(gh_err.into())
+}
+
+fn classify_gh_error(exit_code: i32, stderr: &str) -> GhError {
     if exit_code == 4 || (exit_code == 1 && stderr.contains("HTTP 401")) {
-        RepositoryError::AuthRequired
+        GhError::AuthRequired
     } else if exit_code == 1 && stderr.contains("no pull requests found") {
-        RepositoryError::NoPr
+        GhError::NoPr
     } else if exit_code == 1 && stderr.contains("rate limit") {
-        RepositoryError::RateLimited
+        GhError::RateLimited
     } else {
-        RepositoryError::ApiError(stderr.to_owned())
+        GhError::ApiError(stderr.to_owned())
     }
 }

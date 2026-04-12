@@ -34,15 +34,6 @@ pub fn aggregate(buckets: &[CheckBucket]) -> CiStatus {
     }
 }
 
-/// `ci_checks` グループ評価
-pub fn evaluate(status: &CiStatus) -> Option<&'static str> {
-    match status {
-        CiStatus::Fail => Some("✗ ci-fail"),
-        CiStatus::ActionRequired => Some("⚠ ci-action"),
-        CiStatus::Pass => None,
-    }
-}
-
 pub trait CiChecksRepository {
     fn fetch_check_buckets(&self) -> Result<Vec<CheckBucket>, RepositoryError>;
 }

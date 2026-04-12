@@ -170,3 +170,95 @@ fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use tempfile::tempdir;
+
+    use super::*;
+
+    /// `create_with_pid` を N スレッドから同時に呼んでも、成功は正確に 1 つだけであること。
+    ///
+    /// `O_CREAT | O_EXCL` の OS アトミック性を検証する。
+    #[test]
+    fn create_with_pid_concurrent_exactly_one_succeeds() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.lock");
+        let success_count = Arc::new(AtomicUsize::new(0));
+
+        std::thread::scope(|s| {
+            let handles: Vec<_> = (0..16)
+                .map(|_| {
+                    let count = Arc::clone(&success_count);
+                    let p = path.clone();
+                    s.spawn(move || {
+                        if create_with_pid(&p) {
+                            count.fetch_add(1, Ordering::SeqCst);
+                        }
+                    })
+                })
+                .collect();
+            for h in handles {
+                h.join().unwrap();
+            }
+        });
+
+        assert_eq!(
+            success_count.load(Ordering::SeqCst),
+            1,
+            "exactly 1 thread should win create_with_pid"
+        );
+    }
+
+    /// `create_with_pid` 成功直後、ファイルに有効な JSON が書き込まれており
+    /// 現プロセスの PID が記録されていること（空ファイル状態が残らないことの確認）。
+    #[test]
+    fn create_with_pid_writes_valid_json_immediately() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.lock");
+
+        assert!(create_with_pid(&path));
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let lock: LockFile =
+            serde_json::from_str(&content).expect("lock file should contain valid JSON");
+        assert_eq!(lock.pid, std::process::id(), "pid should match current process");
+        assert!(lock.locked_at > 0, "locked_at should be non-zero");
+    }
+
+    /// `create_with_pid` が失敗した後（ファイル既存）にロックファイルが孤立しないこと。
+    ///
+    /// リリース後に再取得できることで、孤立ファイルがないことを確認する。
+    #[test]
+    fn create_with_pid_failure_leaves_no_orphan_file() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.lock");
+
+        assert!(create_with_pid(&path), "first acquire should succeed");
+        assert!(!create_with_pid(&path), "second acquire should fail");
+
+        // ファイルはちょうど 1 つ存在（失敗がファイルを汚染していない）
+        assert!(path.exists());
+
+        // リリース後は再取得できる（孤立ファイルがないことの証明）
+        std::fs::remove_file(&path).unwrap();
+        assert!(
+            create_with_pid(&path),
+            "should be re-acquirable after release — no orphan file"
+        );
+    }
+
+    /// `is_alive` は空ファイルを「死んでいる」と判定すること。
+    ///
+    /// JSON パース失敗 = 空ファイル含む → false。
+    #[test]
+    fn is_alive_returns_false_for_empty_file() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.lock");
+        std::fs::write(&path, b"").unwrap();
+        assert!(!is_alive(&path));
+    }
+}

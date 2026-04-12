@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -97,25 +98,34 @@ pub fn maybe_spawn_refresh(repo_id: &str) {
     // ロックは子プロセス（run_refresh の末尾）が解放する
 }
 
-/// ロックファイルをアトミックに作成し、直後に自 PID と取得時刻を JSON で書き込む。
+/// ロックファイルをアトミックに作成し、ハンドルを保持したまま自 PID と取得時刻を JSON で書き込む。
 ///
-/// 作成に成功した場合 `true`、既に存在する場合 `false` を返す。
+/// `create_new(true)`（`O_CREAT | O_EXCL`）でアトミックにファイルを作成後、
+/// ハンドルを閉じる前に `write_all` で JSON を書くことで「空ファイル」状態を排除する。
+/// 書き込み失敗時はファイルを削除して `false` を返す。
+///
+/// 作成に成功した場合 `true`、既に存在する場合は `false` を返す。
 fn create_with_pid(path: &std::path::Path) -> bool {
-    let Ok(f) = fs::OpenOptions::new()
+    let Ok(mut f) = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)
     else {
         return false;
     };
-    // ファイルハンドルは drop して close してから JSON を書き込む
-    drop(f);
     let lock = LockFile {
         pid: std::process::id(),
         locked_at: now_secs(),
     };
-    if let Ok(content) = serde_json::to_string(&lock) {
-        let _ = fs::write(path, content);
+    let Ok(content) = serde_json::to_string(&lock) else {
+        drop(f);
+        let _ = fs::remove_file(path);
+        return false;
+    };
+    if f.write_all(content.as_bytes()).is_err() {
+        drop(f);
+        let _ = fs::remove_file(path);
+        return false;
     }
     true
 }

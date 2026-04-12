@@ -4,6 +4,7 @@ mod ci_checks;
 pub(super) mod errors;
 mod merge_ready;
 mod pr_state;
+pub(crate) mod prompt;
 mod review;
 
 use crate::domain::{

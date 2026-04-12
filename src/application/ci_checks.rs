@@ -1,5 +1,5 @@
-use crate::application::errors::{ErrorLogger, ErrorPresenter};
 use crate::application::OutputToken;
+use crate::application::errors::{ErrorLogger, ErrorPresenter};
 use crate::domain::ci_checks::{CheckBucket, CiChecksRepository, CiStatus};
 
 /// CI チェック結果を取得する。失敗時は `None` を返してエラー出力する。

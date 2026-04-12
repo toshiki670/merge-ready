@@ -95,15 +95,20 @@ fn maybe_spawn_refresh(repo_id: &str) {
         crate::infra::cache::release_refresh_lock(repo_id);
         return;
     };
-    if std::process::Command::new(exe)
+    match std::process::Command::new(exe)
         .args(["prompt", "--refresh"])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .is_err()
     {
-        crate::infra::cache::release_refresh_lock(repo_id);
+        Ok(child) => {
+            // 子 PID をロックファイルへ書き込む（kill -0 による生存確認に使用）
+            crate::infra::cache::update_lock_pid(repo_id, child.id());
+        }
+        Err(_) => {
+            crate::infra::cache::release_refresh_lock(repo_id);
+        }
     }
-    // 正常起動時はロックを子プロセス（run_refresh）が解放する
+    // ロックは子プロセス（run_refresh の末尾）が解放する
 }

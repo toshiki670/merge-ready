@@ -13,11 +13,18 @@ use super::helpers::TestEnv;
 /// merge-ready のバイナリ名
 const BIN: &str = "merge-ready";
 
-/// fake git が返すワークツリーパスから生成される repo_id
-/// `git rev-parse --show-toplevel` → "/fake/repo"
-/// → 英数字と `-` 以外を `_` に置換
-/// → "_fake_repo"
-const FAKE_REPO_ID: &str = "_fake_repo";
+/// fake git が返すワークツリーパス（`git rev-parse --show-toplevel` の戻り値）
+const FAKE_TOPLEVEL: &str = "/fake/repo";
+
+/// FNV-1a ハッシュで生成される repo_id（`infra::repo_id::path_to_id` と同じアルゴリズム）
+fn fake_repo_id() -> String {
+    let mut hash: u64 = 14_695_981_039_346_656_037;
+    for byte in FAKE_TOPLEVEL.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(1_099_511_628_211);
+    }
+    format!("{hash:016x}")
+}
 
 /// マージ可能な PR の `gh pr view` JSON（キャッシュテスト用の最小セット）
 /// `baseRefName` / `headRefName` を空にすることで `gh repo view` 呼び出しを回避し
@@ -175,7 +182,7 @@ fn now_secs() -> u64 {
 fn state_json_path(home: &std::path::Path) -> std::path::PathBuf {
     home.join(".cache")
         .join("merge-ready")
-        .join(format!("{FAKE_REPO_ID}.json"))
+        .join(format!("{}.json", fake_repo_id()))
 }
 
 /// 指定した home_dir の下に state.json を書き込む

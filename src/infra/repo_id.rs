@@ -22,17 +22,18 @@ pub fn get() -> Option<String> {
         return None;
     }
 
-    // 英数字と `-` 以外を `_` に置換してファイルシステムセーフな ID を生成
-    // 例: "/home/user/repos/my-project" → "_home_user_repos_my-project"
-    Some(
-        path.chars()
-            .map(|c| {
-                if c.is_alphanumeric() || c == '-' {
-                    c
-                } else {
-                    '_'
-                }
-            })
-            .collect(),
-    )
+    Some(path_to_id(path))
+}
+
+/// パス文字列を FNV-1a ハッシュでファイルシステムセーフな ID に変換する。
+///
+/// 文字置換ではなくハッシュを使うことで、`/` と `_` が同じ `_` に潰れる衝突を回避する。
+/// 例: `"/home/user/repos/my_project"` と `"/home/user/repos/my/project"` は別の ID になる。
+pub fn path_to_id(path: &str) -> String {
+    let mut hash: u64 = 14_695_981_039_346_656_037;
+    for byte in path.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(1_099_511_628_211);
+    }
+    format!("{hash:016x}")
 }

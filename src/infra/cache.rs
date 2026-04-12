@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::application::cache::{CachePort, CacheState};
 
 const DEFAULT_STALE_TTL_SECS: u64 = 5;
-const LOCK_TTL_SECS: u64 = 30;
+/// PID 未書き込み状態のロックファイルに対する猶予期間（親プロセスがクラッシュした場合の安全弁）
+const EMPTY_LOCK_TTL_SECS: u64 = 5;
 const CACHE_DIR_NAME: &str = "merge-ready";
 
 #[derive(Serialize, Deserialize)]
@@ -88,7 +89,9 @@ pub fn write(repo_id: &str, output: &str) {
 
 /// リフレッシュロックを取得する。成功時は `true`、既に起動中なら `false` を返す。
 ///
-/// ロックファイルが `LOCK_TTL_SECS` より古い場合は stale とみなし再取得する。
+/// ロックファイルが存在する場合は PID で生存確認（`kill -0`）を行い、
+/// プロセスが死んでいれば stale とみなして除去し再取得する。
+/// これにより gh が 30 秒超かかる場合でも重複起動を防げる。
 pub fn try_acquire_refresh_lock(repo_id: &str) -> bool {
     let Some(path) = lock_path(repo_id) else {
         return false;
@@ -97,18 +100,10 @@ pub fn try_acquire_refresh_lock(repo_id: &str) -> bool {
         let _ = fs::create_dir_all(parent);
     }
 
-    // stale なロックは除去して再取得を試みる
-    if path.exists() {
-        let is_fresh = fs::metadata(&path)
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| SystemTime::now().duration_since(t).ok())
-            .is_some_and(|age| age.as_secs() <= LOCK_TTL_SECS);
-        if is_fresh {
-            return false;
-        }
-        let _ = fs::remove_file(&path);
+    if path.exists() && is_lock_alive(&path) {
+        return false;
     }
+    let _ = fs::remove_file(&path);
 
     fs::OpenOptions::new()
         .write(true)
@@ -117,11 +112,44 @@ pub fn try_acquire_refresh_lock(repo_id: &str) -> bool {
         .is_ok()
 }
 
+/// spawn 後に子プロセスの PID をロックファイルへ書き込む。
+pub fn update_lock_pid(repo_id: &str, pid: u32) {
+    if let Some(path) = lock_path(repo_id) {
+        let _ = fs::write(path, pid.to_string());
+    }
+}
+
 /// リフレッシュロックを解放する。
 pub fn release_refresh_lock(repo_id: &str) {
     if let Some(path) = lock_path(repo_id) {
         let _ = fs::remove_file(path);
     }
+}
+
+/// ロックファイルが示すプロセスが生存しているかを確認する。
+///
+/// - PID あり → `kill -0 <pid>` でプロセス生存確認
+/// - PID なし（直前に取得済みで未書き込み）→ mtime が `EMPTY_LOCK_TTL_SECS` 以内なら生存扱い
+fn is_lock_alive(path: &std::path::Path) -> bool {
+    let content = fs::read_to_string(path).unwrap_or_default();
+    let trimmed = content.trim();
+
+    if trimmed.is_empty() {
+        // 親が lock を取得した直後で PID 未書き込み状態。短い猶予期間で生存扱いとする
+        return fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| SystemTime::now().duration_since(t).ok())
+            .is_some_and(|age| age.as_secs() < EMPTY_LOCK_TTL_SECS);
+    }
+
+    trimmed.parse::<u32>().is_ok_and(|pid| {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    })
 }
 
 fn lock_path(repo_id: &str) -> Option<std::path::PathBuf> {

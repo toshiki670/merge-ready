@@ -1,7 +1,7 @@
 //! ホットパスのベンチマーク
 //!
 //! キャッシュヒットパス（ファイル読み込み → 出力）と
-//! キャッシュミスパス（フェイク gh を使った全フロー）の両方を計測する。
+//! キャッシュなし直接実行パス（フェイク gh を使った全フロー）の両方を計測する。
 //!
 //! 使用方法:
 //! ```
@@ -24,21 +24,34 @@ struct BenchEnv {
     home_dir: TempDir,
 }
 
+const FAKE_TOPLEVEL: &str = "/fake/bench/repo";
 const OPEN_MERGE_READY_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
 const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
+
+/// FNV-1a ハッシュで repo_id を生成する（`infra::repo_id::path_to_id` と同じアルゴリズム）
+fn path_to_id(path: &str) -> String {
+    let mut hash: u64 = 14_695_981_039_346_656_037;
+    for byte in path.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(1_099_511_628_211);
+    }
+    format!("{hash:016x}")
+}
 
 /// フェイクの gh/git バイナリを含むベンチマーク環境を構築する
 fn setup_bench_env() -> BenchEnv {
     let bin_dir = TempDir::new().expect("bin_dir");
     let home_dir = TempDir::new().expect("home_dir");
 
-    // fake git
-    let git_script = "#!/bin/sh\n\
-        case \"$*\" in\n\
-          *'remote get-url origin'*) echo 'https://github.com/bench/repo.git'; exit 0 ;;\n\
-          *) exit 0 ;;\n\
-        esac\n";
-    write_executable(&bin_dir.path().join("git"), git_script);
+    // fake git: rev-parse --show-toplevel のみ必要
+    let git_script = format!(
+        "#!/bin/sh\n\
+         case \"$*\" in\n\
+           *'rev-parse --show-toplevel'*) echo '{FAKE_TOPLEVEL}'; exit 0 ;;\n\
+           *) exit 0 ;;\n\
+         esac\n"
+    );
+    write_executable(&bin_dir.path().join("git"), &git_script);
 
     // fake gh（即時応答）
     // JSON に `{}` が含まれているため format! ではなく文字列連結を使用
@@ -46,7 +59,7 @@ fn setup_bench_env() -> BenchEnv {
         + OPEN_MERGE_READY_JSON
         + "' ;;\n  *'pr checks'*) printf '%s' '"
         + CI_PASS_JSON
-        + "' ;;\n  *) exit 0 ;;\nesac\n";
+        + "' ;;\n  *'api'*'compare'*) printf '{\"behind_by\":0}' ;;\n  *) exit 0 ;;\nesac\n";
     write_executable(&bin_dir.path().join("gh"), &gh_script);
 
     BenchEnv { bin_dir, home_dir }
@@ -87,23 +100,23 @@ fn now_secs() -> u64 {
 
 /// キャッシュヒットパスのベンチマーク（目標: <5ms）
 ///
-/// ファイル読み込み → 文字列返却 のみを計測する。
+/// `prompt` サブコマンドでキャッシュファイルを読み込んで返すパスのみを計測する。
 fn bench_cache_hit(c: &mut Criterion) {
     let env = setup_bench_env();
-    let repo_id = "https___github_com_bench_repo_git";
-    let cache_dir = env
+    let repo_id = path_to_id(FAKE_TOPLEVEL);
+    let cache_path = env
         .home_dir
         .path()
         .join(".cache")
         .join("merge-ready")
-        .join(repo_id);
-    fs::create_dir_all(&cache_dir).expect("create cache dir");
+        .join(format!("{repo_id}.json"));
 
+    fs::create_dir_all(cache_path.parent().unwrap()).expect("create cache dir");
     let state_json = format!(
         r#"{{"fetched_at_secs":{now},"output":"✓ merge-ready"}}"#,
         now = now_secs()
     );
-    fs::write(cache_dir.join("state.json"), state_json).expect("write state.json");
+    fs::write(&cache_path, state_json).expect("write cache");
 
     let bin = binary_path();
     let path = path_env(&env);
@@ -114,15 +127,16 @@ fn bench_cache_hit(c: &mut Criterion) {
             Command::new(&bin)
                 .env("PATH", &path)
                 .env("HOME", &home)
+                .arg("prompt")
                 .output()
                 .expect("merge-ready failed")
         });
     });
 }
 
-/// キャッシュミスパスのベンチマーク（フェイク gh 使用）
+/// キャッシュなし直接実行パスのベンチマーク（フェイク gh 使用）
 ///
-/// `MERGE_READY_NO_CACHE=1` で従来のフロー（gh 呼び出し）を計測する。
+/// `prompt --no-cache` で gh を直接呼ぶフローを計測する。
 /// ネットワーク遅延はないが、プロセス起動 + JSON パース + ロジックのコストが含まれる。
 fn bench_no_cache_direct(c: &mut Criterion) {
     let env = setup_bench_env();
@@ -135,7 +149,7 @@ fn bench_no_cache_direct(c: &mut Criterion) {
             Command::new(&bin)
                 .env("PATH", &path)
                 .env("HOME", &home)
-                .env("MERGE_READY_NO_CACHE", "1")
+                .args(["prompt", "--no-cache"])
                 .output()
                 .expect("merge-ready failed")
         });

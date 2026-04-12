@@ -1,26 +1,17 @@
+use std::cell::OnceCell;
 use std::io::ErrorKind;
 use std::process::Command;
 
 use serde::Deserialize;
 
-use crate::domain::{
-    branch_sync::BranchSyncStatus, ci_checks::CheckBucket, merge_ready::MergeReadiness,
-    pr_state::PrLifecycle, review::ReviewStatus,
-};
-use crate::infra::pr_client::{PrClient, PrClientError, PrViewData};
+use crate::domain::branch_sync::{BranchSyncRepository, BranchSyncStatus};
+use crate::domain::ci_checks::{CheckBucket, CiChecksRepository};
+use crate::domain::error::RepositoryError;
+use crate::domain::merge_ready::{MergeReadiness, MergeReadinessRepository};
+use crate::domain::pr_state::{PrLifecycle, PrStateRepository};
+use crate::domain::review::{ReviewRepository, ReviewStatus};
 
 // ── gh コマンドの生 JSON 構造（infra 内にのみ存在）──────────────────────────
-
-#[derive(Deserialize)]
-struct GhRepoView {
-    #[serde(rename = "nameWithOwner")]
-    name_with_owner: String,
-}
-
-#[derive(Deserialize)]
-struct GhCompare {
-    behind_by: u64,
-}
 
 #[derive(Deserialize)]
 struct GhPrView {
@@ -45,41 +36,90 @@ struct GhCheckItem {
     // `state` は JSON に存在するが判定に不要なため宣言しない（serde はデフォルトで無視する）
 }
 
+#[derive(Deserialize)]
+struct GhRepoView {
+    #[serde(rename = "nameWithOwner")]
+    name_with_owner: String,
+}
+
+#[derive(Deserialize)]
+struct GhCompare {
+    behind_by: u64,
+}
+
 // ── GhClient ────────────────────────────────────────────────────────────────
 
-pub struct GhClient;
+pub struct GhClient {
+    /// `gh pr view` の結果をキャッシュする（複数トレイト実装によるコマンド多重実行を防ぐ）
+    pr_view_cache: OnceCell<GhPrView>,
+}
 
-impl PrClient for GhClient {
-    fn pr_view(&self) -> Result<PrViewData, PrClientError> {
+impl GhClient {
+    pub fn new() -> Self {
+        Self {
+            pr_view_cache: OnceCell::new(),
+        }
+    }
+
+    fn pr_view_cached(&self) -> Result<&GhPrView, RepositoryError> {
+        if let Some(cached) = self.pr_view_cache.get() {
+            return Ok(cached);
+        }
         let bytes = run_gh(&[
             "pr",
             "view",
             "--json",
             "state,isDraft,mergeable,mergeStateStatus,reviewDecision,baseRefName,headRefName",
         ])?;
-        let raw: GhPrView =
-            serde_json::from_slice(&bytes).map_err(|e| PrClientError::ApiError(e.to_string()))?;
-        let behind_by = fetch_behind_by(&raw.base_ref_name, &raw.head_ref_name);
-        Ok(PrViewData {
-            lifecycle: translate_lifecycle(&raw.state),
-            sync_status: translate_sync(&raw.mergeable, behind_by),
-            review_status: translate_review(raw.review_decision.as_deref()),
-            merge_readiness: translate_merge_readiness(raw.is_draft, &raw.merge_state_status),
-        })
+        let raw: GhPrView = serde_json::from_slice(&bytes)
+            .map_err(|e| RepositoryError::ApiError(e.to_string()))?;
+        let _ = self.pr_view_cache.set(raw);
+        Ok(self.pr_view_cache.get().expect("just set"))
     }
+}
 
-    fn pr_checks(&self) -> Result<Vec<CheckBucket>, PrClientError> {
+impl PrStateRepository for GhClient {
+    fn fetch_lifecycle(&self) -> Result<PrLifecycle, RepositoryError> {
+        let raw = self.pr_view_cached()?;
+        Ok(translate_lifecycle(&raw.state))
+    }
+}
+
+impl BranchSyncRepository for GhClient {
+    fn fetch_sync_status(&self) -> Result<BranchSyncStatus, RepositoryError> {
+        let raw = self.pr_view_cached()?;
+        let behind_by = fetch_behind_by(&raw.base_ref_name, &raw.head_ref_name);
+        Ok(translate_sync(&raw.mergeable, behind_by))
+    }
+}
+
+impl CiChecksRepository for GhClient {
+    fn fetch_check_buckets(&self) -> Result<Vec<CheckBucket>, RepositoryError> {
         let bytes = match run_gh(&["pr", "checks", "--json", "bucket,state"]) {
             Ok(b) => b,
             // CI が未設定のブランチではチェックなし（正常）として扱う
-            Err(PrClientError::ApiError(msg)) if msg.contains("no checks reported") => {
+            Err(RepositoryError::ApiError(msg)) if msg.contains("no checks reported") => {
                 return Ok(vec![]);
             }
             Err(e) => return Err(e),
         };
-        let items: Vec<GhCheckItem> =
-            serde_json::from_slice(&bytes).map_err(|e| PrClientError::ApiError(e.to_string()))?;
+        let items: Vec<GhCheckItem> = serde_json::from_slice(&bytes)
+            .map_err(|e| RepositoryError::ApiError(e.to_string()))?;
         Ok(items.iter().map(|c| translate_bucket(&c.bucket)).collect())
+    }
+}
+
+impl ReviewRepository for GhClient {
+    fn fetch_review_status(&self) -> Result<ReviewStatus, RepositoryError> {
+        let raw = self.pr_view_cached()?;
+        Ok(translate_review(raw.review_decision.as_deref()))
+    }
+}
+
+impl MergeReadinessRepository for GhClient {
+    fn fetch_readiness(&self) -> Result<MergeReadiness, RepositoryError> {
+        let raw = self.pr_view_cached()?;
+        Ok(translate_merge_readiness(raw.is_draft, &raw.merge_state_status))
     }
 }
 
@@ -156,11 +196,11 @@ fn translate_bucket(bucket: &str) -> CheckBucket {
 
 // ── gh コマンド実行・エラー判別 ──────────────────────────────────────────────
 
-fn run_gh(args: &[&str]) -> Result<Vec<u8>, PrClientError> {
+fn run_gh(args: &[&str]) -> Result<Vec<u8>, RepositoryError> {
     let output = Command::new("gh").args(args).output();
     match output {
-        Err(e) if e.kind() == ErrorKind::NotFound => Err(PrClientError::NotInstalled),
-        Err(e) => Err(PrClientError::ApiError(e.to_string())),
+        Err(e) if e.kind() == ErrorKind::NotFound => Err(RepositoryError::NotInstalled),
+        Err(e) => Err(RepositoryError::ApiError(e.to_string())),
         Ok(out) if out.status.success() => Ok(out.stdout),
         Ok(out) => {
             let exit_code = out.status.code().unwrap_or(1);
@@ -170,14 +210,14 @@ fn run_gh(args: &[&str]) -> Result<Vec<u8>, PrClientError> {
     }
 }
 
-fn classify_error(exit_code: i32, stderr: &str) -> PrClientError {
+fn classify_error(exit_code: i32, stderr: &str) -> RepositoryError {
     if exit_code == 4 || (exit_code == 1 && stderr.contains("HTTP 401")) {
-        PrClientError::AuthRequired
+        RepositoryError::AuthRequired
     } else if exit_code == 1 && stderr.contains("no pull requests found") {
-        PrClientError::NoPr
+        RepositoryError::NoPr
     } else if exit_code == 1 && stderr.contains("rate limit") {
-        PrClientError::RateLimited
+        RepositoryError::RateLimited
     } else {
-        PrClientError::ApiError(stderr.to_owned())
+        RepositoryError::ApiError(stderr.to_owned())
     }
 }

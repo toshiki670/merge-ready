@@ -1,3 +1,5 @@
+use crate::domain::error::RepositoryError;
+
 /// 個別チェックのバケット種別
 ///
 /// `Fail`/`Cancel`/`ActionRequired` は `ci-fail`/`ci-action` 判定に使用する。
@@ -39,4 +41,8 @@ pub fn evaluate(status: &CiStatus) -> Option<&'static str> {
         CiStatus::ActionRequired => Some("⚠ ci-action"),
         CiStatus::Pass => None,
     }
+}
+
+pub trait CiChecksRepository {
+    fn fetch_check_buckets(&self) -> Result<Vec<CheckBucket>, RepositoryError>;
 }

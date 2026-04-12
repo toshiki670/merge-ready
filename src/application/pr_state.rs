@@ -1,12 +1,9 @@
-use crate::domain;
-use crate::infra::pr_client::{PrClient, PrViewData};
+use crate::domain::pr_state::{PrLifecycle, PrStateRepository};
 
-/// `gh pr view` を呼び出し、ドメイン状態に翻訳して返す。
-///
-/// 取得またはパースに失敗した場合は `None` を返し、エラー出力を行う。
-pub fn fetch(client: &impl PrClient) -> Option<PrViewData> {
-    match client.pr_view() {
-        Ok(data) => Some(data),
+/// ライフサイクル状態を取得する。失敗時は `None` を返してエラー出力する。
+pub fn fetch(repo: &impl PrStateRepository) -> Option<PrLifecycle> {
+    match repo.fetch_lifecycle() {
+        Ok(lifecycle) => Some(lifecycle),
         Err(e) => {
             super::errors::handle(e);
             None
@@ -15,6 +12,6 @@ pub fn fetch(client: &impl PrClient) -> Option<PrViewData> {
 }
 
 /// PR が処理対象（`OPEN`）かどうかを判定する
-pub fn is_open(data: &PrViewData) -> bool {
-    domain::pr_state::is_open(&data.lifecycle)
+pub fn is_open(lifecycle: &PrLifecycle) -> bool {
+    crate::domain::pr_state::is_open(lifecycle)
 }

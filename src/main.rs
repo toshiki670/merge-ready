@@ -4,5 +4,5 @@ mod infra;
 mod presentation;
 
 fn main() {
-    application::run(&infra::gh::GhClient);
+    application::run(&infra::gh::GhClient::new());
 }

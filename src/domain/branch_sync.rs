@@ -1,3 +1,5 @@
+use crate::domain::error::RepositoryError;
+
 /// ブランチとベースブランチの同期状態
 pub enum BranchSyncStatus {
     Clean,
@@ -12,4 +14,8 @@ pub fn evaluate(status: &BranchSyncStatus) -> Option<&'static str> {
         BranchSyncStatus::Behind => Some("✗ update-branch"),
         BranchSyncStatus::Clean => None,
     }
+}
+
+pub trait BranchSyncRepository {
+    fn fetch_sync_status(&self) -> Result<BranchSyncStatus, RepositoryError>;
 }

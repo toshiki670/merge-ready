@@ -1,12 +1,8 @@
-use crate::domain;
-use crate::domain::ci_checks::CheckBucket;
-use crate::infra::pr_client::PrClient;
+use crate::domain::ci_checks::{CheckBucket, CiChecksRepository};
 
-/// `gh pr checks` を呼び出し、[`CheckBucket`] のリストを返す。
-///
-/// 取得に失敗した場合は `None` を返し、エラー出力を行う。
-pub fn fetch(client: &impl PrClient) -> Option<Vec<CheckBucket>> {
-    match client.pr_checks() {
+/// CI チェック結果を取得する。失敗時は `None` を返してエラー出力する。
+pub fn fetch(repo: &impl CiChecksRepository) -> Option<Vec<CheckBucket>> {
+    match repo.fetch_check_buckets() {
         Ok(buckets) => Some(buckets),
         Err(e) => {
             super::errors::handle(e);
@@ -17,5 +13,5 @@ pub fn fetch(client: &impl PrClient) -> Option<Vec<CheckBucket>> {
 
 /// CI チェック結果を集約・評価し、該当するトークンを返す
 pub fn check(buckets: &[CheckBucket]) -> Option<&'static str> {
-    domain::ci_checks::evaluate(&domain::ci_checks::aggregate(buckets))
+    crate::domain::ci_checks::evaluate(&crate::domain::ci_checks::aggregate(buckets))
 }

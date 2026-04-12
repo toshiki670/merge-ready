@@ -1,3 +1,5 @@
+use crate::domain::error::RepositoryError;
+
 /// レビュー決定状態
 pub enum ReviewStatus {
     ChangesRequested,
@@ -10,4 +12,8 @@ pub fn evaluate(status: &ReviewStatus) -> Option<&'static str> {
         ReviewStatus::ChangesRequested => Some("⚠ review"),
         ReviewStatus::Other => None,
     }
+}
+
+pub trait ReviewRepository {
+    fn fetch_review_status(&self) -> Result<ReviewStatus, RepositoryError>;
 }

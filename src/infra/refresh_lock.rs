@@ -265,4 +265,34 @@ mod tests {
         std::fs::write(&path, b"").unwrap();
         assert!(!is_alive(&path));
     }
+
+    /// `is_alive` の age 境界: `locked_at = now - 119` はまだ有効（< MAX_LOCK_AGE_SECS）。
+    ///
+    /// PID には現プロセスを使うことで `kill -0` が成功する状況を再現する。
+    #[test]
+    fn is_alive_returns_true_when_age_is_below_max() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.lock");
+        let lock = LockFile {
+            pid: std::process::id(),
+            locked_at: now_secs() - (MAX_LOCK_AGE_SECS - 1),
+        };
+        std::fs::write(&path, serde_json::to_string(&lock).unwrap()).unwrap();
+        assert!(is_alive(&path), "age 119s should still be alive");
+    }
+
+    /// `is_alive` の age 境界: `locked_at = now - 120` は失効（>= MAX_LOCK_AGE_SECS）。
+    ///
+    /// PID が生きていても age だけで dead 判定されることを確認する。
+    #[test]
+    fn is_alive_returns_false_when_age_equals_max() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.lock");
+        let lock = LockFile {
+            pid: std::process::id(),
+            locked_at: now_secs() - MAX_LOCK_AGE_SECS,
+        };
+        std::fs::write(&path, serde_json::to_string(&lock).unwrap()).unwrap();
+        assert!(!is_alive(&path), "age 120s should be expired");
+    }
 }

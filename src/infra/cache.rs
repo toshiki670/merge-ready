@@ -82,12 +82,14 @@ pub fn write(repo_id: &str, output: &str) {
         return;
     };
 
-    // temp ファイルへ書き込んでから rename でアトミック置換（部分書き込み防止）
-    let temp_path = state_path.with_extension("tmp");
+    // PID ベースの tmp 名でプロセス間衝突を防ぎ、rename でアトミック置換（部分書き込み防止）
+    let temp_path = state_path.with_extension(format!("tmp.{}", std::process::id()));
     if fs::write(&temp_path, &content).is_err() {
         return;
     }
-    let _ = fs::rename(&temp_path, &state_path);
+    if fs::rename(&temp_path, &state_path).is_err() {
+        let _ = fs::remove_file(&temp_path); // rename 失敗時に tmp 残留防止
+    }
 }
 
 fn cache_path(repo_id: &str) -> Option<std::path::PathBuf> {

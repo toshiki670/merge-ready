@@ -26,4 +26,7 @@ pub(crate) struct PromptArgs {
     /// Fetch fresh data and update cache without displaying output
     #[arg(long, hide = true, conflicts_with = "no_cache")]
     pub(crate) refresh: bool,
+    /// Repository ID for lock release (passed by parent process via --refresh)
+    #[arg(long, hide = true, requires = "refresh")]
+    pub(crate) repo_id: Option<String>,
 }

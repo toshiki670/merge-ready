@@ -71,33 +71,6 @@ pub fn release(repo_id: &str) {
     }
 }
 
-/// ロックを取得できた場合のみバックグラウンドリフレッシュを起動する（多重起動抑止）。
-pub fn maybe_spawn_refresh(repo_id: &str) {
-    if !try_acquire(repo_id) {
-        return;
-    }
-    let Ok(exe) = std::env::current_exe() else {
-        release(repo_id);
-        return;
-    };
-    match std::process::Command::new(exe)
-        .args(["prompt", "--refresh"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(child) => {
-            // 子 PID をロックファイルへ書き込む（kill -0 による生存確認に使用）
-            update_pid(repo_id, child.id());
-        }
-        Err(_) => {
-            release(repo_id);
-        }
-    }
-    // ロックは子プロセス（run_refresh の末尾）が解放する
-}
-
 /// ロックファイルをアトミックに作成し、ハンドルを保持したまま自 PID と取得時刻を JSON で書き込む。
 ///
 /// `create_new(true)`（`O_CREAT | O_EXCL`）でアトミックにファイルを作成後、

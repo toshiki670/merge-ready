@@ -146,22 +146,22 @@ fn test_stale_cache_is_updated_by_refresh() {
 
 // ── git remote 取得不可 ─────────────────────────────────────────────────
 
-/// `git remote get-url origin` が失敗する場合、`? loading` を出力してキャッシュを作らない
+/// git リポジトリでない場合、何も出力せずキャッシュも作らない
 #[test]
-fn test_no_git_remote_shows_loading() {
+fn test_no_git_remote_shows_nothing() {
     let env = TestEnv::without_git_remote();
 
     let mut cmd = Command::cargo_bin(BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
-        .stdout(predicate::str::diff("? loading"));
+        .stdout(predicate::str::is_empty());
 
     // キャッシュが作成されていないこと
     let state_path = state_json_path(env.home());
     assert!(
         !state_path.exists(),
-        "state.json should NOT be created when git remote is unavailable"
+        "state.json should NOT be created when not in a git repository"
     );
 }
 

@@ -15,27 +15,24 @@ pub(crate) fn run(args: &PromptArgs) {
 }
 
 /// キャッシュ方針に基づいて表示し、必要に応じてバックグラウンドリフレッシュを起動する
+///
+/// git リポジトリでない場合は何も出力しない（`run_direct` と同じ挙動）。
 fn run_cached() {
-    let repo_id = crate::infra::repo_id::get();
+    let Some(repo_id) = crate::infra::repo_id::get() else {
+        return;
+    };
     let cache = crate::infra::cache::CacheStore;
-    match crate::application::cache::resolve(repo_id.as_deref(), &cache) {
+    match crate::application::cache::resolve(&repo_id, &cache) {
         DisplayAction::Display(s) => {
             print!("{s}");
         }
         DisplayAction::DisplayAndRefresh(s) => {
             print!("{s}");
-            if let Some(ref id) = repo_id {
-                maybe_spawn_refresh(id);
-            }
+            maybe_spawn_refresh(&repo_id);
         }
         DisplayAction::LoadingWithRefresh => {
             print!("? loading");
-            if let Some(ref id) = repo_id {
-                maybe_spawn_refresh(id);
-            }
-        }
-        DisplayAction::Loading => {
-            print!("? loading");
+            maybe_spawn_refresh(&repo_id);
         }
     }
 }

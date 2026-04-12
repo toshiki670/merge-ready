@@ -25,13 +25,17 @@ struct BenchEnv {
 }
 
 const FAKE_TOPLEVEL: &str = "/fake/bench/repo";
+const FAKE_BRANCH: &str = "main";
 const OPEN_MERGE_READY_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
 const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
 
 /// FNV-1a ハッシュで repo_id を生成する（`infra::repo_id::path_to_id` と同じアルゴリズム）
-fn path_to_id(path: &str) -> String {
+///
+/// キーは `"<toplevel>\0<branch>"` の形式で生成する。
+fn bench_repo_id() -> String {
+    let input = format!("{FAKE_TOPLEVEL}\0{FAKE_BRANCH}");
     let mut hash: u64 = 14_695_981_039_346_656_037;
-    for byte in path.bytes() {
+    for byte in input.bytes() {
         hash ^= byte as u64;
         hash = hash.wrapping_mul(1_099_511_628_211);
     }
@@ -43,11 +47,12 @@ fn setup_bench_env() -> BenchEnv {
     let bin_dir = TempDir::new().expect("bin_dir");
     let home_dir = TempDir::new().expect("home_dir");
 
-    // fake git: rev-parse --show-toplevel のみ必要
+    // fake git: rev-parse --show-toplevel と branch --show-current が必要
     let git_script = format!(
         "#!/bin/sh\n\
          case \"$*\" in\n\
            *'rev-parse --show-toplevel'*) echo '{FAKE_TOPLEVEL}'; exit 0 ;;\n\
+           *'branch --show-current'*) echo '{FAKE_BRANCH}'; exit 0 ;;\n\
            *) exit 0 ;;\n\
          esac\n"
     );
@@ -103,7 +108,7 @@ fn now_secs() -> u64 {
 /// `prompt` サブコマンドでキャッシュファイルを読み込んで返すパスのみを計測する。
 fn bench_cache_hit(c: &mut Criterion) {
     let env = setup_bench_env();
-    let repo_id = path_to_id(FAKE_TOPLEVEL);
+    let repo_id = bench_repo_id();
     let cache_path = env
         .home_dir
         .path()

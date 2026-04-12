@@ -15,11 +15,16 @@ const BIN: &str = "merge-ready";
 
 /// fake git が返すワークツリーパス（`git rev-parse --show-toplevel` の戻り値）
 const FAKE_TOPLEVEL: &str = "/fake/repo";
+/// fake git が返すブランチ名（`git branch --show-current` の戻り値）
+const FAKE_BRANCH: &str = "main";
 
 /// FNV-1a ハッシュで生成される repo_id（`infra::repo_id::path_to_id` と同じアルゴリズム）
+///
+/// キーは `"<toplevel>\0<branch>"` の形式で生成する。
 fn fake_repo_id() -> String {
+    let input = format!("{FAKE_TOPLEVEL}\0{FAKE_BRANCH}");
     let mut hash: u64 = 14_695_981_039_346_656_037;
-    for byte in FAKE_TOPLEVEL.bytes() {
+    for byte in input.bytes() {
         hash ^= byte as u64;
         hash = hash.wrapping_mul(1_099_511_628_211);
     }

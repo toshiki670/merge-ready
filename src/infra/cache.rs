@@ -82,7 +82,12 @@ pub fn write(repo_id: &str, output: &str) {
         return;
     };
 
-    let _ = fs::write(state_path, content);
+    // temp ファイルへ書き込んでから rename でアトミック置換（部分書き込み防止）
+    let temp_path = state_path.with_extension("tmp");
+    if fs::write(&temp_path, &content).is_err() {
+        return;
+    }
+    let _ = fs::rename(&temp_path, &state_path);
 }
 
 fn cache_path(repo_id: &str) -> Option<std::path::PathBuf> {

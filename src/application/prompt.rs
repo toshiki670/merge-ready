@@ -1,58 +1,60 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::application::cache::DisplayAction;
-use crate::application::errors::{ErrorPresenter, ErrorToken};
+use crate::application::cache::{CachePort, DisplayAction};
+use crate::application::errors::{ErrorPresenter, ErrorToken, ErrorLogger};
+use crate::application::OutputToken;
+use crate::domain::{
+    branch_sync::BranchSyncRepository, ci_checks::CiChecksRepository,
+    merge_ready::MergeReadinessRepository, pr_state::PrStateRepository, review::ReviewRepository,
+};
 
-/// キャッシュ方針に基づいて表示し、必要に応じてバックグラウンドリフレッシュを起動する。
+/// git リポジトリ ID を取得するポート
+pub trait RepoIdPort {
+    fn get(&self) -> Option<String>;
+}
+
+/// キャッシュ表示の結果として CLI 層が実行すべき意図を表す
+pub enum PromptEffect {
+    /// そのまま表示（バックグラウンドリフレッシュ不要）
+    Show(String),
+    /// 表示してからバックグラウンドリフレッシュを要求する
+    ShowAndRefresh { output: String, repo_id: String },
+    /// "? loading" を表示してバックグラウンドリフレッシュを要求する（キャッシュミス）
+    ShowLoadingAndRefresh { repo_id: String },
+    /// 何も表示しない（git リポジトリ外など）
+    NoOutput,
+}
+
+/// キャッシュ方針に基づいて表示意図を返す（副作用なし）。
 ///
-/// git リポジトリでない場合は何も出力しない。
-pub fn run_cached() {
-    let Some(repo_id) = crate::infra::repo_id::get() else {
-        return;
+/// git リポジトリ外の場合は [`PromptEffect::NoOutput`] を返す。
+pub fn resolve_cached(repo_id: &impl RepoIdPort, cache: &impl CachePort) -> PromptEffect {
+    let Some(id) = repo_id.get() else {
+        return PromptEffect::NoOutput;
     };
-    let cache = crate::infra::cache::CacheStore;
-    match crate::application::cache::resolve(&repo_id, &cache) {
-        DisplayAction::Display(s) => {
-            print!("{s}");
-        }
-        DisplayAction::DisplayAndRefresh(s) => {
-            print!("{s}");
-            crate::infra::refresh_lock::maybe_spawn_refresh(&repo_id);
-        }
-        DisplayAction::LoadingWithRefresh => {
-            print!("? loading");
-            crate::infra::refresh_lock::maybe_spawn_refresh(&repo_id);
-        }
+    match crate::application::cache::resolve(&id, cache) {
+        DisplayAction::Display(s) => PromptEffect::Show(s),
+        DisplayAction::DisplayAndRefresh(s) => PromptEffect::ShowAndRefresh {
+            output: s,
+            repo_id: id,
+        },
+        DisplayAction::LoadingWithRefresh => PromptEffect::ShowLoadingAndRefresh { repo_id: id },
     }
 }
 
-/// gh を直接呼んでキャッシュを更新する（stdout に出力しない）。
+/// gh を呼んで出力トークンを返す。エラー発生時は `None` を返す（キャッシュ書き込み回避）。
 ///
-/// エラー発生時は既存キャッシュを上書きしない。
-pub fn run_refresh() {
-    let Some(id) = crate::infra::repo_id::get() else {
-        return;
-    };
-    if let Some(output) = fetch_silent() {
-        crate::infra::cache::write(&id, &output);
-    }
-    crate::infra::refresh_lock::release(&id);
-}
-
-/// gh を直接呼んで結果を stdout に出力する（キャッシュを使わない）。
-pub fn run_direct() {
-    let tokens = crate::application::run(
-        &crate::infra::gh::GhClient::new(),
-        &crate::infra::logger::Logger,
-        &crate::presentation::Presenter,
-    );
-    if !tokens.is_empty() {
-        crate::presentation::display(&tokens);
-    }
-}
-
-/// gh を呼んで結果を文字列で返す。エラー発生時は `None` を返す（空文字と区別するため）。
-fn fetch_silent() -> Option<String> {
+/// バックグラウンドリフレッシュ用。エラーは stderr に出力せず内部追跡のみ行う。
+pub fn fetch_output<C, L>(client: &C, logger: &L) -> Option<Vec<OutputToken>>
+where
+    C: PrStateRepository
+        + BranchSyncRepository
+        + CiChecksRepository
+        + ReviewRepository
+        + MergeReadinessRepository
+        + Sync,
+    L: ErrorLogger + Sync,
+{
     struct TrackingPresenter(AtomicBool);
 
     impl ErrorPresenter for TrackingPresenter {
@@ -62,15 +64,11 @@ fn fetch_silent() -> Option<String> {
     }
 
     let presenter = TrackingPresenter(AtomicBool::new(false));
-    let tokens = crate::application::run(
-        &crate::infra::gh::GhClient::new(),
-        &crate::infra::logger::Logger,
-        &presenter,
-    );
+    let tokens = crate::application::run(client, logger, &presenter);
 
     if presenter.0.load(Ordering::Relaxed) {
         None
     } else {
-        Some(crate::presentation::render_to_string(&tokens))
+        Some(tokens)
     }
 }

@@ -1,33 +1,75 @@
 # merge-ready
 
-Instantly see whether your PR is ready to merge. A GitHub-aware tool that displays only actionable merge blockers.
+[![Crates.io](https://img.shields.io/crates/v/merge-ready)](https://crates.io/crates/merge-ready)
+[![Docs.rs](https://img.shields.io/docsrs/merge-ready)](https://docs.rs/merge-ready)
+[![CI](https://img.shields.io/github/actions/workflow/status/toshiki670/merge-ready/ci.yml?branch=main&label=ci)](https://github.com/toshiki670/merge-ready/actions/workflows/ci.yml)
+[![License](https://img.shields.io/crates/l/merge-ready)](https://github.com/toshiki670/merge-ready/blob/main/LICENSE)
 
-## Problem
+`merge-ready` is a Rust CLI that reports whether the pull request for your current branch is mergeable. It prints concise status tokens designed for shell prompt integration and automation scripts.
 
-Developers working with GitHub PRs face a common friction:
+## Install
 
-- You need to know: "Can I merge this PR right now?"
-- But checking requires running `gh pr view`, context-switching to GitHub, or parsing verbose output
-- PR checks show too much information — conflict details, CI logs, review comments — making it hard to know what action to take next
+```bash
+cargo install merge-ready
+```
 
-## Solution
+For development builds:
 
-`merge-ready prompt` analyzes your current branch's PR state and outputs **only what matters for merging**:
+```bash
+cargo install --path .
+```
 
-✗ conflict          → Merge is blocked by conflicts
-⚠ update-branch     → Branch needs rebasing
-✗ ci-fail           → CI checks failed
-⚠ ci-action         → CI requires your action
-⚠ review            → Review changes requested
-✓ merge-ready       → Ready to merge!
+## Usage
 
-No noise. No context switching. One glance at your prompt tells you exactly what to do next.
+Show top-level help:
 
-Run `merge-ready` without arguments to show CLI help.
+```bash
+merge-ready --help
+```
+
+Show merge status tokens for prompt integration:
+
+```bash
+merge-ready prompt
+```
+
+Bypass cache and fetch fresh state:
+
+```bash
+merge-ready prompt --no-cache
+```
+
+Example output:
+
+```text
+⚠ review
+```
+
+`merge-ready prompt` returns:
+
+- `0` when mergeable (`✓ merge-ready`)
+- `1` when blocked (`⚠ ...` or `✗ ...`)
+- `2` when state cannot be determined (`? ...`)
+
+This makes it easy to use from shell scripts and prompt hooks.
+
+## Output Tokens
+
+- `✓ merge-ready` - ready to merge
+- `⚠ review` - changes were requested in review
+- `⚠ ci-action` - CI checks are still in progress
+- `✗ ci-fail` - CI checks failed
+- `✗ conflict` - merge conflicts exist
+- `✗ update-branch` - branch is behind base branch
+- `? sync-unknown` - branch sync status is unknown
+
+## Requirements
+
+- `gh` CLI installed and authenticated
+- Current git branch linked to an existing GitHub pull request
 
 ## Features
 
-- **Minimal output** — only blockers that prevent merging
-- **Smart caching** — reduces GitHub API calls (10s TTL per repo/branch)
-- **GitHub-native** — works with `gh` CLI, no extra auth needed
-- **Language-agnostic** — written in Python, works across shells
+- Minimal output focused on actionable blockers
+- Prompt-friendly status token output
+- Short-lived caching to reduce GitHub API calls

@@ -14,7 +14,7 @@ body = """
 {% for group, commits in commits | group_by(attribute="group") %}\
 ### {{ group | upper_first }}
 {% for commit in commits %}\
-- {% if commit.breaking %}[**BREAKING**] {% endif %}{{ commit.message | upper_first }}
+- {% if commit.breaking %}[**BREAKING**] {% endif %}{{ commit.message | replace(from="merge_feat: ", to="") | replace(from="merge_fix: ", to="") | replace(from="merge_perf: ", to="") | upper_first }}
 {% endfor %}
 {% endfor %}\
 """
@@ -26,21 +26,19 @@ conventional_commits = true
 filter_unconventional = false
 split_commits = false
 commit_preprocessors = [
-  # Issue/PR 番号をリンクに変換
+  # 1. Issue 番号をリンクに変換
   { pattern = '#([0-9]+)', replace = "[#${1}](https://github.com/toshiki670/merge-ready/issues/${1})" },
+  # 2. feat/fix/perf の PR を "merge_TYPE: 説明 (PR リンク)" に変換
+  { pattern = '(?s)Merge pull request \[#([0-9]+)\]\([^)]+\) from [^\n]+\n\n(feat|fix|perf)(?:\([^)]+\))?: ([^\n]+).*', replace = "merge_${2}: ${3} ([PR #${1}](https://github.com/toshiki670/merge-ready/pull/${1}))" },
+  # 3. その他の PR を skip マーカーに変換
+  { pattern = '(?s)Merge pull request \[#([0-9]+)\]\([^)]+\) from [^\n]+.*', replace = "merge_other:" },
 ]
 commit_parsers = [
-  { message = "^feat",     group = "Features" },
-  { message = "^fix",      group = "Bug Fixes" },
-  { message = "^perf",     group = "Performance" },
-  { message = "^refactor", skip = true },
-  { message = "^rename",   skip = true },
-  { message = "^docs",     skip = true },
-  { message = "^style",    skip = true },
-  { message = "^test",     skip = true },
-  { message = "^chore",    skip = true },
-  { message = "^ci",       skip = true },
-  { message = "^build",    skip = true },
+  { message = "^merge_feat", group = "Features" },
+  { message = "^merge_fix",  group = "Bug Fixes" },
+  { message = "^merge_perf", group = "Performance" },
+  { message = "^merge_",     skip = true },
+  { message = ".*",          skip = true },
 ]
 protect_breaking_commits = true
 filter_commits = true

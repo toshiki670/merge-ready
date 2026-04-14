@@ -1,0 +1,20 @@
+[tools]
+rust = "latest"
+
+[tasks.release-prepare]
+description = "Trigger the Release Prepare workflow (creates a Release PR)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'Release PR を作成します。よろしいですか？ [y/N]: '
+read -r answer
+case "$answer" in
+  y|Y) ;;
+  *) echo "キャンセルしました。"; exit 0 ;;
+esac
+
+gh workflow run release-prepare.yml --repo toshiki670/merge-ready
+echo "Workflow をトリガーしました。"
+echo "進捗: https://github.com/toshiki670/merge-ready/actions/workflows/release-prepare.yml"
+"""

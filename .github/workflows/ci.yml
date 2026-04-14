@@ -53,3 +53,45 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: EmbarkStudios/cargo-deny-action@175dc7fd4fb85ec8f46948fb98f44db001149081 # v2
+
+  semver:
+    name: semver
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: "ci"
+      - name: Check semver
+        id: semver_check
+        uses: obi1kenobi/cargo-semver-checks-action@5b298c9520f7096a4683c0bd981a7ac5a7e249ae # v2.8
+        continue-on-error: true
+      - name: Warn on semver violation
+        if: steps.semver_check.outcome == 'failure'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: [
+                '## :warning: SemVer 違反が検出されました',
+                '',
+                '`cargo-semver-checks` が破壊的変更を検出しましたが、バージョンが適切に上げられていません。',
+                '',
+                '以下のいずれかの対応をしてください:',
+                '- 破壊的変更を取り除く',
+                '- `Cargo.toml` のバージョンを適切に上げる（例: `0.1.0` → `0.2.0`）',
+                '',
+                '詳細は `semver` CI ジョブのログを確認してください。',
+              ].join('\n'),
+            });
+            core.setFailed('SemVer 違反が検出されました。上記コメントを確認してください。')

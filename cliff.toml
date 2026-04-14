@@ -42,7 +42,7 @@ commit_parsers = [
   { message = "^ci",       skip = true },
   { message = "^build",    skip = true },
 ]
-protect_breaking_commits = false
+protect_breaking_commits = true
 filter_commits = true
 tag_pattern = "v[0-9].*"
 topo_order = false

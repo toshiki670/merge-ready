@@ -1,6 +1,7 @@
 # merge-ready
 
 [![Crates.io](https://img.shields.io/crates/v/merge-ready)](https://crates.io/crates/merge-ready)
+[![Downloads](https://img.shields.io/crates/d/merge-ready)](https://crates.io/crates/merge-ready)
 [![Docs.rs](https://img.shields.io/docsrs/merge-ready)](https://docs.rs/merge-ready)
 [![CI](https://img.shields.io/github/actions/workflow/status/toshiki670/merge-ready/ci.yml?branch=main&label=ci)](https://github.com/toshiki670/merge-ready/actions/workflows/ci.yml)
 [![License](https://img.shields.io/crates/l/merge-ready)](https://github.com/toshiki670/merge-ready/blob/main/LICENSE)

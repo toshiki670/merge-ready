@@ -20,17 +20,22 @@ jobs:
       - name: Wait for CI checks to pass
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
         run: |
-          gh pr checks ${{ github.event.pull_request.number }} \
-            --repo ${{ github.repository }} \
+          gh pr checks "$PR_NUMBER" \
+            --repo "$REPO" \
             --watch \
             --interval 30
 
       - name: Squash-merge with fix(deps) prefix
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          REPO: ${{ github.repository }}
         run: |
-          gh pr merge ${{ github.event.pull_request.number }} \
-            --repo ${{ github.repository }} \
+          gh pr merge "$PR_NUMBER" \
+            --repo "$REPO" \
             --squash \
-            --subject "fix(deps): ${{ github.event.pull_request.title }}"
+            --subject "fix(deps): ${PR_TITLE}"

@@ -1,0 +1,51 @@
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+"""
+body = """
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}\
+### {{ group | upper_first }}
+{% for commit in commits %}\
+- {% if commit.breaking %}[**BREAKING**] {% endif %}{{ commit.message | replace(from="merge_feat: ", to="") | replace(from="merge_fix: ", to="") | replace(from="merge_perf: ", to="") | upper_first }}
+{% endfor %}
+{% endfor %}\
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+commit_preprocessors = [
+  # 1. Issue 番号をリンクに変換
+  { pattern = '#([0-9]+)', replace = "[#${1}](https://github.com/toshiki670/merge-ready/issues/${1})" },
+  # 2. スカッシュマージ: "feat: 説明 ([#N](link))" → "merge_TYPE: 説明 ([PR #N](pull-link))"
+  #    GitHub デフォルトのスカッシュマージ形式 "feat: 説明 (#N)" が対象
+  #    ステップ1 で #N がリンク化された後にマッチさせる
+  { pattern = '^(feat|fix|perf)(?:\([^)]+\))?: ([^\n]+) \(\[#([0-9]+)\]\([^)]+\)\)', replace = "merge_${1}: ${2} ([PR #${3}](https://github.com/toshiki670/merge-ready/pull/${3}))" },
+  # 3. マージコミットの feat/fix/perf PR を "merge_TYPE: 説明 (PR リンク)" に変換
+  { pattern = '(?s)Merge pull request \[#([0-9]+)\]\([^)]+\) from [^\n]+\n\n(feat|fix|perf)(?:\([^)]+\))?: ([^\n]+).*', replace = "merge_${2}: ${3} ([PR #${1}](https://github.com/toshiki670/merge-ready/pull/${1}))" },
+  # 4. その他の PR を skip マーカーに変換
+  { pattern = '(?s)Merge pull request \[#([0-9]+)\]\([^)]+\) from [^\n]+.*', replace = "merge_other:" },
+]
+commit_parsers = [
+  { message = "^merge_feat", group = "Features" },
+  { message = "^merge_fix",  group = "Bug Fixes" },
+  { message = "^merge_perf", group = "Performance" },
+  { message = "^merge_",     skip = true },
+  { message = ".*",          skip = true },
+]
+protect_breaking_commits = true
+filter_commits = true
+tag_pattern = "v[0-9].*"
+topo_order = false
+sort_commits = "oldest"

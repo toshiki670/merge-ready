@@ -1,0 +1,41 @@
+name: Dependabot Security Auto-merge
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: auto-merge
+    runs-on: ubuntu-latest
+    # Dependabot の security ラベルが付いた PR のみ対象
+    if: |
+      github.actor == 'dependabot[bot]' &&
+      github.event.label.name == 'security'
+    steps:
+      - name: Wait for CI checks to pass
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr checks "$PR_NUMBER" \
+            --repo "$REPO" \
+            --watch \
+            --interval 30
+
+      - name: Squash-merge with fix(deps) prefix
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr merge "$PR_NUMBER" \
+            --repo "$REPO" \
+            --squash \
+            --subject "fix(deps): ${PR_TITLE}"

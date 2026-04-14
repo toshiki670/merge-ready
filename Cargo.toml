@@ -2,6 +2,13 @@
 name = "merge-ready"
 version = "0.1.0"
 edition = "2024"
+description = "Show pull request merge blockers as concise prompt tokens"
+license = "MIT"
+repository = "https://github.com/toshiki670/merge-ready"
+homepage = "https://github.com/toshiki670/merge-ready"
+readme = "README.md"
+keywords = ["pull-request", "cli", "prompt", "developer-tools", "merge"]
+categories = ["command-line-utilities", "development-tools"]
 
 [lints.rust]
 unsafe_code = "forbid"

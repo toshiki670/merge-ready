@@ -10,7 +10,7 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -22,9 +22,10 @@ use tempfile::TempDir;
 struct BenchEnv {
     bin_dir: TempDir,
     tmp_dir: TempDir,
+    /// 最小限の `.git` 構造を持つ偽リポジトリルート
+    repo_dir: TempDir,
 }
 
-const FAKE_TOPLEVEL: &str = "/fake/bench/repo";
 const FAKE_BRANCH: &str = "main";
 const OPEN_MERGE_READY_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
 const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
@@ -32,8 +33,8 @@ const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","l
 /// FNV-1a ハッシュで repo_id を生成する（`infra::repo_id::path_to_id` と同じアルゴリズム）
 ///
 /// キーは `"<toplevel>\0<branch>"` の形式で生成する。
-fn bench_repo_id() -> String {
-    let input = format!("{FAKE_TOPLEVEL}\0{FAKE_BRANCH}");
+fn compute_repo_id(toplevel: &Path, branch: &str) -> String {
+    let input = format!("{}\0{}", toplevel.display(), branch);
     let mut hash: u64 = 14_695_981_039_346_656_037;
     for byte in input.bytes() {
         hash ^= byte as u64;
@@ -42,21 +43,9 @@ fn bench_repo_id() -> String {
     format!("{hash:016x}")
 }
 
-/// フェイクの gh/git バイナリを含むベンチマーク環境を構築する
+/// フェイクの gh バイナリと最小限の git リポジトリ構造を含むベンチマーク環境を構築する
 fn setup_bench_env() -> BenchEnv {
     let bin_dir = TempDir::new().expect("bin_dir");
-    let home_dir = TempDir::new().expect("home_dir");
-
-    // fake git: rev-parse --show-toplevel と branch --show-current が必要
-    let git_script = format!(
-        "#!/bin/sh\n\
-         case \"$*\" in\n\
-           *'rev-parse --show-toplevel'*) echo '{FAKE_TOPLEVEL}'; exit 0 ;;\n\
-           *'branch --show-current'*) echo '{FAKE_BRANCH}'; exit 0 ;;\n\
-           *) exit 0 ;;\n\
-         esac\n"
-    );
-    write_executable(&bin_dir.path().join("git"), &git_script);
 
     // fake gh（即時応答）
     // JSON に `{}` が含まれているため format! ではなく文字列連結を使用
@@ -68,7 +57,22 @@ fn setup_bench_env() -> BenchEnv {
     write_executable(&bin_dir.path().join("gh"), &gh_script);
 
     let tmp_dir = TempDir::new().expect("tmp_dir");
-    BenchEnv { bin_dir, tmp_dir }
+
+    // 最小限の git リポジトリ構造（.git/HEAD のみ）
+    let repo_dir = TempDir::new().expect("repo_dir");
+    let git_dir = repo_dir.path().join(".git");
+    fs::create_dir_all(&git_dir).expect("create .git");
+    fs::write(
+        git_dir.join("HEAD"),
+        format!("ref: refs/heads/{FAKE_BRANCH}\n"),
+    )
+    .expect("write HEAD");
+
+    BenchEnv {
+        bin_dir,
+        tmp_dir,
+        repo_dir,
+    }
 }
 
 fn write_executable(path: &PathBuf, content: &str) {
@@ -124,7 +128,7 @@ fn now_secs() -> u64 {
 /// `prompt` サブコマンドでキャッシュファイルを読み込んで返すパスのみを計測する。
 fn bench_cache_hit(c: &mut Criterion) {
     let env = setup_bench_env();
-    let repo_id = bench_repo_id();
+    let repo_id = compute_repo_id(env.repo_dir.path(), FAKE_BRANCH);
     let cache_path = env
         .tmp_dir
         .path()
@@ -141,12 +145,14 @@ fn bench_cache_hit(c: &mut Criterion) {
     let bin = binary_path();
     let path = path_env(&env);
     let tmpdir = env.tmp_dir.path().to_owned();
+    let repo_dir = env.repo_dir.path().to_owned();
 
     c.bench_function("cache_hit", |b| {
         b.iter(|| {
             Command::new(&bin)
                 .env("PATH", &path)
                 .env("TMPDIR", &tmpdir)
+                .current_dir(&repo_dir)
                 .arg("prompt")
                 .output()
                 .expect("merge-ready failed")
@@ -163,12 +169,14 @@ fn bench_no_cache_direct(c: &mut Criterion) {
     let bin = binary_path();
     let path = path_env(&env);
     let tmpdir = env.tmp_dir.path().to_owned();
+    let repo_dir = env.repo_dir.path().to_owned();
 
     c.bench_function("no_cache_direct", |b| {
         b.iter(|| {
             Command::new(&bin)
                 .env("PATH", &path)
                 .env("TMPDIR", &tmpdir)
+                .current_dir(&repo_dir)
                 .args(["prompt", "--no-cache"])
                 .output()
                 .expect("merge-ready failed")

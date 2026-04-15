@@ -13,24 +13,6 @@ use super::helpers::TestEnv;
 /// merge-ready のバイナリ名
 const BIN: &str = "merge-ready";
 
-/// fake git が返すワークツリーパス（`git rev-parse --show-toplevel` の戻り値）
-const FAKE_TOPLEVEL: &str = "/fake/repo";
-/// fake git が返すブランチ名（`git branch --show-current` の戻り値）
-const FAKE_BRANCH: &str = "main";
-
-/// FNV-1a ハッシュで生成される repo_id（`infra::repo_id::path_to_id` と同じアルゴリズム）
-///
-/// キーは `"<toplevel>\0<branch>"` の形式で生成する。
-fn fake_repo_id() -> String {
-    let input = format!("{FAKE_TOPLEVEL}\0{FAKE_BRANCH}");
-    let mut hash: u64 = 14_695_981_039_346_656_037;
-    for byte in input.bytes() {
-        hash ^= byte as u64;
-        hash = hash.wrapping_mul(1_099_511_628_211);
-    }
-    format!("{hash:016x}")
-}
-
 /// マージ可能な PR の `gh pr view` JSON（キャッシュテスト用の最小セット）
 /// `baseRefName` / `headRefName` を空にすることで `gh repo view` 呼び出しを回避し
 /// ブランチ同期を "Clean" として扱う
@@ -67,7 +49,7 @@ fn test_refresh_mode_writes_cache() {
     cmd.assert().success().stdout(predicate::str::is_empty());
 
     // state.json が作成されていること
-    let state_path = state_json_path(env.home());
+    let state_path = state_json_path(&env);
     assert!(
         state_path.exists(),
         "state.json should be created by --refresh at: {}",
@@ -75,7 +57,7 @@ fn test_refresh_mode_writes_cache() {
     );
 
     // state.json の内容確認
-    let state = read_state_json(env.home()).expect("state.json should be parseable");
+    let state = read_state_json(&env).expect("state.json should be parseable");
     let fetched_at: u64 = state["fetched_at_secs"]
         .as_u64()
         .expect("fetched_at_secs should be u64");
@@ -94,7 +76,7 @@ fn test_cache_fresh_returns_cached_output() {
     let cached_output = "✓ merge-ready";
 
     // state.json を手動で書き込む（fetched_at_secs = now）
-    write_state_json(env.home(), cached_output, now_secs());
+    write_state_json(&env, cached_output, now_secs());
 
     // 壊れた fake gh を使っても、キャッシュが使われるためエラーにならない
     let broken_env = TestEnv::with_error("gh is broken", 1);
@@ -102,6 +84,7 @@ fn test_cache_fresh_returns_cached_output() {
     cmd.env("PATH", broken_env.path_env()); // 壊れた gh の PATH
     cmd.env("HOME", env.home()); // HOME は env.home() で隔離
     cmd.env("TMPDIR", env.home()); // キャッシュが存在する TMPDIR
+    cmd.current_dir(env.repo_dir.path()); // repo_id を一致させる
     cmd.arg("prompt"); // キャッシュ有効モード
 
     cmd.assert()
@@ -118,7 +101,7 @@ fn test_cache_stale_returns_cached_output() {
     let cached_output = "✗ conflict";
 
     // stale_ttl(5秒)より古いキャッシュを作成: now - 10秒
-    write_state_json(env.home(), cached_output, now_secs() - 10);
+    write_state_json(&env, cached_output, now_secs() - 10);
 
     let mut cmd = Command::cargo_bin(BIN).unwrap();
     env.apply_with_cache(&mut cmd);
@@ -135,7 +118,7 @@ fn test_stale_cache_is_updated_by_refresh() {
     let stale_output = "✗ conflict";
 
     // stale_ttl より古いキャッシュを作成
-    write_state_json(env.home(), stale_output, now_secs() - 10);
+    write_state_json(&env, stale_output, now_secs() - 10);
 
     // prompt --refresh を明示的に実行
     let mut refresh_cmd = Command::cargo_bin(BIN).unwrap();
@@ -147,7 +130,7 @@ fn test_stale_cache_is_updated_by_refresh() {
         .stdout(predicate::str::is_empty());
 
     // state.json の fetched_at_secs が更新されていること
-    let state = read_state_json(env.home()).expect("state.json should exist");
+    let state = read_state_json(&env).expect("state.json should exist");
     let new_fetched_at: u64 = state["fetched_at_secs"]
         .as_u64()
         .expect("fetched_at_secs should be u64");
@@ -157,7 +140,7 @@ fn test_stale_cache_is_updated_by_refresh() {
     );
 }
 
-// ── git remote 取得不可 ─────────────────────────────────────────────────
+// ── git リポジトリ外 ────────────────────────────────────────────────────
 
 /// git リポジトリでない場合、何も出力せずキャッシュも作らない
 #[test]
@@ -169,7 +152,7 @@ fn test_no_git_remote_shows_nothing() {
     cmd.assert().success().stdout(predicate::str::is_empty());
 
     // キャッシュが作成されていないこと
-    let state_path = state_json_path(env.home());
+    let state_path = state_json_path(&env);
     assert!(
         !state_path.exists(),
         "state.json should NOT be created when not in a git repository"
@@ -200,15 +183,15 @@ fn cache_dir_name() -> String {
     "merge-ready".to_owned()
 }
 
-fn state_json_path(tmpdir: &std::path::Path) -> std::path::PathBuf {
-    tmpdir
+fn state_json_path(env: &TestEnv) -> std::path::PathBuf {
+    env.home()
         .join(cache_dir_name())
-        .join(format!("{}.json", fake_repo_id()))
+        .join(format!("{}.json", env.repo_id()))
 }
 
-/// 指定した tmpdir の下に state.json を書き込む
-fn write_state_json(tmpdir: &std::path::Path, output: &str, fetched_at_secs: u64) {
-    let state_path = state_json_path(tmpdir);
+/// 指定した env の state.json を書き込む
+fn write_state_json(env: &TestEnv, output: &str, fetched_at_secs: u64) {
+    let state_path = state_json_path(env);
     if let Some(parent) = state_path.parent() {
         fs::create_dir_all(parent).unwrap();
     }
@@ -216,7 +199,7 @@ fn write_state_json(tmpdir: &std::path::Path, output: &str, fetched_at_secs: u64
     fs::write(&state_path, content).unwrap();
 }
 
-fn read_state_json(tmpdir: &std::path::Path) -> Option<serde_json::Value> {
-    let content = fs::read_to_string(state_json_path(tmpdir)).ok()?;
+fn read_state_json(env: &TestEnv) -> Option<serde_json::Value> {
+    let content = fs::read_to_string(state_json_path(env)).ok()?;
     serde_json::from_str(&content).ok()
 }

@@ -1,7 +1,10 @@
 //! テスト環境ヘルパー
 //!
-//! 各テストが独立した `bin_dir`（`fake gh` / `fake git`）と `home_dir` を持つ。
+//! 各テストが独立した `bin_dir`（`fake gh`）と `home_dir` / `repo_dir` を持つ。
 //! テストを並列実行してもキャッシュやエラーログが競合しない。
+//!
+//! `repo_id` は `.git` ディレクトリを直接読み取って生成されるため、
+//! バイナリの実行ディレクトリを `repo_dir` に設定することで再現性を確保する。
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -10,44 +13,73 @@ use tempfile::{TempDir, tempdir};
 
 /// テスト実行環境を完全に隔離するヘルパー。
 pub struct TestEnv {
-    /// `fake gh` / `fake git` を配置する一時ディレクトリ
+    /// `fake gh` を配置する一時ディレクトリ
     pub bin_dir: TempDir,
     /// 隔離された `HOME` 兼 `TMPDIR`（キャッシュ・ロックファイルの書き込み先）
     pub home_dir: TempDir,
+    /// バイナリを実行するワーキングディレクトリ（`.git/HEAD` を持つ偽リポジトリ）
+    /// `None` = `.git` のない空ディレクトリ（git リポジトリ外シナリオ）
+    pub repo_dir: TempDir,
+    /// `repo_dir/.git/HEAD` に書き込んだブランチ名
+    pub branch: String,
 }
 
-/// `git` の引数別に固定値を返すフェイクスクリプト
-const FAKE_GIT_SCRIPT: &str = r#"#!/bin/sh
-case "$*" in
-  *'rev-parse --is-inside-work-tree'*)
-    echo 'true'; exit 0 ;;
-  *'rev-parse --show-toplevel'*)
-    echo '/fake/repo'; exit 0 ;;
-  *'branch --show-current'*)
-    echo 'main'; exit 0 ;;
-  *'rev-parse --abbrev-ref HEAD'*)
-    echo 'main'; exit 0 ;;
-  *'remote get-url origin'*)
-    echo 'https://github.com/test/repo.git'; exit 0 ;;
-  *)
-    exit 0 ;;
-esac
-"#;
+/// テスト用の固定ブランチ名
+const DEFAULT_BRANCH: &str = "main";
 
 impl TestEnv {
-    /// `bin_dir` に `fake git` を配置し、`home_dir` を生成する共通初期化処理
-    fn setup() -> (TempDir, TempDir) {
+    /// `bin_dir` / `home_dir` と最小限の `.git` 構造を持つ `repo_dir` を生成する共通初期化処理。
+    fn setup_with_git() -> (TempDir, TempDir, TempDir) {
         let bin_dir = tempdir().expect("failed to create bin_dir");
         let home_dir = tempdir().expect("failed to create home_dir");
-        write_executable(bin_dir.path().join("git"), FAKE_GIT_SCRIPT);
-        (bin_dir, home_dir)
+        let repo_dir = tempdir().expect("failed to create repo_dir");
+
+        // 最小限の .git 構造（HEAD のみ）
+        let git_dir = repo_dir.path().join(".git");
+        fs::create_dir_all(&git_dir).expect("create .git");
+        fs::write(
+            git_dir.join("HEAD"),
+            format!("ref: refs/heads/{DEFAULT_BRANCH}\n"),
+        )
+        .expect("write HEAD");
+
+        (bin_dir, home_dir, repo_dir)
+    }
+
+    /// `.git` のない空のワーキングディレクトリを生成する（git リポジトリ外シナリオ用）。
+    fn setup_without_git() -> (TempDir, TempDir, TempDir) {
+        let bin_dir = tempdir().expect("failed to create bin_dir");
+        let home_dir = tempdir().expect("failed to create home_dir");
+        let repo_dir = tempdir().expect("failed to create repo_dir");
+        // repo_dir に .git を作らない
+        (bin_dir, home_dir, repo_dir)
+    }
+
+    /// FNV-1a ハッシュで `repo_id` を計算する（`infra::repo_id::path_to_id` と同じアルゴリズム）。
+    ///
+    /// キーは `"<toplevel>\0<branch>"` の形式。
+    /// macOS では `/var/folders/...` が `/private/var/folders/...` のシンボリックリンクのため、
+    /// `std::env::current_dir()` が返す正規化パスと一致させるために `canonicalize()` を使用する。
+    pub fn repo_id(&self) -> String {
+        let canonical = self
+            .repo_dir
+            .path()
+            .canonicalize()
+            .unwrap_or_else(|_| self.repo_dir.path().to_path_buf());
+        let input = format!("{}\0{}", canonical.display(), self.branch);
+        let mut hash: u64 = 14_695_981_039_346_656_037;
+        for byte in input.bytes() {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(1_099_511_628_211);
+        }
+        format!("{hash:016x}")
     }
 
     /// 正常系: `pr view` / `pr checks` それぞれの JSON を返す `fake gh` を配置する。
     ///
     /// `pr_checks_json` が `None` の場合、`gh pr checks` が呼ばれると `exit 1` を返す。
     pub fn new(pr_view_json: &str, pr_checks_json: Option<&str>) -> Self {
-        let (bin_dir, home_dir) = Self::setup();
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
 
         let checks_block = match pr_checks_json {
             Some(j) => format!("printf '%s' '{j}'\n"),
@@ -74,7 +106,12 @@ impl TestEnv {
         );
 
         write_executable(bin_dir.path().join("gh"), &script);
-        Self { bin_dir, home_dir }
+        Self {
+            bin_dir,
+            home_dir,
+            repo_dir,
+            branch: DEFAULT_BRANCH.to_owned(),
+        }
     }
 
     /// compare API が `behind_by` を返すシナリオ用の `fake gh` を配置する。
@@ -85,7 +122,7 @@ impl TestEnv {
         pr_checks_json: Option<&str>,
         behind_by: u64,
     ) -> Self {
-        let (bin_dir, home_dir) = Self::setup();
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
 
         let checks_block = match pr_checks_json {
             Some(j) => format!("printf '%s' '{j}'\n"),
@@ -115,7 +152,12 @@ impl TestEnv {
         );
 
         write_executable(bin_dir.path().join("gh"), &script);
-        Self { bin_dir, home_dir }
+        Self {
+            bin_dir,
+            home_dir,
+            repo_dir,
+            branch: DEFAULT_BRANCH.to_owned(),
+        }
     }
 
     /// Compare API がエラーを返すシナリオ用の `fake gh` を配置する。
@@ -123,7 +165,7 @@ impl TestEnv {
     /// `pr view` JSON には `baseRefName` / `headRefName` を含めること（API を呼ぶため）。
     /// `repo view` は正常に応答し、`api compare` のみ `exit 1` で失敗する。
     pub fn with_compare_error(pr_view_json: &str, pr_checks_json: Option<&str>) -> Self {
-        let (bin_dir, home_dir) = Self::setup();
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
 
         let checks_block = match pr_checks_json {
             Some(j) => format!("printf '%s' '{j}'\n"),
@@ -154,21 +196,31 @@ impl TestEnv {
         );
 
         write_executable(bin_dir.path().join("gh"), &script);
-        Self { bin_dir, home_dir }
+        Self {
+            bin_dir,
+            home_dir,
+            repo_dir,
+            branch: DEFAULT_BRANCH.to_owned(),
+        }
     }
 
     /// エラー系: 指定した `exit_code` と `stderr` メッセージを返す `fake gh` を配置する。
     pub fn with_error(stderr_msg: &str, exit_code: u8) -> Self {
-        let (bin_dir, home_dir) = Self::setup();
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
         let script = format!("#!/bin/sh\nprintf '%s' '{stderr_msg}' >&2\nexit {exit_code}\n");
         write_executable(bin_dir.path().join("gh"), &script);
-        Self { bin_dir, home_dir }
+        Self {
+            bin_dir,
+            home_dir,
+            repo_dir,
+            branch: DEFAULT_BRANCH.to_owned(),
+        }
     }
 
     /// CI 未設定シナリオ: `gh pr view` は成功するが `gh pr checks` が
     /// `"no checks reported"` で `exit 1` を返す。
     pub fn with_no_ci_checks(pr_view_json: &str) -> Self {
-        let (bin_dir, home_dir) = Self::setup();
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
         let script = format!(
             "#!/bin/sh\n\
              case \"$*\" in\n\
@@ -186,44 +238,39 @@ impl TestEnv {
              esac\n"
         );
         write_executable(bin_dir.path().join("gh"), &script);
-        Self { bin_dir, home_dir }
+        Self {
+            bin_dir,
+            home_dir,
+            repo_dir,
+            branch: DEFAULT_BRANCH.to_owned(),
+        }
     }
 
-    /// `gh` バイナリが `PATH` に存在しないシナリオ（`fake git` と `home_dir` は用意する）
+    /// `gh` バイナリが `PATH` に存在しないシナリオ（`home_dir` / `repo_dir` は用意する）
     pub fn without_gh() -> Self {
-        let (bin_dir, home_dir) = Self::setup();
-        Self { bin_dir, home_dir }
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
+        Self {
+            bin_dir,
+            home_dir,
+            repo_dir,
+            branch: DEFAULT_BRANCH.to_owned(),
+        }
     }
 
-    /// `git remote get-url origin` が失敗するシナリオ（キャッシュ対象外のテスト用）
+    /// git リポジトリ外シナリオ（`.git` のない空ディレクトリで実行）
     pub fn without_git_remote() -> Self {
-        let bin_dir = tempdir().expect("failed to create bin_dir");
-        let home_dir = tempdir().expect("failed to create home_dir");
+        let (bin_dir, home_dir, repo_dir) = Self::setup_without_git();
 
-        // rev-parse --show-toplevel のみ exit 1、他は通常通り
-        let git_script = r#"#!/bin/sh
-case "$*" in
-  *'rev-parse --is-inside-work-tree'*)
-    echo 'true'; exit 0 ;;
-  *'rev-parse --show-toplevel'*)
-    echo 'not a git repository' >&2; exit 1 ;;
-  *'branch --show-current'*)
-    echo 'main'; exit 0 ;;
-  *'rev-parse --abbrev-ref HEAD'*)
-    echo 'main'; exit 0 ;;
-  *'remote get-url origin'*)
-    echo 'https://github.com/test/repo.git'; exit 0 ;;
-  *)
-    exit 0 ;;
-esac
-"#;
-        write_executable(bin_dir.path().join("git"), git_script);
-
-        // gh は応答しないようにする（呼ばれるべきでない）
+        // gh は呼ばれるべきでない
         let gh_script = "#!/bin/sh\necho 'gh should not be called' >&2\nexit 1\n";
         write_executable(bin_dir.path().join("gh"), gh_script);
 
-        Self { bin_dir, home_dir }
+        Self {
+            bin_dir,
+            home_dir,
+            repo_dir,
+            branch: DEFAULT_BRANCH.to_owned(),
+        }
     }
 
     /// `PATH` 文字列を返す（`bin_dir` を先頭に追加）
@@ -236,20 +283,22 @@ esac
         self.home_dir.path()
     }
 
-    /// `Command` に `PATH` / `HOME` / `TMPDIR` をまとめて設定する（キャッシュ無効）
+    /// `Command` に `PATH` / `HOME` / `TMPDIR` / `current_dir` をまとめて設定する（キャッシュ無効）
     ///
     /// サブコマンドと `--no-cache` は呼び出し元が追加すること。
     pub fn apply(&self, cmd: &mut assert_cmd::Command) {
         cmd.env("PATH", self.path_env());
         cmd.env("HOME", self.home());
         cmd.env("TMPDIR", self.home());
+        cmd.current_dir(self.repo_dir.path());
     }
 
-    /// `Command` に `PATH` / `HOME` / `TMPDIR` / `prompt` サブコマンドをまとめて設定する（キャッシュ有効）
+    /// `Command` に `PATH` / `HOME` / `TMPDIR` / `current_dir` / `prompt` サブコマンドをまとめて設定する（キャッシュ有効）
     pub fn apply_with_cache(&self, cmd: &mut assert_cmd::Command) {
         cmd.env("PATH", self.path_env());
         cmd.env("HOME", self.home());
         cmd.env("TMPDIR", self.home());
+        cmd.current_dir(self.repo_dir.path());
         cmd.arg("prompt");
     }
 }

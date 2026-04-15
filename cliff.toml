@@ -28,13 +28,9 @@ split_commits = false
 commit_preprocessors = [
   # 1. Issue 番号をリンクに変換
   { pattern = '#([0-9]+)', replace = "[#${1}](https://github.com/toshiki670/merge-ready/issues/${1})" },
-  # 2. スカッシュマージ: "feat: 説明 ([#N](link))" → "merge_TYPE: 説明 ([PR #N](pull-link))"
-  #    GitHub デフォルトのスカッシュマージ形式 "feat: 説明 (#N)" が対象
-  #    ステップ1 で #N がリンク化された後にマッチさせる
-  { pattern = '^(feat|fix|perf)(?:\([^)]+\))?: ([^\n]+) \(\[#([0-9]+)\]\([^)]+\)\)', replace = "merge_${1}: ${2} ([PR #${3}](https://github.com/toshiki670/merge-ready/pull/${3}))" },
-  # 3. マージコミットの feat/fix/perf PR を "merge_TYPE: 説明 (PR リンク)" に変換
+  # 2. マージコミットの feat/fix/perf PR を "merge_TYPE: 説明 (PR リンク)" に変換
   { pattern = '(?s)Merge pull request \[#([0-9]+)\]\([^)]+\) from [^\n]+\n\n(feat|fix|perf)(?:\([^)]+\))?: ([^\n]+).*', replace = "merge_${2}: ${3} ([PR #${1}](https://github.com/toshiki670/merge-ready/pull/${1}))" },
-  # 4. その他の PR を skip マーカーに変換
+  # 3. その他の PR を skip マーカーに変換
   { pattern = '(?s)Merge pull request \[#([0-9]+)\]\([^)]+\) from [^\n]+.*', replace = "merge_other:" },
 ]
 commit_parsers = [

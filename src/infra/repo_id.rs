@@ -74,7 +74,11 @@ mod tests {
         let main_repo = TempDir::new().unwrap();
         let worktree_meta = main_repo.path().join(".git/worktrees/feat");
         fs::create_dir_all(&worktree_meta).unwrap();
-        fs::write(worktree_meta.join("HEAD"), format!("ref: refs/heads/{branch}\n")).unwrap();
+        fs::write(
+            worktree_meta.join("HEAD"),
+            format!("ref: refs/heads/{branch}\n"),
+        )
+        .unwrap();
 
         let worktree = TempDir::new().unwrap();
         fs::write(

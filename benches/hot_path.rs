@@ -21,7 +21,7 @@ use tempfile::TempDir;
 
 struct BenchEnv {
     bin_dir: TempDir,
-    home_dir: TempDir,
+    tmp_dir: TempDir,
 }
 
 const FAKE_TOPLEVEL: &str = "/fake/bench/repo";
@@ -67,7 +67,8 @@ fn setup_bench_env() -> BenchEnv {
         + "' ;;\n  *'api'*'compare'*) printf '{\"behind_by\":0}' ;;\n  *) exit 0 ;;\nesac\n";
     write_executable(&bin_dir.path().join("gh"), &gh_script);
 
-    BenchEnv { bin_dir, home_dir }
+    let tmp_dir = TempDir::new().expect("tmp_dir");
+    BenchEnv { bin_dir, tmp_dir }
 }
 
 fn write_executable(path: &PathBuf, content: &str) {
@@ -77,6 +78,21 @@ fn write_executable(path: &PathBuf, content: &str) {
 
 fn path_env(env: &BenchEnv) -> String {
     format!("{}:/bin:/usr/bin", env.bin_dir.path().display())
+}
+
+/// `std::env::temp_dir()` と同じロジックでキャッシュディレクトリのサブディレクトリ名を返す。
+///
+/// バイナリ側の `infra::tmp_cache_dir::dir_name()` と同一のロジックを複製している。
+/// macOS: "merge-ready"、Linux: "merge-ready-{uid}"
+fn bench_cache_dir_name() -> String {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(meta) = std::fs::metadata("/proc/self") {
+            return format!("merge-ready-{}", meta.uid());
+        }
+    }
+    "merge-ready".to_owned()
 }
 
 fn binary_path() -> PathBuf {
@@ -110,10 +126,9 @@ fn bench_cache_hit(c: &mut Criterion) {
     let env = setup_bench_env();
     let repo_id = bench_repo_id();
     let cache_path = env
-        .home_dir
+        .tmp_dir
         .path()
-        .join(".cache")
-        .join("merge-ready")
+        .join(bench_cache_dir_name())
         .join(format!("{repo_id}.json"));
 
     fs::create_dir_all(cache_path.parent().unwrap()).expect("create cache dir");
@@ -125,13 +140,13 @@ fn bench_cache_hit(c: &mut Criterion) {
 
     let bin = binary_path();
     let path = path_env(&env);
-    let home = env.home_dir.path().to_owned();
+    let tmpdir = env.tmp_dir.path().to_owned();
 
     c.bench_function("cache_hit", |b| {
         b.iter(|| {
             Command::new(&bin)
                 .env("PATH", &path)
-                .env("HOME", &home)
+                .env("TMPDIR", &tmpdir)
                 .arg("prompt")
                 .output()
                 .expect("merge-ready failed")
@@ -147,13 +162,13 @@ fn bench_no_cache_direct(c: &mut Criterion) {
     let env = setup_bench_env();
     let bin = binary_path();
     let path = path_env(&env);
-    let home = env.home_dir.path().to_owned();
+    let tmpdir = env.tmp_dir.path().to_owned();
 
     c.bench_function("no_cache_direct", |b| {
         b.iter(|| {
             Command::new(&bin)
                 .env("PATH", &path)
-                .env("HOME", &home)
+                .env("TMPDIR", &tmpdir)
                 .args(["prompt", "--no-cache"])
                 .output()
                 .expect("merge-ready failed")

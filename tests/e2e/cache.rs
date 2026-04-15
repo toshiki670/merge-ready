@@ -100,7 +100,8 @@ fn test_cache_fresh_returns_cached_output() {
     let broken_env = TestEnv::with_error("gh is broken", 1);
     let mut cmd = Command::cargo_bin(BIN).unwrap();
     cmd.env("PATH", broken_env.path_env()); // 壊れた gh の PATH
-    cmd.env("HOME", env.home()); // キャッシュが存在する HOME
+    cmd.env("HOME", env.home()); // HOME は env.home() で隔離
+    cmd.env("TMPDIR", env.home()); // キャッシュが存在する TMPDIR
     cmd.arg("prompt"); // キャッシュ有効モード
 
     cmd.assert()
@@ -184,15 +185,30 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
-fn state_json_path(home: &std::path::Path) -> std::path::PathBuf {
-    home.join(".cache")
-        .join("merge-ready")
+/// `std::env::temp_dir()` と同じロジックでキャッシュディレクトリのサブディレクトリ名を返す。
+///
+/// `infra::tmp_cache_dir::dir_name()` と同一のロジックを複製している。
+/// macOS: "merge-ready"、Linux: "merge-ready-{uid}"
+fn cache_dir_name() -> String {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(meta) = std::fs::metadata("/proc/self") {
+            return format!("merge-ready-{}", meta.uid());
+        }
+    }
+    "merge-ready".to_owned()
+}
+
+fn state_json_path(tmpdir: &std::path::Path) -> std::path::PathBuf {
+    tmpdir
+        .join(cache_dir_name())
         .join(format!("{}.json", fake_repo_id()))
 }
 
-/// 指定した home_dir の下に state.json を書き込む
-fn write_state_json(home: &std::path::Path, output: &str, fetched_at_secs: u64) {
-    let state_path = state_json_path(home);
+/// 指定した tmpdir の下に state.json を書き込む
+fn write_state_json(tmpdir: &std::path::Path, output: &str, fetched_at_secs: u64) {
+    let state_path = state_json_path(tmpdir);
     if let Some(parent) = state_path.parent() {
         fs::create_dir_all(parent).unwrap();
     }
@@ -200,7 +216,7 @@ fn write_state_json(home: &std::path::Path, output: &str, fetched_at_secs: u64) 
     fs::write(&state_path, content).unwrap();
 }
 
-fn read_state_json(home: &std::path::Path) -> Option<serde_json::Value> {
-    let content = fs::read_to_string(state_json_path(home)).ok()?;
+fn read_state_json(tmpdir: &std::path::Path) -> Option<serde_json::Value> {
+    let content = fs::read_to_string(state_json_path(tmpdir)).ok()?;
     serde_json::from_str(&content).ok()
 }

@@ -4,9 +4,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::application::cache::{CachePort, CacheState};
+use crate::infra::tmp_cache_dir;
 
 const DEFAULT_STALE_TTL_SECS: u64 = 5;
-const CACHE_DIR_NAME: &str = "merge-ready";
 
 #[derive(Serialize, Deserialize)]
 struct StateJson {
@@ -38,9 +38,7 @@ enum RawCacheStatus {
 ///
 /// キャッシュファイルが存在しない、または読み込めない場合は [`RawCacheStatus::Miss`] を返す。
 fn check_raw(repo_id: &str) -> RawCacheStatus {
-    let Some(state_path) = cache_path(repo_id) else {
-        return RawCacheStatus::Miss;
-    };
+    let state_path = cache_path(repo_id);
 
     let Ok(content) = fs::read_to_string(&state_path) else {
         return RawCacheStatus::Miss;
@@ -65,9 +63,7 @@ fn check_raw(repo_id: &str) -> RawCacheStatus {
 /// ディレクトリが存在しない場合は自動的に作成する。
 /// 書き込み失敗は静かに握り潰す。
 pub fn write(repo_id: &str, output: &str) {
-    let Some(state_path) = cache_path(repo_id) else {
-        return;
-    };
+    let state_path = cache_path(repo_id);
 
     if let Some(parent) = state_path.parent() {
         let _ = fs::create_dir_all(parent);
@@ -92,14 +88,8 @@ pub fn write(repo_id: &str, output: &str) {
     }
 }
 
-fn cache_path(repo_id: &str) -> Option<std::path::PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    Some(
-        std::path::Path::new(&home)
-            .join(".cache")
-            .join(CACHE_DIR_NAME)
-            .join(format!("{repo_id}.json")),
-    )
+fn cache_path(repo_id: &str) -> std::path::PathBuf {
+    tmp_cache_dir::cache_dir().join(format!("{repo_id}.json"))
 }
 
 fn now_secs() -> u64 {

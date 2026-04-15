@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-const CACHE_DIR_NAME: &str = "merge-ready";
+use crate::infra::tmp_cache_dir;
 
 /// PID 再利用安全弁としてのロック最大有効期間。
 ///
@@ -30,9 +30,7 @@ struct LockFile {
 /// ロックファイルが既存の場合は PID と age で生存確認を行い、
 /// プロセスが死んでいれば除去して再取得する。
 pub fn try_acquire(repo_id: &str) -> bool {
-    let Some(path) = lock_path(repo_id) else {
-        return false;
-    };
+    let path = lock_path(repo_id);
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -53,22 +51,19 @@ pub fn try_acquire(repo_id: &str) -> bool {
 ///
 /// `locked_at` をリセットして子プロセスの開始時刻を反映する。
 pub fn update_pid(repo_id: &str, pid: u32) {
-    if let Some(path) = lock_path(repo_id) {
-        let lock = LockFile {
-            pid,
-            locked_at: now_secs(),
-        };
-        if let Ok(content) = serde_json::to_string(&lock) {
-            let _ = fs::write(path, content);
-        }
+    let path = lock_path(repo_id);
+    let lock = LockFile {
+        pid,
+        locked_at: now_secs(),
+    };
+    if let Ok(content) = serde_json::to_string(&lock) {
+        let _ = fs::write(path, content);
     }
 }
 
 /// リフレッシュロックを解放する。
 pub fn release(repo_id: &str) {
-    if let Some(path) = lock_path(repo_id) {
-        let _ = fs::remove_file(path);
-    }
+    let _ = fs::remove_file(lock_path(repo_id));
 }
 
 /// ロックファイルをアトミックに作成し、ハンドルを保持したまま自 PID と取得時刻を JSON で書き込む。
@@ -128,14 +123,8 @@ fn is_alive(path: &std::path::Path) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-fn lock_path(repo_id: &str) -> Option<std::path::PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    Some(
-        std::path::Path::new(&home)
-            .join(".cache")
-            .join(CACHE_DIR_NAME)
-            .join(format!("{repo_id}.lock")),
-    )
+fn lock_path(repo_id: &str) -> std::path::PathBuf {
+    tmp_cache_dir::cache_dir().join(format!("{repo_id}.lock"))
 }
 
 fn now_secs() -> u64 {

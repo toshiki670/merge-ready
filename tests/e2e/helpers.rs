@@ -12,7 +12,7 @@ use tempfile::{TempDir, tempdir};
 pub struct TestEnv {
     /// `fake gh` / `fake git` を配置する一時ディレクトリ
     pub bin_dir: TempDir,
-    /// 隔離された `HOME`（`~/.cache/ci-status/error.log` の書き込み先）
+    /// 隔離された `HOME` 兼 `TMPDIR`（キャッシュ・ロックファイルの書き込み先）
     pub home_dir: TempDir,
 }
 
@@ -236,18 +236,20 @@ esac
         self.home_dir.path()
     }
 
-    /// `Command` に `PATH` / `HOME` をまとめて設定する（キャッシュ無効）
+    /// `Command` に `PATH` / `HOME` / `TMPDIR` をまとめて設定する（キャッシュ無効）
     ///
     /// サブコマンドと `--no-cache` は呼び出し元が追加すること。
     pub fn apply(&self, cmd: &mut assert_cmd::Command) {
         cmd.env("PATH", self.path_env());
         cmd.env("HOME", self.home());
+        cmd.env("TMPDIR", self.home());
     }
 
-    /// `Command` に `PATH` / `HOME` / `prompt` サブコマンドをまとめて設定する（キャッシュ有効）
+    /// `Command` に `PATH` / `HOME` / `TMPDIR` / `prompt` サブコマンドをまとめて設定する（キャッシュ有効）
     pub fn apply_with_cache(&self, cmd: &mut assert_cmd::Command) {
         cmd.env("PATH", self.path_env());
         cmd.env("HOME", self.home());
+        cmd.env("TMPDIR", self.home());
         cmd.arg("prompt");
     }
 }

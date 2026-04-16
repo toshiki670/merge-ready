@@ -61,13 +61,20 @@ mod tests {
     #[test]
     fn refresh_with_explicit_repo_id() {
         let mode = execution_mode(&args(true, false, Some("abc")), &FixedRepoIdPort(None));
-        assert!(matches!(mode, Some(ExecutionMode::BackgroundRefresh { repo_id }) if repo_id == "abc"));
+        assert!(
+            matches!(mode, Some(ExecutionMode::BackgroundRefresh { repo_id }) if repo_id == "abc")
+        );
     }
 
     #[test]
     fn refresh_falls_back_to_port_when_no_repo_id_arg() {
-        let mode = execution_mode(&args(true, false, None), &FixedRepoIdPort(Some("from-port")));
-        assert!(matches!(mode, Some(ExecutionMode::BackgroundRefresh { repo_id }) if repo_id == "from-port"));
+        let mode = execution_mode(
+            &args(true, false, None),
+            &FixedRepoIdPort(Some("from-port")),
+        );
+        assert!(
+            matches!(mode, Some(ExecutionMode::BackgroundRefresh { repo_id }) if repo_id == "from-port")
+        );
     }
 
     #[test]

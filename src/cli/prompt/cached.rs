@@ -1,19 +1,11 @@
 use std::process::Stdio;
 
-use crate::application::prompt::{PromptEffect, RepoIdPort};
-
-struct InfraRepoIdPort;
-
-impl RepoIdPort for InfraRepoIdPort {
-    fn get(&self) -> Option<String> {
-        crate::infra::repo_id::get()
-    }
-}
+use crate::application::prompt::PromptEffect;
 
 /// キャッシュ方針に基づいて表示し、必要に応じてバックグラウンドリフレッシュを起動する。
 pub(super) fn run_cached() {
     let cache = crate::infra::cache::CacheStore;
-    match crate::application::prompt::resolve_cached(&InfraRepoIdPort, &cache) {
+    match crate::application::prompt::resolve_cached(&super::InfraRepoIdPort, &cache) {
         PromptEffect::NoOutput => {}
         PromptEffect::Show(s) => print!("{s}"),
         PromptEffect::ShowAndRefresh { output, repo_id } => {

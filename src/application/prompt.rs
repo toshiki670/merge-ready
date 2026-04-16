@@ -13,6 +13,16 @@ pub trait RepoIdPort {
     fn get(&self) -> Option<String>;
 }
 
+/// プロンプト表示の実行モード
+pub enum ExecutionMode {
+    /// キャッシュを使わず gh を直接呼ぶ
+    Direct,
+    /// キャッシュを参照し、必要に応じてバックグラウンドリフレッシュを要求する
+    Cached,
+    /// gh を呼んでキャッシュを更新する（stdout には出力しない）
+    BackgroundRefresh { repo_id: String },
+}
+
 /// キャッシュ表示の結果として CLI 層が実行すべき意図を表す
 pub enum PromptEffect {
     /// そのまま表示（バックグラウンドリフレッシュ不要）

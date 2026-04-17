@@ -1,4 +1,4 @@
-use crate::domain::error::RepositoryError;
+use crate::error::RepositoryError;
 
 /// ブランチとベースブランチの同期状態
 pub enum BranchSyncStatus {
@@ -10,5 +10,7 @@ pub enum BranchSyncStatus {
 }
 
 pub trait BranchSyncRepository {
+    /// # Errors
+    /// Returns `RepositoryError` if the sync status cannot be fetched.
     fn fetch_sync_status(&self) -> Result<BranchSyncStatus, RepositoryError>;
 }

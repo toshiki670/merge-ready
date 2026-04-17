@@ -1,16 +1,19 @@
 mod branch_sync;
-pub(crate) mod cache;
+pub mod cache;
 mod ci_checks;
-pub(super) mod errors;
+pub mod errors;
 mod merge_ready;
 mod pr_state;
-pub(crate) mod prompt;
+pub mod prompt;
 mod review;
 
-use crate::domain::{
-    branch_sync::BranchSyncRepository, ci_checks::CiChecksRepository,
-    merge_ready::MergeReadinessRepository, pr_state::PrStateRepository, review::ReviewRepository,
-};
+// interface 層が application のみに依存できるよう domain トレイトを再エクスポート
+pub use merge_readiness_domain::branch_sync::BranchSyncRepository;
+pub use merge_readiness_domain::ci_checks::CiChecksRepository;
+pub use merge_readiness_domain::merge_ready::MergeReadinessRepository;
+pub use merge_readiness_domain::pr_state::PrStateRepository;
+pub use merge_readiness_domain::review::ReviewRepository;
+
 use errors::{ErrorLogger, ErrorPresenter};
 
 /// アプリケーション層が返す出力トークンの意味オブジェクト
@@ -33,6 +36,9 @@ pub enum OutputToken {
 ///
 /// `branch_sync` と `ci_checks` のフェッチは独立した gh 呼び出しを必要とするため、
 /// `std::thread::scope` を使って並列実行する。
+///
+/// # Panics
+/// スレッドがパニックした場合（内部エラー）。
 pub fn run<C, L, P>(client: &C, err_logger: &L, err_presenter: &P) -> Vec<OutputToken>
 where
     C: PrStateRepository

@@ -1,4 +1,4 @@
-use crate::domain::error::RepositoryError;
+use crate::error::RepositoryError;
 
 /// 個別チェックのバケット種別
 ///
@@ -18,6 +18,7 @@ pub enum CiStatus {
 }
 
 /// 複数チェックを集約（優先度: `Fail` > `ActionRequired` > `Pass`）
+#[must_use]
 pub fn aggregate(buckets: &[CheckBucket]) -> CiStatus {
     if buckets
         .iter()
@@ -35,5 +36,7 @@ pub fn aggregate(buckets: &[CheckBucket]) -> CiStatus {
 }
 
 pub trait CiChecksRepository {
+    /// # Errors
+    /// Returns `RepositoryError` if the check buckets cannot be fetched.
     fn fetch_check_buckets(&self) -> Result<Vec<CheckBucket>, RepositoryError>;
 }

@@ -1,4 +1,4 @@
-use crate::domain::error::RepositoryError;
+use crate::error::RepositoryError;
 
 /// マージ可否に必要な状態（外部コマンドの文字列表現に非依存）
 pub struct MergeReadiness {
@@ -7,10 +7,13 @@ pub struct MergeReadiness {
     pub is_protected: bool,
 }
 
+#[must_use]
 pub fn is_ready(readiness: &MergeReadiness) -> bool {
     !readiness.is_draft && readiness.is_protected
 }
 
 pub trait MergeReadinessRepository {
+    /// # Errors
+    /// Returns `RepositoryError` if the merge readiness cannot be fetched.
     fn fetch_readiness(&self) -> Result<MergeReadiness, RepositoryError>;
 }

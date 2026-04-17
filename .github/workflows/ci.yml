@@ -18,7 +18,7 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt
-      - run: cargo fmt --check
+      - run: cargo fmt --check --all
 
   clippy:
     name: clippy
@@ -32,7 +32,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: "ci"
-      - run: cargo clippy -- -D warnings
+      - run: cargo clippy --workspace -- -D warnings
 
   test:
     name: test
@@ -45,7 +45,8 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: "ci"
-      - run: cargo test
+      - run: cargo check --workspace
+      - run: cargo test --workspace
 
   deny:
     name: deny

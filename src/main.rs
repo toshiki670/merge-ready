@@ -109,7 +109,10 @@ fn main() {
                 let Some(path) =
                     contexts::configuration::infrastructure::toml_loader::config_path()
                 else {
-                    return;
+                    eprintln!(
+                        "failed to edit config: could not determine config path (HOME or XDG_CONFIG_HOME required)"
+                    );
+                    std::process::exit(1);
                 };
                 if let Err(e) = contexts::configuration::interface::cli::config::edit::run(&path) {
                     eprintln!("failed to edit config: {e}");

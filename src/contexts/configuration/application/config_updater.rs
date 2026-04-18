@@ -12,8 +12,10 @@ pub fn run(repo: &impl ConfigRepository) -> Result<(), std::io::Error> {
 }
 
 pub fn default_config() -> Config {
-    Config {
+    let mut config = Config {
         version: CURRENT_VERSION,
         ..Config::default()
-    }
+    };
+    config.fill_defaults();
+    config
 }

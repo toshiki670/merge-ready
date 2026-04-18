@@ -325,6 +325,14 @@ impl TestEnv {
         (editor_path, log_path)
     }
 
+    /// `bin_dir` に常に失敗（exit 1）する fake editor スクリプトを配置する。
+    /// 戻り値: `editor_path`
+    pub fn setup_failing_editor(&self) -> std::path::PathBuf {
+        let editor_path = self.bin_dir.path().join("fail_editor");
+        write_executable(&editor_path, "#!/bin/sh\nexit 1\n");
+        editor_path
+    }
+
     /// `bin_dir/vi` に fake vi スクリプトを配置する（$PATH 経由でフォールバック検証用）。
     /// 呼ばれたファイルパスを `home_dir/vi_log.txt` に書き出す。
     /// 戻り値: `log_path`

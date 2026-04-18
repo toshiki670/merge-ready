@@ -266,6 +266,64 @@ fn test_config_edit_creates_dir_and_file_when_both_absent() {
     );
 }
 
+/// エディタが非ゼロ終了した場合、merge-ready も非ゼロ終了し stderr にメッセージを出す
+#[test]
+fn test_config_edit_exits_nonzero_when_editor_fails() {
+    let env = TestEnv::without_gh();
+    env.write_config("[merge_ready]\nsymbol = \"★\"");
+    let editor_path = env.setup_failing_editor();
+
+    let mut c = Command::cargo_bin("merge-ready").unwrap();
+    env.apply(&mut c);
+    c.env("VISUAL", &editor_path);
+    c.args(["config", "edit"]);
+    c.assert()
+        .failure()
+        .stderr(predicates::str::contains("failed to edit config"));
+}
+
+/// HOME も XDG_CONFIG_HOME も未設定の場合、merge-ready は非ゼロ終了し stderr にメッセージを出す
+#[test]
+fn test_config_edit_exits_nonzero_without_config_path() {
+    let env = TestEnv::without_gh();
+    let (editor_path, _log_path) = env.setup_fake_editor();
+
+    let mut c = Command::cargo_bin("merge-ready").unwrap();
+    c.env("PATH", env.path_env());
+    c.env_remove("HOME");
+    c.env_remove("XDG_CONFIG_HOME");
+    c.current_dir(env.repo_dir.path());
+    c.env("VISUAL", &editor_path);
+    c.args(["config", "edit"]);
+    c.assert()
+        .failure()
+        .stderr(predicates::str::contains("failed to edit config"));
+}
+
+/// 設定ファイルなし → デフォルト設定ファイルがデフォルト値付きセクションを含む
+#[test]
+fn test_config_edit_default_contains_sections() {
+    let env = TestEnv::without_gh();
+    let (editor_path, _log_path) = env.setup_fake_editor();
+
+    let mut c = Command::cargo_bin("merge-ready").unwrap();
+    env.apply(&mut c);
+    c.env("VISUAL", &editor_path);
+    c.args(["config", "edit"]);
+    c.assert().success().stderr("");
+
+    let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
+    let content = std::fs::read_to_string(&config_path).expect("read config");
+    assert!(
+        content.contains("merge_ready"),
+        "config should contain merge_ready section with defaults, got:\n{content}"
+    );
+    assert!(
+        content.contains("conflict"),
+        "config should contain conflict section with defaults, got:\n{content}"
+    );
+}
+
 // ============================================================
 // config update
 // ============================================================

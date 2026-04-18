@@ -7,8 +7,21 @@ pub fn run(path: &Path) -> Result<(), std::io::Error> {
         .unwrap_or_else(|| OsString::from("vi"));
 
     ensure_config_file(path)?;
-    // TODO: エディタの終了コードを確認してエラー処理する
-    let _ = std::process::Command::new(editor).arg(path).status();
+    let status = std::process::Command::new(&editor)
+        .arg(path)
+        .status()
+        .map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("failed to launch editor {:?}: {e}", editor),
+            )
+        })?;
+    if !status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("editor {:?} exited with {status}", editor),
+        ));
+    }
     Ok(())
 }
 

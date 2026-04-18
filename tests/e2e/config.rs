@@ -2,13 +2,6 @@
 //!
 //! symbol / label / format のカスタマイズ、部分設定のフォールバック、
 //! 設定ファイルなし・不正 TOML でのデフォルト出力を検証する。
-//!
-//! # テストリスト（config edit）
-//! - [ ] 設定ファイルあり・$VISUAL 設定済み → $VISUAL がファイルパスを引数として呼ばれる
-//! - [ ] 設定ファイルあり・$VISUAL 未設定・$EDITOR 設定済み → $EDITOR が呼ばれる
-//! - [ ] 設定ファイルあり・$VISUAL / $EDITOR 未設定 → vi がフォールバックとして呼ばれる
-//! - [ ] 設定ファイルなし・エディタ設定済み → デフォルト設定ファイルが作成されてからエディタが呼ばれる
-//! - [ ] 設定ファイルなし・.config/ ディレクトリも存在しない → ディレクトリ作成してからファイル作成してエディタ呼ぶ
 
 use super::helpers::TestEnv;
 use assert_cmd::Command;
@@ -147,21 +140,7 @@ fn test_xdg_config_home_takes_precedence_over_home() {
 // config edit
 // ============================================================
 
-// テストリスト（config edit）:
-// テストリスト（config update）:
-// [x] [U1] 設定ファイルなし → デフォルト設定ファイルが新規作成される
-// [x] [U2] バージョンが最新 → ファイルが変更されない
-// [x] [U3] 旧バージョン・有効なキーあり → 既存の値が保持される
-// [x] [U4] 旧バージョン・廃止キーあり → 廃止キーが削除される
-// [x] [U5] 旧バージョン・不足キーあり → デフォルト値で不足キーが追加される
-
-// [x] [1] 設定ファイルあり・$VISUAL 設定済み → $VISUAL がファイルパスを引数として呼ばれる
-// [x] [2] 設定ファイルあり・$VISUAL 未設定・$EDITOR 設定済み → $EDITOR が呼ばれる
-// [x] [3] 設定ファイルあり・$VISUAL / $EDITOR 未設定 → vi がフォールバックとして呼ばれる
-// [x] [4] 設定ファイルなし・エディタ設定済み → デフォルト設定ファイルが作成されてからエディタが呼ばれる
-// [ ] [5] 設定ファイルなし・.config/ ディレクトリも存在しない → ディレクトリ作成してからファイル作成してエディタ呼ぶ
-
-/// [1] 設定ファイルあり・$VISUAL 設定済み → $VISUAL がファイルパスを引数として呼ばれる
+/// $VISUAL が設定されている場合、$VISUAL がファイルパスを引数として呼ばれる
 #[test]
 fn test_config_edit_uses_visual() {
     let env = TestEnv::without_gh();
@@ -182,7 +161,7 @@ fn test_config_edit_uses_visual() {
     );
 }
 
-/// [2] 設定ファイルあり・$VISUAL 未設定・$EDITOR 設定済み → $EDITOR が呼ばれる
+/// 設定ファイルあり・$VISUAL 未設定・$EDITOR 設定済み → $EDITOR が呼ばれる
 #[test]
 fn test_config_edit_uses_editor_when_visual_unset() {
     let env = TestEnv::without_gh();
@@ -203,7 +182,7 @@ fn test_config_edit_uses_editor_when_visual_unset() {
     );
 }
 
-/// [3] 設定ファイルあり・$VISUAL / $EDITOR 未設定 → vi がフォールバックとして呼ばれる
+/// 設定ファイルあり・$VISUAL / $EDITOR 未設定 → vi がフォールバックとして呼ばれる
 #[test]
 fn test_config_edit_falls_back_to_vi() {
     let env = TestEnv::without_gh();
@@ -224,7 +203,7 @@ fn test_config_edit_falls_back_to_vi() {
     );
 }
 
-/// [4] 設定ファイルなし・エディタ設定済み → デフォルト設定ファイルが作成されてからエディタが呼ばれる
+/// 設定ファイルなし・エディタ設定済み → デフォルト設定ファイルが作成されてからエディタが呼ばれる
 #[test]
 fn test_config_edit_creates_default_when_absent() {
     let env = TestEnv::without_gh();
@@ -251,7 +230,7 @@ fn test_config_edit_creates_default_when_absent() {
     assert!(!content.is_empty(), "config file is empty");
 }
 
-/// [5] 設定ファイルなし・.config/ ディレクトリも存在しない → ディレクトリ作成してからファイル作成してエディタ呼ぶ
+/// 設定ファイルなし・.config/ ディレクトリも存在しない → ディレクトリ作成してからファイル作成してエディタ呼ぶ
 #[test]
 fn test_config_edit_creates_dir_and_file_when_both_absent() {
     let env = TestEnv::without_gh();
@@ -291,7 +270,7 @@ fn test_config_edit_creates_dir_and_file_when_both_absent() {
 // config update
 // ============================================================
 
-/// [U1] 設定ファイルなし → デフォルト設定ファイルが新規作成される
+/// 設定ファイルなし → デフォルト設定ファイルが新規作成される
 #[test]
 fn test_config_update_creates_default_when_absent() {
     let env = TestEnv::without_gh();
@@ -307,7 +286,7 @@ fn test_config_update_creates_default_when_absent() {
     assert!(!content.is_empty(), "config file is empty");
 }
 
-/// [U2] バージョンが最新 → ファイルが変更されない
+/// バージョンが最新 → ファイルが変更されない
 #[test]
 fn test_config_update_no_change_when_latest_version() {
     let env = TestEnv::without_gh();
@@ -324,7 +303,7 @@ fn test_config_update_no_change_when_latest_version() {
     assert_eq!(content, original, "file should not be modified");
 }
 
-/// [U3] 旧バージョン・有効なキーあり → 既存の値が保持され version が更新される
+/// 旧バージョン・有効なキーあり → 既存の値が保持され version が更新される
 #[test]
 fn test_config_update_preserves_valid_keys() {
     let env = TestEnv::without_gh();
@@ -350,7 +329,7 @@ fn test_config_update_preserves_valid_keys() {
     );
 }
 
-/// [U4] 旧バージョン・廃止キーあり → 廃止キーが削除される
+/// 旧バージョン・廃止キーあり → 廃止キーが削除される
 #[test]
 fn test_config_update_removes_obsolete_keys() {
     let env = TestEnv::without_gh();
@@ -374,7 +353,7 @@ fn test_config_update_removes_obsolete_keys() {
     );
 }
 
-/// [U5] 旧バージョン・不足キーあり → デフォルト値で不足キーが追加される
+/// 旧バージョン・不足キーあり → デフォルト値で不足キーが追加される
 #[test]
 fn test_config_update_adds_missing_sections_with_defaults() {
     let env = TestEnv::without_gh();

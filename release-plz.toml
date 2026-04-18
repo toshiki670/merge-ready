@@ -4,6 +4,7 @@ changelog_config = "cliff.toml"
 git_release_enable = true
 git_release_draft = false
 pr_branch_prefix = "release-"
+features_always_increment_minor = true
 
 [[package]]
 name = "configuration-domain"

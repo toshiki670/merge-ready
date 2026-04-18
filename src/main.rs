@@ -130,8 +130,6 @@ fn run_config_edit() {
 }
 
 fn run_config_update() {
-    use contexts::configuration::domain::config::{CURRENT_VERSION, Config};
-
     let Some(path) = contexts::configuration::infrastructure::toml_loader::config_path() else {
         return;
     };
@@ -141,18 +139,7 @@ fn run_config_update() {
         return;
     }
 
-    let content = std::fs::read_to_string(&path).unwrap_or_default();
-    let mut config: Config = toml::from_str(&content).unwrap_or_default();
-
-    if config.version == CURRENT_VERSION {
-        return;
-    }
-
-    config.version = CURRENT_VERSION;
-    config.fill_defaults();
-    if let Ok(new_content) = toml::to_string_pretty(&config) {
-        let _ = std::fs::write(&path, new_content);
-    }
+    contexts::configuration::infrastructure::toml_loader::migrate_config_if_needed(&path);
 }
 
 fn ensure_config_file(path: &std::path::Path) {

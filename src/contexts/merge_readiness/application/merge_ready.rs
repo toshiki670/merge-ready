@@ -1,6 +1,8 @@
 use super::OutputToken;
 use super::errors::{ErrorLogger, ErrorPresenter};
-use crate::contexts::merge_readiness::domain::merge_ready::{MergeReadiness, MergeReadinessRepository};
+use crate::contexts::merge_readiness::domain::merge_ready::{
+    MergeReadiness, MergeReadinessRepository,
+};
 
 /// マージ可否状態を取得する。失敗時は `None` を返してエラー出力する。
 pub fn fetch(

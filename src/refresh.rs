@@ -1,4 +1,6 @@
-use crate::contexts::merge_readiness::infrastructure::{cache, gh::GhClient, logger::Logger, refresh_lock};
+use crate::contexts::merge_readiness::infrastructure::{
+    cache, gh::GhClient, logger::Logger, refresh_lock,
+};
 use crate::contexts::merge_readiness::interface::presentation::Presenter;
 
 use crate::ConfigAdapter;

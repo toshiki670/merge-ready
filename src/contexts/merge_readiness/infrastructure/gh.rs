@@ -4,10 +4,14 @@ use std::sync::OnceLock;
 
 use serde::Deserialize;
 
-use crate::contexts::merge_readiness::domain::branch_sync::{BranchSyncRepository, BranchSyncStatus};
+use crate::contexts::merge_readiness::domain::branch_sync::{
+    BranchSyncRepository, BranchSyncStatus,
+};
 use crate::contexts::merge_readiness::domain::ci_checks::{CheckBucket, CiChecksRepository};
 use crate::contexts::merge_readiness::domain::error::RepositoryError;
-use crate::contexts::merge_readiness::domain::merge_ready::{MergeReadiness, MergeReadinessRepository};
+use crate::contexts::merge_readiness::domain::merge_ready::{
+    MergeReadiness, MergeReadinessRepository,
+};
 use crate::contexts::merge_readiness::domain::pr_state::{PrLifecycle, PrStateRepository};
 use crate::contexts::merge_readiness::domain::review::{ReviewRepository, ReviewStatus};
 

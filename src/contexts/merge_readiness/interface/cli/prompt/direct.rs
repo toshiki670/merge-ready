@@ -2,7 +2,9 @@ use crate::contexts::merge_readiness::application::{
     BranchSyncRepository, CiChecksRepository, MergeReadinessRepository, PrStateRepository,
     ReviewRepository, errors::ErrorLogger,
 };
-use crate::contexts::merge_readiness::interface::presentation::{PresentationConfigPort, Presenter};
+use crate::contexts::merge_readiness::interface::presentation::{
+    PresentationConfigPort, Presenter,
+};
 
 pub fn run<C, L, P>(client: &C, logger: &L, config_port: P)
 where

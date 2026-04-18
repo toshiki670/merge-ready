@@ -1,5 +1,7 @@
 use super::OutputToken;
-use crate::contexts::merge_readiness::domain::ci_checks::{CheckBucket, CiChecksRepository, CiStatus};
+use crate::contexts::merge_readiness::domain::ci_checks::{
+    CheckBucket, CiChecksRepository, CiStatus,
+};
 use crate::contexts::merge_readiness::domain::error::RepositoryError;
 
 /// CI チェック結果を取得する。失敗時は `Err` を返す（エラー表示は呼び出し元が担う）。

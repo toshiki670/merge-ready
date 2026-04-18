@@ -11,16 +11,13 @@ pub fn run(path: &Path) -> Result<(), std::io::Error> {
         .arg(path)
         .status()
         .map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("failed to launch editor {:?}: {e}", editor),
-            )
+            std::io::Error::other(format!("failed to launch editor {}: {e}", editor.display()))
         })?;
     if !status.success() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("editor {:?} exited with {status}", editor),
-        ));
+        return Err(std::io::Error::other(format!(
+            "editor {} exited with {status}",
+            editor.display()
+        )));
     }
     Ok(())
 }

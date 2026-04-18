@@ -48,6 +48,27 @@ jobs:
       - run: cargo check --workspace
       - run: cargo test --workspace
 
+  dependency-rules:
+    name: dependency-rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Check layer dependency rules
+        run: |
+          # domain は infrastructure/application をインポート禁止
+          if grep -rn "use crate::contexts::.*::infrastructure" \
+              src/contexts/merge_readiness/domain.rs \
+              src/contexts/merge_readiness/domain/ 2>/dev/null; then
+            echo "ERROR: domain layer imports infrastructure"
+            exit 1
+          fi
+          if grep -rn "use crate::contexts::.*::application" \
+              src/contexts/merge_readiness/domain.rs \
+              src/contexts/merge_readiness/domain/ 2>/dev/null; then
+            echo "ERROR: domain layer imports application"
+            exit 1
+          fi
+
   deny:
     name: deny
     runs-on: ubuntu-latest

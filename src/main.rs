@@ -1,17 +1,18 @@
 mod cached;
+mod contexts;
 mod refresh;
 
 use clap::{CommandFactory, Parser, Subcommand};
-use configuration_domain::config::TokenConfig;
-use configuration_domain::repository::ConfigRepository as _;
-use configuration_infrastructure::toml_loader::TomlConfigRepository;
-use merge_readiness_application::{
+use contexts::configuration::domain::config::TokenConfig;
+use contexts::configuration::domain::repository::ConfigRepository as _;
+use contexts::configuration::infrastructure::toml_loader::TomlConfigRepository;
+use contexts::merge_readiness::application::{
     OutputToken,
     errors::ErrorToken,
     prompt::{ExecutionMode, RepoIdPort},
 };
-use merge_readiness_infrastructure::{gh::GhClient, logger::Logger};
-use merge_readiness_interface::{
+use contexts::merge_readiness::infrastructure::{gh::GhClient, logger::Logger};
+use contexts::merge_readiness::interface::{
     cli::prompt::{self, AFTER_HELP, PromptArgs},
     presentation::PresentationConfigPort,
 };
@@ -38,11 +39,11 @@ struct InfraRepoIdPort;
 
 impl RepoIdPort for InfraRepoIdPort {
     fn get(&self) -> Option<String> {
-        merge_readiness_infrastructure::repo_id::get()
+        contexts::merge_readiness::infrastructure::repo_id::get()
     }
 }
 
-pub(crate) struct ConfigAdapter(configuration_domain::config::Config);
+pub(crate) struct ConfigAdapter(contexts::configuration::domain::config::Config);
 
 impl ConfigAdapter {
     pub(crate) fn load() -> Self {
@@ -133,7 +134,7 @@ fn main() {
 
     match mode {
         ExecutionMode::Direct => {
-            merge_readiness_interface::cli::prompt::direct::run(
+            contexts::merge_readiness::interface::cli::prompt::direct::run(
                 &GhClient::new(),
                 &Logger,
                 ConfigAdapter::load(),

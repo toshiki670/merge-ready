@@ -1,14 +1,17 @@
 use std::process::Stdio;
 
-use merge_readiness_application::prompt::PromptEffect;
-use merge_readiness_infrastructure::{cache::CacheStore, refresh_lock};
+use crate::contexts::merge_readiness::application::prompt::PromptEffect;
+use crate::contexts::merge_readiness::infrastructure::{cache::CacheStore, refresh_lock};
 
 use crate::InfraRepoIdPort;
 
 /// キャッシュ方針に基づいて表示し、必要に応じてバックグラウンドリフレッシュを起動する。
 pub fn run() {
     let cache = CacheStore;
-    match merge_readiness_application::prompt::resolve_cached(&InfraRepoIdPort, &cache) {
+    match crate::contexts::merge_readiness::application::prompt::resolve_cached(
+        &InfraRepoIdPort,
+        &cache,
+    ) {
         PromptEffect::NoOutput => {}
         PromptEffect::Show(s) => print!("{s}"),
         PromptEffect::ShowAndRefresh { output, repo_id } => {

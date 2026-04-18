@@ -4,27 +4,3 @@ changelog_config = "cliff.toml"
 git_release_enable = true
 git_release_draft = false
 pr_branch_prefix = "release-"
-
-[[package]]
-name = "configuration-domain"
-changelog_update = false
-
-[[package]]
-name = "configuration-infrastructure"
-changelog_update = false
-
-[[package]]
-name = "merge-readiness-domain"
-changelog_update = false
-
-[[package]]
-name = "merge-readiness-application"
-changelog_update = false
-
-[[package]]
-name = "merge-readiness-infrastructure"
-changelog_update = false
-
-[[package]]
-name = "merge-readiness-interface"
-changelog_update = false

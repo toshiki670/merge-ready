@@ -1,3 +1,7 @@
+pub trait ErrorLogger {
+    fn log(&self, msg: &str);
+}
+
 /// リポジトリ操作で発生しうるエラー種別（全ドメイントレイト共通）
 ///
 /// infra の実装手段（CLI・REST 等）に依存しない抽象的な分類のみを持つ。

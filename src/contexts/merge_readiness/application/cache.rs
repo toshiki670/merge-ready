@@ -1,14 +1,4 @@
-/// キャッシュの状態（アプリケーション層の表現）
-pub enum CacheState {
-    Fresh(String),
-    Stale(String),
-    Miss,
-}
-
-/// キャッシュ読み取りを抽象化するポート
-pub trait CachePort {
-    fn check(&self, repo_id: &str) -> CacheState;
-}
+pub use crate::contexts::merge_readiness::domain::cache::{CachePort, CacheState};
 
 /// main に伝える表示アクション
 pub(crate) enum DisplayAction {

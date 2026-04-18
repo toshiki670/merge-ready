@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::contexts::merge_readiness::application::cache::{CachePort, CacheState};
+use crate::contexts::merge_readiness::domain::cache::{CachePort, CacheState};
 
 use super::tmp_cache_dir;
 

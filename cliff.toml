@@ -14,21 +14,12 @@ body = """
 {% for group, commits in commits | group_by(attribute="group") %}\
 ### {{ group | upper_first }}
 {% for commit in commits %}\
-{% if commit.remote.pr_number %}\
-- {% if commit.breaking %}[**BREAKING**] {% endif %}{{ commit.remote.pr_title | trim_start_matches(pat="feat!: ") | trim_start_matches(pat="fix!: ") | trim_start_matches(pat="perf!: ") | trim_start_matches(pat="feat: ") | trim_start_matches(pat="fix: ") | trim_start_matches(pat="perf: ") | upper_first }} ([#{{ commit.remote.pr_number }}](https://github.com/toshiki670/merge-ready/pull/{{ commit.remote.pr_number }}))
-{% else %}\
-- {% if commit.breaking %}[**BREAKING**] {% endif %}{{ commit.message | upper_first }}
-{% endif %}\
+- {% if commit.breaking %}[**BREAKING**] {% endif %}{{ commit.message | upper_first }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/toshiki670/merge-ready/commit/{{ commit.id }}))
 {% endfor %}\
 {% endfor %}\
 """
 footer = ""
 trim = true
-
-[remote.github]
-owner = "toshiki670"
-repo = "merge-ready"
-token = "$GITHUB_TOKEN"
 
 [git]
 conventional_commits = true
@@ -36,13 +27,6 @@ filter_unconventional = false
 split_commits = false
 commit_preprocessors = []
 commit_parsers = [
-  # GitHub integration: PR タイトルでグループ分け（token 設定時）
-  { field = "github.pr_title", pattern = "^feat",  group = "Features" },
-  { field = "github.pr_title", pattern = "^fix",   group = "Bug Fixes" },
-  { field = "github.pr_title", pattern = "^perf",  group = "Performance" },
-  # PR タイトルが feat/fix/perf 以外（arch/chore/refactor/docs/style/ci）はスキップ
-  { field = "github.pr_title", pattern = ".*",     skip = true },
-  # Fallback: GitHub token 未設定時はコミットメッセージでグループ分け
   { message = "^feat",  group = "Features" },
   { message = "^fix",   group = "Bug Fixes" },
   { message = "^perf",  group = "Performance" },

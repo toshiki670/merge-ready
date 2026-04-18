@@ -32,6 +32,19 @@ enum Command {
     /// Show PR merge status for your shell prompt
     #[command(after_help = AFTER_HELP)]
     Prompt(PromptArgs),
+    /// Manage the configuration file
+    Config {
+        #[command(subcommand)]
+        subcommand: ConfigCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigCommand {
+    /// Open the configuration file in an editor (creates it with defaults if absent)
+    Edit,
+    /// Update the configuration file to the latest schema (preserves valid keys, removes obsolete ones, adds missing ones with defaults)
+    Update,
 }
 
 struct InfraRepoIdPort;
@@ -74,25 +87,49 @@ impl PresentationConfigPort for ConfigAdapter {
 
 fn main() {
     let repo_id_port = InfraRepoIdPort;
-    let Some(mode) = (match Cli::parse().command {
-        Some(Command::Prompt(args)) => prompt::resolve_mode(&args, &repo_id_port),
+    match Cli::parse().command {
+        Some(Command::Prompt(args)) => {
+            let Some(mode) = prompt::resolve_mode(&args, &repo_id_port) else {
+                return;
+            };
+            match mode {
+                ExecutionMode::Direct => {
+                    contexts::merge_readiness::interface::cli::prompt::direct::run(
+                        &GhClient::new(),
+                        &Logger,
+                        ConfigAdapter::load(),
+                    );
+                }
+                ExecutionMode::Cached => cached::run(),
+                ExecutionMode::BackgroundRefresh { repo_id } => refresh::run(&repo_id),
+            }
+        }
+        Some(Command::Config { subcommand }) => match subcommand {
+            ConfigCommand::Edit => {
+                let Some(path) =
+                    contexts::configuration::infrastructure::toml_loader::config_path()
+                else {
+                    eprintln!(
+                        "failed to edit config: could not determine config path (HOME or XDG_CONFIG_HOME required)"
+                    );
+                    std::process::exit(1);
+                };
+                if let Err(e) = contexts::configuration::interface::cli::config::edit::run(&path) {
+                    eprintln!("failed to edit config: {e}");
+                    std::process::exit(1);
+                }
+            }
+            ConfigCommand::Update => {
+                if let Err(e) = contexts::configuration::interface::cli::config::update::run(
+                    &TomlConfigRepository,
+                ) {
+                    eprintln!("failed to update config: {e}");
+                    std::process::exit(1);
+                }
+            }
+        },
         None => {
             let _ = Cli::command().print_help();
-            None
         }
-    }) else {
-        return;
-    };
-
-    match mode {
-        ExecutionMode::Direct => {
-            contexts::merge_readiness::interface::cli::prompt::direct::run(
-                &GhClient::new(),
-                &Logger,
-                ConfigAdapter::load(),
-            );
-        }
-        ExecutionMode::Cached => cached::run(),
-        ExecutionMode::BackgroundRefresh { repo_id } => refresh::run(&repo_id),
     }
 }

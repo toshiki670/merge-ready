@@ -310,6 +310,42 @@ impl TestEnv {
         fs::write(config_dir.join("merge-ready.toml"), toml_content)
             .expect("write merge-ready.toml");
     }
+
+    /// `bin_dir` に fake editor スクリプトを配置する。
+    /// 呼ばれたファイルパス（第一引数）を `home_dir/editor_log.txt` に書き出す。
+    /// 戻り値: `(editor_path, log_path)`
+    pub fn setup_fake_editor(&self) -> (std::path::PathBuf, std::path::PathBuf) {
+        let editor_path = self.bin_dir.path().join("fake_editor");
+        let log_path = self.home_dir.path().join("editor_log.txt");
+        let script = format!(
+            "#!/bin/sh\nprintf '%s' \"$1\" > \"{}\"\n",
+            log_path.display()
+        );
+        write_executable(&editor_path, &script);
+        (editor_path, log_path)
+    }
+
+    /// `bin_dir` に常に失敗（exit 1）する fake editor スクリプトを配置する。
+    /// 戻り値: `editor_path`
+    pub fn setup_failing_editor(&self) -> std::path::PathBuf {
+        let editor_path = self.bin_dir.path().join("fail_editor");
+        write_executable(&editor_path, "#!/bin/sh\nexit 1\n");
+        editor_path
+    }
+
+    /// `bin_dir/vi` に fake vi スクリプトを配置する（$PATH 経由でフォールバック検証用）。
+    /// 呼ばれたファイルパスを `home_dir/vi_log.txt` に書き出す。
+    /// 戻り値: `log_path`
+    pub fn setup_fake_vi(&self) -> std::path::PathBuf {
+        let vi_path = self.bin_dir.path().join("vi");
+        let log_path = self.home_dir.path().join("vi_log.txt");
+        let script = format!(
+            "#!/bin/sh\nprintf '%s' \"$1\" > \"{}\"\n",
+            log_path.display()
+        );
+        write_executable(&vi_path, &script);
+        log_path
+    }
 }
 
 fn write_executable(path: impl AsRef<Path>, content: &str) {

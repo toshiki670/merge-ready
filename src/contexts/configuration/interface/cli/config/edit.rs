@@ -17,6 +17,7 @@ fn ensure_config_file(path: &Path) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let content = crate::contexts::configuration::application::config_updater::default_config_toml();
+    let content =
+        crate::contexts::configuration::application::config_updater::default_config_toml();
     let _ = std::fs::write(path, content.as_bytes());
 }

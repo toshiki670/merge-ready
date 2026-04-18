@@ -17,21 +17,21 @@ unsafe_code = "forbid"
 pedantic = "warn"
 
 [dependencies]
-clap = { version = "4", features = ["derive", "cargo"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-toml = "0.8"
+clap = { version = "4.6.1", features = ["derive", "cargo"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+toml = "1.1.2"
 
 [[test]]
 name = "e2e"
 path = "tests/e2e/mod.rs"
 
 [dev-dependencies]
-assert_cmd = "2"
-criterion = { version = "0.8", features = ["html_reports"] }
-predicates = "3"
-serde_json = "1"
-tempfile = "3"
+assert_cmd = "2.2.1"
+criterion = { version = "0.8.2", features = ["html_reports"] }
+predicates = "3.1.4"
+serde_json = "1.0.149"
+tempfile = "3.27.0"
 
 [[bench]]
 name = "hot_path"

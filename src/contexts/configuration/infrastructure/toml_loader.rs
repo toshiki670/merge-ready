@@ -17,7 +17,7 @@ impl ConfigRepository for TomlConfigRepository {
 }
 
 // XDG_CONFIG_HOME が設定されていればそちらを優先し、なければ $HOME/.config にフォールバックする。
-fn config_path() -> Option<PathBuf> {
+pub(crate) fn config_path() -> Option<PathBuf> {
     if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         return Some(PathBuf::from(xdg).join("merge-ready.toml"));
     }

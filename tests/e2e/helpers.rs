@@ -290,6 +290,7 @@ impl TestEnv {
         cmd.env("PATH", self.path_env());
         cmd.env("HOME", self.home());
         cmd.env("TMPDIR", self.home());
+        cmd.env_remove("XDG_CONFIG_HOME");
         cmd.current_dir(self.repo_dir.path());
     }
 

@@ -27,7 +27,7 @@ pub(crate) fn config_path() -> Option<PathBuf> {
 
 // バージョンが古い場合に設定ファイルをマイグレーションする。最新バージョンならファイルを変更しない。
 pub(crate) fn migrate_config_if_needed(path: &std::path::Path) {
-    use crate::contexts::configuration::domain::config::{Config, CURRENT_VERSION};
+    use crate::contexts::configuration::domain::config::{CURRENT_VERSION, Config};
 
     let content = std::fs::read_to_string(path).unwrap_or_default();
     let mut config: Config = toml::from_str(&content).unwrap_or_default();

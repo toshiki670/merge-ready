@@ -3,7 +3,7 @@ use merge_readiness_application::{
     ReviewRepository, errors::ErrorLogger,
 };
 
-use crate::presentation::{Presenter, PresentationConfigPort};
+use crate::presentation::{PresentationConfigPort, Presenter};
 
 pub fn run<C, L, P>(client: &C, logger: &L, config_port: P)
 where

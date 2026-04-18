@@ -22,6 +22,7 @@ pub struct TokenConfig {
 }
 
 impl TokenConfig {
+    #[must_use]
     pub fn render(&self, default_symbol: &str, default_label: &str) -> String {
         let symbol = self.symbol.as_deref().unwrap_or(default_symbol);
         let label = self.label.as_deref().unwrap_or(default_label);

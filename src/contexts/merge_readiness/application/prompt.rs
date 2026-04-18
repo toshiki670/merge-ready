@@ -69,7 +69,8 @@ where
 
     impl ErrorPresenter for TrackingPresenter {
         fn show_error(&self, _token: ErrorToken) {
-            self.0.store(true, Ordering::Relaxed);
+            self.0
+                .update(Ordering::Relaxed, Ordering::Relaxed, |_| true);
         }
     }
 

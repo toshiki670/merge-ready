@@ -159,7 +159,7 @@ mod tests {
                     let p = path.clone();
                     s.spawn(move || {
                         if create_with_pid(&p) {
-                            count.fetch_add(1, Ordering::SeqCst);
+                            count.update(Ordering::SeqCst, Ordering::SeqCst, |x| x + 1);
                         }
                     })
                 })

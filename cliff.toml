@@ -14,7 +14,7 @@ body = """
 {% for group, commits in commits | group_by(attribute="group") %}\
 ### {{ group | upper_first }}
 {% for commit in commits %}\
-- {% if commit.breaking %}[**BREAKING**] {% endif %}{{ commit.message | upper_first }}{% for link in commit.links %} ([{{ link.text }}]({{ link.href }})){% endfor %} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/toshiki670/merge-ready/commit/{{ commit.id }}))
+- {% if commit.breaking %}[**BREAKING**] {% endif %}{{ commit.message | upper_first }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/toshiki670/merge-ready/commit/{{ commit.id }}))
 {% endfor %}\
 {% endfor %}\
 """
@@ -26,9 +26,6 @@ conventional_commits = true
 filter_unconventional = true
 split_commits = false
 commit_preprocessors = []
-link_parsers = [
-  { pattern = "#(\\d+)", href = "https://github.com/toshiki670/merge-ready/issues/$1", text = "#$1" },
-]
 commit_parsers = [
   { message = "^feat",  group = "Features" },
   { message = "^fix",   group = "Bug Fixes" },

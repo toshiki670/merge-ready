@@ -1,25 +1,52 @@
-[package]
-name = "merge-ready"
+[workspace]
+members = [
+    ".",
+    "contexts/merge_readiness/domain",
+    "contexts/merge_readiness/application",
+    "contexts/merge_readiness/infrastructure",
+    "contexts/merge_readiness/interface",
+]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
-description = "Show pull request merge blockers as concise prompt tokens"
 license = "MIT"
 repository = "https://github.com/toshiki670/merge-ready"
 homepage = "https://github.com/toshiki670/merge-ready"
+
+[workspace.dependencies]
+clap = { version = "4", features = ["derive", "cargo"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+pedantic = "warn"
+
+[package]
+name = "merge-ready"
+version.workspace = true
+edition.workspace = true
+description = "Show pull request merge blockers as concise prompt tokens"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 readme = "README.md"
 keywords = ["pull-request", "cli", "prompt", "developer-tools", "merge"]
 categories = ["command-line-utilities", "development-tools"]
 
-[lints.rust]
-unsafe_code = "forbid"
-
-[lints.clippy]
-pedantic = "warn"
+[lints]
+workspace = true
 
 [dependencies]
-clap = { version = "4", features = ["derive", "cargo"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+clap.workspace = true
+merge-readiness-application = { path = "contexts/merge_readiness/application" }
+merge-readiness-infrastructure = { path = "contexts/merge_readiness/infrastructure" }
+merge-readiness-interface = { path = "contexts/merge_readiness/interface" }
 
 [[test]]
 name = "e2e"
@@ -29,7 +56,8 @@ path = "tests/e2e/mod.rs"
 assert_cmd = "2"
 criterion = { version = "0.8", features = ["html_reports"] }
 predicates = "3"
-tempfile = "3"
+serde_json.workspace = true
+tempfile.workspace = true
 
 [[bench]]
 name = "hot_path"

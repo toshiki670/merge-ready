@@ -1,0 +1,19 @@
+[package]
+name = "merge-readiness-infrastructure"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+merge-readiness-domain = { path = "../domain" }
+merge-readiness-application = { path = "../application" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

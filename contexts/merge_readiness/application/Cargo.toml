@@ -1,0 +1,13 @@
+[package]
+name = "merge-readiness-application"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+merge-readiness-domain = { path = "../domain" }

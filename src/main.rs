@@ -121,9 +121,8 @@ fn run_config_edit() {
         .or_else(|| std::env::var_os("EDITOR"))
         .unwrap_or_else(|| OsString::from("vi"));
 
-    let path = match contexts::configuration::infrastructure::toml_loader::config_path() {
-        Some(p) => p,
-        None => return,
+    let Some(path) = contexts::configuration::infrastructure::toml_loader::config_path() else {
+        return;
     };
 
     ensure_config_file(&path);
@@ -131,11 +130,10 @@ fn run_config_edit() {
 }
 
 fn run_config_update() {
-    use contexts::configuration::domain::config::{Config, CURRENT_VERSION};
+    use contexts::configuration::domain::config::{CURRENT_VERSION, Config};
 
-    let path = match contexts::configuration::infrastructure::toml_loader::config_path() {
-        Some(p) => p,
-        None => return,
+    let Some(path) = contexts::configuration::infrastructure::toml_loader::config_path() else {
+        return;
     };
 
     if !path.exists() {

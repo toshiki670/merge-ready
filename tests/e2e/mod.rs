@@ -1,4 +1,5 @@
 mod branch_sync;
+mod config;
 mod cache;
 mod ci_checks;
 mod cli;

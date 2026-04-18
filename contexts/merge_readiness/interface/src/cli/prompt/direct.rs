@@ -3,10 +3,9 @@ use merge_readiness_application::{
     ReviewRepository, errors::ErrorLogger,
 };
 
-use crate::presentation;
+use crate::presentation::{Presenter, PresentationConfigPort};
 
-/// gh を直接呼んで結果を stdout に出力する（キャッシュを使わない）。
-pub fn run<C, L>(client: &C, logger: &L)
+pub fn run<C, L, P>(client: &C, logger: &L, config_port: P)
 where
     C: PrStateRepository
         + BranchSyncRepository
@@ -15,10 +14,11 @@ where
         + MergeReadinessRepository
         + Sync,
     L: ErrorLogger + Sync,
+    P: PresentationConfigPort + Sync,
 {
-    let presenter = presentation::Presenter;
+    let presenter = Presenter::new(config_port);
     let tokens = merge_readiness_application::run(client, logger, &presenter);
     if !tokens.is_empty() {
-        presentation::display(&tokens);
+        presenter.display(&tokens);
     }
 }

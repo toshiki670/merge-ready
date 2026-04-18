@@ -301,6 +301,14 @@ impl TestEnv {
         cmd.current_dir(self.repo_dir.path());
         cmd.arg("prompt");
     }
+
+    /// `~/.config/merge-ready.toml` に TOML 設定を書き込む。
+    pub fn write_config(&self, toml_content: &str) {
+        let config_dir = self.home_dir.path().join(".config");
+        fs::create_dir_all(&config_dir).expect("create .config");
+        fs::write(config_dir.join("merge-ready.toml"), toml_content)
+            .expect("write merge-ready.toml");
+    }
 }
 
 fn write_executable(path: impl AsRef<Path>, content: &str) {

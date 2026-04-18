@@ -281,7 +281,10 @@ fn test_config_edit_creates_dir_and_file_when_both_absent() {
 
     // ディレクトリとファイルが作成されていることを確認
     assert!(xdg_dir.exists(), ".config dir was not created");
-    assert!(xdg_dir.join("merge-ready.toml").exists(), "config file was not created");
+    assert!(
+        xdg_dir.join("merge-ready.toml").exists(),
+        "config file was not created"
+    );
 }
 
 // ============================================================
@@ -336,9 +339,15 @@ fn test_config_update_preserves_valid_keys() {
     let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
     let content = std::fs::read_to_string(&config_path).expect("read config");
     // symbol が保持されている
-    assert!(content.contains("★"), "symbol should be preserved, got:\n{content}");
+    assert!(
+        content.contains("★"),
+        "symbol should be preserved, got:\n{content}"
+    );
     // version が最新になっている
-    assert!(content.contains("version = 1"), "version should be updated, got:\n{content}");
+    assert!(
+        content.contains("version = 1"),
+        "version should be updated, got:\n{content}"
+    );
 }
 
 /// [U4] 旧バージョン・廃止キーあり → 廃止キーが削除される
@@ -380,7 +389,10 @@ fn test_config_update_adds_missing_sections_with_defaults() {
     let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
     let content = std::fs::read_to_string(&config_path).expect("read config");
     // 既存の symbol が保持されている
-    assert!(content.contains("★"), "symbol should be preserved, got:\n{content}");
+    assert!(
+        content.contains("★"),
+        "symbol should be preserved, got:\n{content}"
+    );
     // 不足していた [conflict] セクションがデフォルト値で追加されている
     assert!(
         content.contains("conflict"),

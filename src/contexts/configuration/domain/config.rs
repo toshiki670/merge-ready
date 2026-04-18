@@ -25,16 +25,23 @@ impl Config {
             label: Some(label.to_owned()),
             format: None,
         };
-        self.merge_ready.get_or_insert_with(|| tok("✓", "merge-ready"));
+        self.merge_ready
+            .get_or_insert_with(|| tok("✓", "merge-ready"));
         self.conflict.get_or_insert_with(|| tok("✗", "conflict"));
-        self.update_branch.get_or_insert_with(|| tok("✗", "update-branch"));
-        self.sync_unknown.get_or_insert_with(|| tok("?", "sync-unknown"));
+        self.update_branch
+            .get_or_insert_with(|| tok("✗", "update-branch"));
+        self.sync_unknown
+            .get_or_insert_with(|| tok("?", "sync-unknown"));
         self.ci_fail.get_or_insert_with(|| tok("✗", "ci-fail"));
         self.ci_action.get_or_insert_with(|| tok("⚠", "ci-action"));
         self.review.get_or_insert_with(|| tok("⚠", "review"));
         let error = self.error.get_or_insert_with(ErrorConfig::default);
-        error.auth_required.get_or_insert_with(|| tok("!", "gh auth login"));
-        error.rate_limited.get_or_insert_with(|| tok("✗", "rate-limited"));
+        error
+            .auth_required
+            .get_or_insert_with(|| tok("!", "gh auth login"));
+        error
+            .rate_limited
+            .get_or_insert_with(|| tok("✗", "rate-limited"));
         error.api_error.get_or_insert_with(|| tok("✗", "api-error"));
     }
 }

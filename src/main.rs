@@ -105,85 +105,20 @@ fn main() {
             }
         }
         Some(Command::Config { subcommand }) => match subcommand {
-            ConfigCommand::Edit => run_config_edit(),
-            ConfigCommand::Update => run_config_update(),
+            ConfigCommand::Edit => {
+                let Some(path) =
+                    contexts::configuration::infrastructure::toml_loader::config_path()
+                else {
+                    return;
+                };
+                contexts::configuration::interface::cli::config::edit::run(&path);
+            }
+            ConfigCommand::Update => {
+                contexts::configuration::interface::cli::config::update::run(&TomlConfigRepository);
+            }
         },
         None => {
             let _ = Cli::command().print_help();
         }
     }
-}
-
-fn run_config_edit() {
-    use std::ffi::OsString;
-
-    let editor = std::env::var_os("VISUAL")
-        .or_else(|| std::env::var_os("EDITOR"))
-        .unwrap_or_else(|| OsString::from("vi"));
-
-    let Some(path) = contexts::configuration::infrastructure::toml_loader::config_path() else {
-        return;
-    };
-
-    ensure_config_file(&path);
-    let _ = std::process::Command::new(editor).arg(&path).status();
-}
-
-fn run_config_update() {
-    let Some(path) = contexts::configuration::infrastructure::toml_loader::config_path() else {
-        return;
-    };
-
-    if !path.exists() {
-        ensure_config_file(&path);
-        return;
-    }
-
-    contexts::configuration::infrastructure::toml_loader::migrate_config_if_needed(&path);
-}
-
-fn ensure_config_file(path: &std::path::Path) {
-    if path.exists() {
-        return;
-    }
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::write(path, default_config_toml());
-}
-
-fn default_config_toml() -> &'static str {
-    "\
-# merge-ready configuration
-# All fields are optional; omit a section to use built-in defaults.
-
-# [merge_ready]
-# symbol = \"✓\"
-# label = \"merge-ready\"
-# format = \"$symbol $label\"
-
-# [conflict]
-# symbol = \"✗\"
-# label = \"conflict\"
-
-# [update_branch]
-# symbol = \"✗\"
-# label = \"update-branch\"
-
-# [sync_unknown]
-# symbol = \"?\"
-# label = \"sync-unknown\"
-
-# [ci_fail]
-# symbol = \"✗\"
-# label = \"ci-fail\"
-
-# [ci_action]
-# symbol = \"⚠\"
-# label = \"ci-action\"
-
-# [review]
-# symbol = \"⚠\"
-# label = \"review\"
-"
 }

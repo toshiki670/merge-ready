@@ -15,12 +15,15 @@ pub(super) fn cache_dir() -> std::path::PathBuf {
 const DIR_NAME: &str = "merge-ready";
 
 fn dir_name() -> String {
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if let Ok(meta) = std::fs::metadata("/proc/self") {
-            return format!("{DIR_NAME}-{}", meta.uid());
-        }
+    std::cfg_select! {
+        target_os = "linux" => {
+            use std::os::unix::fs::MetadataExt;
+            if let Ok(meta) = std::fs::metadata("/proc/self") {
+                format!("{DIR_NAME}-{}", meta.uid())
+            } else {
+                DIR_NAME.to_owned()
+            }
+        },
+        _ => DIR_NAME.to_owned(),
     }
-    DIR_NAME.to_owned()
 }

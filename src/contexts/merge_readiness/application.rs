@@ -85,21 +85,22 @@ where
     };
 
     let mut tokens: Vec<OutputToken> = Vec::new();
-    if let Some(t) = branch_sync::check(&sync_status) {
-        tokens.push(t);
-    }
-    if let Some(t) = ci_checks::check(&buckets) {
-        tokens.push(t);
-    }
-    if let Some(t) = review::check(&review_status) {
-        tokens.push(t);
+    for token in [
+        branch_sync::check(&sync_status),
+        ci_checks::check(&buckets),
+        review::check(&review_status),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let _ = tokens.push_mut(token);
     }
 
     // ブロッカーがなければマージ可否を判定
     if tokens.is_empty()
-        && let Some(t) = merge_ready::check(&readiness)
+        && let Some(token) = merge_ready::check(&readiness)
     {
-        tokens.push(t);
+        let _ = tokens.push_mut(token);
     }
 
     tokens

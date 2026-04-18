@@ -150,15 +150,12 @@ fn translate_lifecycle(state: &str) -> PrLifecycle {
 }
 
 fn translate_sync(mergeable: &str, behind_by: Option<u64>) -> BranchSyncStatus {
-    if mergeable == "CONFLICTING" {
+    match () {
         // conflict は Compare API に依らず判定可能なので Unknown より優先
-        BranchSyncStatus::Conflicting
-    } else {
-        match behind_by {
-            None => BranchSyncStatus::Unknown,
-            Some(0) => BranchSyncStatus::Clean,
-            Some(_) => BranchSyncStatus::Behind,
-        }
+        () if mergeable == "CONFLICTING" => BranchSyncStatus::Conflicting,
+        () if let Some(0) = behind_by => BranchSyncStatus::Clean,
+        () if let Some(_) = behind_by => BranchSyncStatus::Behind,
+        () => BranchSyncStatus::Unknown,
     }
 }
 

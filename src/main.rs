@@ -4,7 +4,7 @@ mod refresh;
 use clap::{CommandFactory, Parser, Subcommand};
 use merge_readiness_application::prompt::{ExecutionMode, RepoIdPort};
 use merge_readiness_infrastructure::{gh::GhClient, logger::Logger};
-use merge_readiness_interface::cli::prompt::{self, PromptArgs, AFTER_HELP};
+use merge_readiness_interface::cli::prompt::{self, AFTER_HELP, PromptArgs};
 
 #[derive(Parser)]
 #[command(

@@ -12,7 +12,7 @@ impl ConfigService {
         self.0
             .merge_ready
             .as_ref()
-            .unwrap_or(&TokenConfig::default())
+            .unwrap_or(&default_token())
             .render("✓", "merge-ready")
     }
 
@@ -20,7 +20,7 @@ impl ConfigService {
         self.0
             .conflict
             .as_ref()
-            .unwrap_or(&TokenConfig::default())
+            .unwrap_or(&default_token())
             .render("✗", "conflict")
     }
 
@@ -28,7 +28,7 @@ impl ConfigService {
         self.0
             .update_branch
             .as_ref()
-            .unwrap_or(&TokenConfig::default())
+            .unwrap_or(&default_token())
             .render("✗", "update-branch")
     }
 
@@ -36,7 +36,7 @@ impl ConfigService {
         self.0
             .sync_unknown
             .as_ref()
-            .unwrap_or(&TokenConfig::default())
+            .unwrap_or(&default_token())
             .render("?", "sync-unknown")
     }
 
@@ -44,7 +44,7 @@ impl ConfigService {
         self.0
             .ci_fail
             .as_ref()
-            .unwrap_or(&TokenConfig::default())
+            .unwrap_or(&default_token())
             .render("✗", "ci-fail")
     }
 
@@ -52,7 +52,7 @@ impl ConfigService {
         self.0
             .ci_action
             .as_ref()
-            .unwrap_or(&TokenConfig::default())
+            .unwrap_or(&default_token())
             .render("⚠", "ci-action")
     }
 
@@ -60,37 +60,38 @@ impl ConfigService {
         self.0
             .review
             .as_ref()
-            .unwrap_or(&TokenConfig::default())
+            .unwrap_or(&default_token())
             .render("⚠", "review")
     }
 
     pub fn render_auth_required(&self) -> String {
-        let default = TokenConfig::default();
         self.0
             .error
             .as_ref()
             .and_then(|ec| ec.auth_required.as_ref())
-            .unwrap_or(&default)
+            .unwrap_or(&default_token())
             .render("!", "gh auth login")
     }
 
     pub fn render_rate_limited(&self) -> String {
-        let default = TokenConfig::default();
         self.0
             .error
             .as_ref()
             .and_then(|ec| ec.rate_limited.as_ref())
-            .unwrap_or(&default)
+            .unwrap_or(&default_token())
             .render("✗", "rate-limited")
     }
 
     pub fn render_api_error(&self) -> String {
-        let default = TokenConfig::default();
         self.0
             .error
             .as_ref()
             .and_then(|ec| ec.api_error.as_ref())
-            .unwrap_or(&default)
+            .unwrap_or(&default_token())
             .render("✗", "api-error")
     }
+}
+
+fn default_token() -> TokenConfig {
+    TokenConfig::default()
 }

@@ -2,6 +2,7 @@ mod branch_sync;
 mod cache;
 mod ci_checks;
 mod cli;
+mod config;
 mod errors;
 mod helpers;
 mod merge_ready;

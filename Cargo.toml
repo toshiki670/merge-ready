@@ -43,6 +43,7 @@ categories = ["command-line-utilities", "development-tools"]
 workspace = true
 
 [dependencies]
+clap.workspace = true
 merge-readiness-application = { path = "contexts/merge_readiness/application" }
 merge-readiness-infrastructure = { path = "contexts/merge_readiness/infrastructure" }
 merge-readiness-interface = { path = "contexts/merge_readiness/interface" }

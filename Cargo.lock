@@ -501,6 +501,7 @@ name = "merge-ready"
 version = "0.1.0"
 dependencies = [
  "assert_cmd",
+ "clap",
  "criterion",
  "merge-readiness-application",
  "merge-readiness-infrastructure",

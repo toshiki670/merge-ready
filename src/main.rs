@@ -111,10 +111,18 @@ fn main() {
                 else {
                     return;
                 };
-                contexts::configuration::interface::cli::config::edit::run(&path);
+                if let Err(e) = contexts::configuration::interface::cli::config::edit::run(&path) {
+                    eprintln!("failed to edit config: {e}");
+                    std::process::exit(1);
+                }
             }
             ConfigCommand::Update => {
-                contexts::configuration::interface::cli::config::update::run(&TomlConfigRepository);
+                if let Err(e) = contexts::configuration::interface::cli::config::update::run(
+                    &TomlConfigRepository,
+                ) {
+                    eprintln!("failed to update config: {e}");
+                    std::process::exit(1);
+                }
             }
         },
         None => {

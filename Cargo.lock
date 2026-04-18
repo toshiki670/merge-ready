@@ -223,14 +223,14 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
 name = "configuration-domain"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "configuration-infrastructure"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "configuration-domain",
  "serde",
@@ -484,18 +484,18 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 
 [[package]]
 name = "merge-readiness-application"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "merge-readiness-domain",
 ]
 
 [[package]]
 name = "merge-readiness-domain"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "merge-readiness-infrastructure"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "merge-readiness-application",
  "merge-readiness-domain",
@@ -506,7 +506,7 @@ dependencies = [
 
 [[package]]
 name = "merge-readiness-interface"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "merge-readiness-application",
@@ -514,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "merge-ready"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "assert_cmd",
  "clap",

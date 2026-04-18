@@ -9,31 +9,59 @@ impl ConfigService {
     }
 
     pub fn render_merge_ready(&self) -> String {
-        self.0.merge_ready.as_ref().unwrap_or(&TokenConfig::default()).render("✓", "merge-ready")
+        self.0
+            .merge_ready
+            .as_ref()
+            .unwrap_or(&TokenConfig::default())
+            .render("✓", "merge-ready")
     }
 
     pub fn render_conflict(&self) -> String {
-        self.0.conflict.as_ref().unwrap_or(&TokenConfig::default()).render("✗", "conflict")
+        self.0
+            .conflict
+            .as_ref()
+            .unwrap_or(&TokenConfig::default())
+            .render("✗", "conflict")
     }
 
     pub fn render_update_branch(&self) -> String {
-        self.0.update_branch.as_ref().unwrap_or(&TokenConfig::default()).render("✗", "update-branch")
+        self.0
+            .update_branch
+            .as_ref()
+            .unwrap_or(&TokenConfig::default())
+            .render("✗", "update-branch")
     }
 
     pub fn render_sync_unknown(&self) -> String {
-        self.0.sync_unknown.as_ref().unwrap_or(&TokenConfig::default()).render("?", "sync-unknown")
+        self.0
+            .sync_unknown
+            .as_ref()
+            .unwrap_or(&TokenConfig::default())
+            .render("?", "sync-unknown")
     }
 
     pub fn render_ci_fail(&self) -> String {
-        self.0.ci_fail.as_ref().unwrap_or(&TokenConfig::default()).render("✗", "ci-fail")
+        self.0
+            .ci_fail
+            .as_ref()
+            .unwrap_or(&TokenConfig::default())
+            .render("✗", "ci-fail")
     }
 
     pub fn render_ci_action(&self) -> String {
-        self.0.ci_action.as_ref().unwrap_or(&TokenConfig::default()).render("⚠", "ci-action")
+        self.0
+            .ci_action
+            .as_ref()
+            .unwrap_or(&TokenConfig::default())
+            .render("⚠", "ci-action")
     }
 
     pub fn render_review(&self) -> String {
-        self.0.review.as_ref().unwrap_or(&TokenConfig::default()).render("⚠", "review")
+        self.0
+            .review
+            .as_ref()
+            .unwrap_or(&TokenConfig::default())
+            .render("⚠", "review")
     }
 
     pub fn render_auth_required(&self) -> String {

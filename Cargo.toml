@@ -1,13 +1,5 @@
 [workspace]
-members = [
-    ".",
-    "contexts/configuration/domain",
-    "contexts/configuration/infrastructure",
-    "contexts/merge_readiness/domain",
-    "contexts/merge_readiness/application",
-    "contexts/merge_readiness/infrastructure",
-    "contexts/merge_readiness/interface",
-]
+members = ["."]
 resolver = "2"
 
 [workspace.package]
@@ -47,11 +39,9 @@ workspace = true
 
 [dependencies]
 clap.workspace = true
-configuration-domain = { path = "contexts/configuration/domain" }
-configuration-infrastructure = { path = "contexts/configuration/infrastructure" }
-merge-readiness-application = { path = "contexts/merge_readiness/application" }
-merge-readiness-infrastructure = { path = "contexts/merge_readiness/infrastructure" }
-merge-readiness-interface = { path = "contexts/merge_readiness/interface" }
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
 
 [[test]]
 name = "e2e"

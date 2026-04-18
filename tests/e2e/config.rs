@@ -90,3 +90,48 @@ fn test_invalid_toml_falls_back_to_defaults() {
         .stdout("✓ merge-ready")
         .stderr("");
 }
+
+/// XDG_CONFIG_HOME が設定されている場合、そちらから設定を読む
+#[test]
+fn test_xdg_config_home_is_used() {
+    use std::fs;
+    use tempfile::tempdir;
+
+    let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
+    let xdg_dir = tempdir().expect("tempdir");
+    fs::write(
+        xdg_dir.path().join("merge-ready.toml"),
+        "[merge_ready]\nsymbol = \"★\"",
+    )
+    .expect("write config");
+
+    let mut c = Command::cargo_bin("merge-ready").unwrap();
+    env.apply(&mut c);
+    c.env("XDG_CONFIG_HOME", xdg_dir.path());
+    c.args(["prompt", "--no-cache"]);
+    c.assert().success().stdout("★ merge-ready").stderr("");
+}
+
+/// XDG_CONFIG_HOME と HOME が両方ある場合、XDG_CONFIG_HOME が優先される
+#[test]
+fn test_xdg_config_home_takes_precedence_over_home() {
+    use std::fs;
+    use tempfile::tempdir;
+
+    let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
+    // HOME 側にも設定を置くが XDG 側が優先されるはず
+    env.write_config("[merge_ready]\nsymbol = \"✓\"");
+
+    let xdg_dir = tempdir().expect("tempdir");
+    fs::write(
+        xdg_dir.path().join("merge-ready.toml"),
+        "[merge_ready]\nsymbol = \"★\"",
+    )
+    .expect("write xdg config");
+
+    let mut c = Command::cargo_bin("merge-ready").unwrap();
+    env.apply(&mut c);
+    c.env("XDG_CONFIG_HOME", xdg_dir.path());
+    c.args(["prompt", "--no-cache"]);
+    c.assert().success().stdout("★ merge-ready").stderr("");
+}

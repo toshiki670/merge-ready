@@ -9,6 +9,9 @@
 #   infrastructure   ✅       ❌            –              ❌
 #   interface        ❌       ✅            ❌             –
 #   bin              ❌       ✅            ✅             ✅
+#
+# Cross-context rule:
+#   Files under src/contexts/A/ must not reference contexts::B:: (bin is exempt)
 
 set -uo pipefail
 
@@ -16,82 +19,71 @@ cd "$(dirname "$0")/.."
 
 FAIL=0
 
-# Check that none of the target paths contain lines matching pattern.
-# Prints matching lines and sets FAIL=1 if any match is found.
-check_forbidden() {
-  local from_label="$1"
-  local to_label="$2"
-  local pattern="$3"
-  shift 3
+# Forbidden layer-to-layer dependencies: "from_layer:to_layer"
+FORBIDDEN_LAYERS=(
+  "domain:application"
+  "domain:infrastructure"
+  "domain:interface"
+  "application:infrastructure"
+  "application:interface"
+  "infrastructure:application"
+  "infrastructure:interface"
+  "interface:domain"
+  "interface:infrastructure"
+)
 
-  local existing=()
-  for p in "$@"; do
-    [ -e "$p" ] && existing+=("$p")
-  done
-  [ "${#existing[@]}" -eq 0 ] && return 0
-
-  local hits
-  if hits=$(grep -rEn "$pattern" "${existing[@]}" 2>/dev/null) && [ -n "$hits" ]; then
-    printf '%s\n' "$hits"
-    printf 'ERROR: [%s] must not import [%s]\n\n' "$from_label" "$to_label" >&2
-    FAIL=1
-  fi
-  return 0
+# src/contexts/<ctx>/<layer>.rs or src/contexts/<ctx>/<layer>/... -> <layer>
+get_layer() {
+  printf '%s' "$1" | sed -E 's|src/contexts/[^/]+/([^/.]+).*|\1|'
 }
 
-MR="src/contexts/merge_readiness"
-CF="src/contexts/configuration"
+# src/contexts/<ctx>/... -> <ctx>
+get_context() {
+  printf '%s' "$1" | sed -E 's|src/contexts/([^/]+)/.*|\1|'
+}
 
-# ── merge_readiness::domain ───────────────────────────────────────────────────
-check_forbidden "merge_readiness::domain" "::application" \
-  "use (crate::)?contexts::merge_readiness::application" \
-  "$MR/domain.rs" "$MR/domain"
+# ── Layer dependency rules ────────────────────────────────────────────────────
+while IFS= read -r file; do
+  layer=$(get_layer "$file")
 
-check_forbidden "merge_readiness::domain" "::infrastructure" \
-  "use (crate::)?contexts::merge_readiness::infrastructure" \
-  "$MR/domain.rs" "$MR/domain"
+  for rule in "${FORBIDDEN_LAYERS[@]}"; do
+    from_layer="${rule%%:*}"
+    to_layer="${rule##*:}"
+    [ "$layer" = "$from_layer" ] || continue
 
-check_forbidden "merge_readiness::domain" "::interface" \
-  "use (crate::)?contexts::merge_readiness::interface" \
-  "$MR/domain.rs" "$MR/domain"
+    hits=$(grep -En "use (crate::)?contexts::[a-z_]+::${to_layer}" "$file" 2>/dev/null) || true
+    if [ -n "$hits" ]; then
+      printf '%s\n' "$hits"
+      printf 'ERROR: [%s] %s must not import [%s]\n\n' "$from_layer" "$file" "$to_layer" >&2
+      FAIL=1
+    fi
+  done
+done < <(find src/contexts -name "*.rs" | sort)
 
-# ── merge_readiness::application ─────────────────────────────────────────────
-check_forbidden "merge_readiness::application" "::infrastructure" \
-  "use (crate::)?contexts::merge_readiness::infrastructure" \
-  "$MR/application.rs" "$MR/application"
+# ── Bin: must not import domain directly ─────────────────────────────────────
+for file in src/main.rs src/cached.rs src/refresh.rs; do
+  [ -f "$file" ] || continue
 
-check_forbidden "merge_readiness::application" "::interface" \
-  "use (crate::)?contexts::merge_readiness::interface" \
-  "$MR/application.rs" "$MR/application"
+  hits=$(grep -En "use (crate::)?contexts::[a-z_]+::domain" "$file" 2>/dev/null) || true
+  if [ -n "$hits" ]; then
+    printf '%s\n' "$hits"
+    printf 'ERROR: [bin] %s must not import domain directly\n\n' "$file" >&2
+    FAIL=1
+  fi
+done
 
-# ── merge_readiness::infrastructure ──────────────────────────────────────────
-check_forbidden "merge_readiness::infrastructure" "::application" \
-  "use (crate::)?contexts::merge_readiness::application" \
-  "$MR/infrastructure.rs" "$MR/infrastructure"
+# ── Cross-context dependency rules ────────────────────────────────────────────
+while IFS= read -r file; do
+  ctx=$(get_context "$file")
 
-check_forbidden "merge_readiness::infrastructure" "::interface" \
-  "use (crate::)?contexts::merge_readiness::interface" \
-  "$MR/infrastructure.rs" "$MR/infrastructure"
-
-# ── merge_readiness::interface ────────────────────────────────────────────────
-check_forbidden "merge_readiness::interface" "::domain" \
-  "use (crate::)?contexts::merge_readiness::domain" \
-  "$MR/interface.rs" "$MR/interface"
-
-check_forbidden "merge_readiness::interface" "::infrastructure" \
-  "use (crate::)?contexts::merge_readiness::infrastructure" \
-  "$MR/interface.rs" "$MR/interface"
-
-# ── configuration::domain ─────────────────────────────────────────────────────
-check_forbidden "configuration::domain" "::infrastructure" \
-  "use (crate::)?contexts::configuration::infrastructure" \
-  "$CF/domain.rs" "$CF/domain"
-
-# ── bin (main.rs / cached.rs / refresh.rs) ───────────────────────────────────
-# bin may only import application / infrastructure / interface — not domain directly
-check_forbidden "bin" "any ::domain" \
-  "use (crate::)?contexts::[a-z_]+::domain" \
-  "src/main.rs" "src/cached.rs" "src/refresh.rs"
+  hits=$(grep -En "use (crate::)?contexts::[a-z_]+" "$file" 2>/dev/null \
+    | grep -v "contexts::${ctx}::") || true
+  if [ -n "$hits" ]; then
+    printf '%s\n' "$hits"
+    printf 'ERROR: [cross-context] %s (%s) must not reference other contexts\n\n' "$file" "$ctx" >&2
+    FAIL=1
+  fi
+done < <(find src/contexts -name "*.rs" | sort)
 
 # ── Result ────────────────────────────────────────────────────────────────────
 if [ "$FAIL" -eq 1 ]; then

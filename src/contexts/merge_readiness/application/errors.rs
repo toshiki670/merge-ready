@@ -1,3 +1,4 @@
+pub use crate::contexts::merge_readiness::domain::error::ErrorLogger;
 use crate::contexts::merge_readiness::domain::error::RepositoryError;
 
 /// エラー時に表示するトークンの意味オブジェクト
@@ -11,11 +12,6 @@ pub enum ErrorToken {
     RateLimited,
     /// 予期しない API エラー
     ApiError,
-}
-
-/// エラーをログに記録するポート
-pub trait ErrorLogger {
-    fn log(&self, msg: &str);
 }
 
 /// エラーをユーザーに表示するポート

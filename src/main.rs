@@ -3,8 +3,7 @@ mod contexts;
 mod refresh;
 
 use clap::{CommandFactory, Parser, Subcommand};
-use contexts::configuration::domain::config::TokenConfig;
-use contexts::configuration::domain::repository::ConfigRepository as _;
+use contexts::configuration::application::config_service::ConfigService;
 use contexts::configuration::infrastructure::toml_loader::TomlConfigRepository;
 use contexts::merge_readiness::application::{
     OutputToken,
@@ -43,79 +42,32 @@ impl RepoIdPort for InfraRepoIdPort {
     }
 }
 
-pub(crate) struct ConfigAdapter(contexts::configuration::domain::config::Config);
+pub(crate) struct ConfigAdapter(ConfigService);
 
 impl ConfigAdapter {
     pub(crate) fn load() -> Self {
-        Self(TomlConfigRepository.load())
+        Self(ConfigService::new(&TomlConfigRepository))
     }
 }
 
 impl PresentationConfigPort for ConfigAdapter {
     fn render_token(&self, token: &OutputToken) -> String {
-        let default = TokenConfig::default();
         match token {
-            OutputToken::MergeReady => self
-                .0
-                .merge_ready
-                .as_ref()
-                .unwrap_or(&default)
-                .render("✓", "merge-ready"),
-            OutputToken::Conflict => self
-                .0
-                .conflict
-                .as_ref()
-                .unwrap_or(&default)
-                .render("✗", "conflict"),
-            OutputToken::UpdateBranch => self
-                .0
-                .update_branch
-                .as_ref()
-                .unwrap_or(&default)
-                .render("✗", "update-branch"),
-            OutputToken::SyncUnknown => self
-                .0
-                .sync_unknown
-                .as_ref()
-                .unwrap_or(&default)
-                .render("?", "sync-unknown"),
-            OutputToken::CiFail => self
-                .0
-                .ci_fail
-                .as_ref()
-                .unwrap_or(&default)
-                .render("✗", "ci-fail"),
-            OutputToken::CiAction => self
-                .0
-                .ci_action
-                .as_ref()
-                .unwrap_or(&default)
-                .render("⚠", "ci-action"),
-            OutputToken::ReviewRequested => self
-                .0
-                .review
-                .as_ref()
-                .unwrap_or(&default)
-                .render("⚠", "review"),
+            OutputToken::MergeReady => self.0.render_merge_ready(),
+            OutputToken::Conflict => self.0.render_conflict(),
+            OutputToken::UpdateBranch => self.0.render_update_branch(),
+            OutputToken::SyncUnknown => self.0.render_sync_unknown(),
+            OutputToken::CiFail => self.0.render_ci_fail(),
+            OutputToken::CiAction => self.0.render_ci_action(),
+            OutputToken::ReviewRequested => self.0.render_review(),
         }
     }
 
     fn render_error_token(&self, token: ErrorToken) -> String {
-        let default = TokenConfig::default();
-        let err = self.0.error.as_ref();
         match token {
-            ErrorToken::AuthRequired => err
-                .and_then(|ec| ec.auth_required.as_ref())
-                .unwrap_or(&default)
-                .render("!", "gh auth login"),
-            ErrorToken::RateLimited => err
-                .and_then(|ec| ec.rate_limited.as_ref())
-                .unwrap_or(&default)
-                .render("✗", "rate-limited"),
-            ErrorToken::ApiError => err
-                .and_then(|ec| ec.api_error.as_ref())
-                .unwrap_or(&default)
-                .render("✗", "api-error"),
+            ErrorToken::AuthRequired => self.0.render_auth_required(),
+            ErrorToken::RateLimited => self.0.render_rate_limited(),
+            ErrorToken::ApiError => self.0.render_api_error(),
         }
     }
 }

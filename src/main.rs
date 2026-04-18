@@ -52,60 +52,68 @@ impl ConfigAdapter {
 
 impl PresentationConfigPort for ConfigAdapter {
     fn render_token(&self, token: &OutputToken) -> String {
-        let e = TokenConfig::default();
+        let default = TokenConfig::default();
         match token {
             OutputToken::MergeReady => self
                 .0
                 .merge_ready
                 .as_ref()
-                .unwrap_or(&e)
+                .unwrap_or(&default)
                 .render("✓", "merge-ready"),
             OutputToken::Conflict => self
                 .0
                 .conflict
                 .as_ref()
-                .unwrap_or(&e)
+                .unwrap_or(&default)
                 .render("✗", "conflict"),
             OutputToken::UpdateBranch => self
                 .0
                 .update_branch
                 .as_ref()
-                .unwrap_or(&e)
+                .unwrap_or(&default)
                 .render("✗", "update-branch"),
             OutputToken::SyncUnknown => self
                 .0
                 .sync_unknown
                 .as_ref()
-                .unwrap_or(&e)
+                .unwrap_or(&default)
                 .render("?", "sync-unknown"),
-            OutputToken::CiFail => self.0.ci_fail.as_ref().unwrap_or(&e).render("✗", "ci-fail"),
+            OutputToken::CiFail => self
+                .0
+                .ci_fail
+                .as_ref()
+                .unwrap_or(&default)
+                .render("✗", "ci-fail"),
             OutputToken::CiAction => self
                 .0
                 .ci_action
                 .as_ref()
-                .unwrap_or(&e)
+                .unwrap_or(&default)
                 .render("⚠", "ci-action"),
-            OutputToken::ReviewRequested => {
-                self.0.review.as_ref().unwrap_or(&e).render("⚠", "review")
-            }
+            OutputToken::ReviewRequested => self
+                .0
+                .review
+                .as_ref()
+                .unwrap_or(&default)
+                .render("⚠", "review"),
         }
     }
 
     fn render_error_token(&self, token: ErrorToken) -> String {
-        let e = TokenConfig::default();
+        let default = TokenConfig::default();
         let err = self.0.error.as_ref();
         match token {
             ErrorToken::AuthRequired => err
-                .and_then(|e| e.auth_required.as_ref())
-                .unwrap_or(&e)
+                .and_then(|ec| ec.auth_required.as_ref())
+                .unwrap_or(&default)
                 .render("!", "gh auth login"),
             ErrorToken::RateLimited => err
-                .and_then(|e| e.rate_limited.as_ref())
-                .unwrap_or(&e)
+                .and_then(|ec| ec.rate_limited.as_ref())
+                .unwrap_or(&default)
                 .render("✗", "rate-limited"),
             ErrorToken::ApiError => err
-                .and_then(|e| e.api_error.as_ref())
-                .unwrap_or(&e)
+                .and_then(|ec| ec.api_error.as_ref())
+                .unwrap_or(&default)
                 .render("✗", "api-error"),
         }
     }

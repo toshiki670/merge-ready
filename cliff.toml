@@ -25,9 +25,7 @@ trim = true
 conventional_commits = true
 filter_unconventional = false
 split_commits = false
-commit_preprocessors = [
-  { pattern = '#([0-9]+)', replace = "[#${1}](https://github.com/toshiki670/merge-ready/issues/${1})" },
-]
+commit_preprocessors = []
 commit_parsers = [
   { message = "^feat",  group = "Features" },
   { message = "^fix",   group = "Bug Fixes" },

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.2] - 2026-04-18
+### Features
+- Config edit / update サブコマンドを追加 ([#72](https://github.com/toshiki670/merge-ready/pull/72)) ([`257cb3e`](https://github.com/toshiki670/merge-ready/commit/257cb3ed51f68719951c09a77ae2ae33a8264fcd))
+
+
 ## [0.1.1] - 2026-04-18
 ### Bug Fixes
 - Add toolchain input to dtolnay/rust-toolchain in CodeQL workflow ([`8074938`](https://github.com/toshiki670/merge-ready/commit/807493850b903e0a7f04b3d21b0d487c2a042e12))

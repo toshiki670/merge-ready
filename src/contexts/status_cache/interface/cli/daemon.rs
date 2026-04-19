@@ -4,7 +4,7 @@ use crate::contexts::status_cache::application::lifecycle::{self, Port};
 
 #[derive(Subcommand, Clone, Copy)]
 pub enum DaemonCommand {
-    /// Start the background cache daemon (blocks; use as a background process)
+    /// Start the background cache daemon
     Start,
     /// Stop the running daemon
     Stop,
@@ -21,6 +21,11 @@ pub fn run(subcommand: DaemonCommand, port: &impl Port) {
 }
 
 fn start(port: &impl Port) {
+    // working_directory(".") で gh が cwd からリポジトリを検出できるよう保持する
+    if let Err(e) = daemonize::Daemonize::new().working_directory(".").start() {
+        eprintln!("failed to daemonize: {e}");
+        std::process::exit(1);
+    }
     lifecycle::start(port);
 }
 

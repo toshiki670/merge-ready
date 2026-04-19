@@ -19,6 +19,7 @@ pedantic = "warn"
 
 [dependencies]
 clap = { version = "4.6.1", features = ["derive", "cargo"] }
+daemonize = "0.5.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 toml = "1.1.2"

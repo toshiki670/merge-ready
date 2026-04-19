@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use super::paths;
 use super::protocol::{Request, Response};
-use crate::contexts::status_cache::domain::{CachePort, CacheState};
+use crate::contexts::status_cache::domain::cache::{CachePort, CacheState};
 
 /// デーモンソケットへの接続タイムアウト（ms）
 const READ_TIMEOUT_MS: u64 = 500;

@@ -1,4 +1,5 @@
-use crate::contexts::status_cache::domain::{CachePort, CacheState};
+use crate::contexts::status_cache::domain::cache::{CachePort, CacheState};
+use crate::contexts::status_cache::infrastructure::daemon_client::DaemonClient;
 
 /// application 層が外部に公開するキャッシュ問い合わせ結果
 ///
@@ -27,4 +28,13 @@ pub fn query(port: &impl CachePort, repo_id: &str) -> CacheQueryResult {
 /// キャッシュを更新するユースケース
 pub fn update(port: &impl CachePort, repo_id: &str, output: &str) {
     port.update(repo_id, output);
+}
+
+/// DaemonClient を使ってキャッシュを問い合わせる。
+/// Fresh/Stale なら `Some(出力文字列)`、Miss/Unavailable なら `None`。
+pub fn query_via_daemon(repo_id: &str) -> Option<String> {
+    match query(&DaemonClient, repo_id) {
+        CacheQueryResult::Fresh(s) | CacheQueryResult::Stale(s) => Some(s),
+        CacheQueryResult::Miss | CacheQueryResult::Unavailable => None,
+    }
 }

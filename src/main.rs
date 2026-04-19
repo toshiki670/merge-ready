@@ -5,17 +5,15 @@ use contexts::configuration::application::config_service::ConfigService;
 use contexts::configuration::infrastructure::toml_loader::TomlConfigRepository;
 use contexts::merge_readiness::application::{
     OutputToken,
-    cache::{CachePort, CacheState},
     errors::ErrorToken,
-    prompt::{ExecutionMode, PromptEffect, RepoIdPort},
+    prompt::{ExecutionMode, RepoIdPort},
 };
 use contexts::merge_readiness::infrastructure::{gh::GhClient, logger::Logger};
 use contexts::merge_readiness::interface::{
     cli::prompt::{self, AFTER_HELP, PromptArgs},
     presentation::{PresentationConfigPort, Presenter},
 };
-use contexts::status_cache::application::cache::{self as status_cache_app, CacheQueryResult};
-use contexts::status_cache::infrastructure::daemon_client::DaemonClient;
+use contexts::status_cache::application::cache as status_cache_app;
 
 #[derive(Parser)]
 #[command(
@@ -107,36 +105,6 @@ impl PresentationConfigPort for ConfigAdapter {
     }
 }
 
-struct DaemonCacheAdapter;
-
-impl CachePort for DaemonCacheAdapter {
-    fn check(&self, repo_id: &str) -> CacheState {
-        match status_cache_app::query(&DaemonClient, repo_id) {
-            CacheQueryResult::Fresh(s) => CacheState::Fresh(s),
-            CacheQueryResult::Stale(s) => CacheState::Stale(s),
-            // Miss: daemon が refresh 予約済み。Unavailable: lazy_start 済み → next call でヒット
-            CacheQueryResult::Miss | CacheQueryResult::Unavailable => CacheState::Miss,
-        }
-    }
-}
-
-fn run_cached_prompt(repo_id_port: &impl RepoIdPort) {
-    let cache = DaemonCacheAdapter;
-    match contexts::merge_readiness::application::prompt::resolve_cached(repo_id_port, &cache) {
-        PromptEffect::NoOutput => {}
-        PromptEffect::Show(s) | PromptEffect::ShowAndRefresh(s) => print!("{s}"),
-        PromptEffect::ShowLoadingAndRefresh => print!("? loading"),
-    }
-}
-
-fn run_daemon_refresh(repo_id: &str) {
-    let tokens =
-        contexts::merge_readiness::application::prompt::fetch_output(&GhClient::new(), &Logger);
-    if let Some(tokens) = tokens {
-        let output = Presenter::new(ConfigAdapter::load()).render_to_string(&tokens);
-        status_cache_app::update(&DaemonClient, repo_id, &output);
-    }
-}
 
 fn main() {
     let repo_id_port = InfraRepoIdPort;
@@ -149,7 +117,9 @@ fn main() {
                     ConfigAdapter::load(),
                 );
             }
-            ExecutionMode::Cached => run_cached_prompt(&repo_id_port),
+            ExecutionMode::Cached => {
+                prompt::cached::run(&repo_id_port, status_cache_app::query_via_daemon);
+            }
         },
         Some(Command::Config { subcommand }) => match subcommand {
             ConfigCommand::Edit => {
@@ -188,7 +158,17 @@ fn main() {
                 DaemonCommand::Status => {
                     contexts::status_cache::interface::cli::daemon::status(&lifecycle);
                 }
-                DaemonCommand::Refresh { repo_id } => run_daemon_refresh(&repo_id),
+                DaemonCommand::Refresh { repo_id } => {
+                    use contexts::status_cache::infrastructure::daemon_client::DaemonClient;
+                    let tokens = contexts::merge_readiness::application::prompt::fetch_output(
+                        &GhClient::new(),
+                        &Logger,
+                    );
+                    if let Some(tokens) = tokens {
+                        let output = Presenter::new(ConfigAdapter::load()).render_to_string(&tokens);
+                        status_cache_app::update(&DaemonClient, &repo_id, &output);
+                    }
+                }
             }
         }
         None => {

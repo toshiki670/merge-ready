@@ -1,7 +1,7 @@
-use crate::contexts::status_cache::domain::{DaemonLifecyclePort, DaemonStatus};
+use crate::contexts::status_cache::domain::daemon::{DaemonLifecyclePort, DaemonStatus};
 
 // interface 層が domain を直接参照しないよう re-export する
-pub use crate::contexts::status_cache::domain::DaemonLifecyclePort as Port;
+pub use crate::contexts::status_cache::domain::daemon::DaemonLifecyclePort as Port;
 
 /// デーモンを起動するユースケース
 pub fn start(port: &impl DaemonLifecyclePort) {

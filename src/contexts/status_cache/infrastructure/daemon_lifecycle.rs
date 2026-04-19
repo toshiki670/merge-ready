@@ -1,4 +1,4 @@
-use crate::contexts::status_cache::domain::{DaemonLifecyclePort, DaemonStatus};
+use crate::contexts::status_cache::domain::daemon::{DaemonLifecyclePort, DaemonStatus};
 
 use super::{daemon_client::DaemonClient, daemon_server, pid};
 

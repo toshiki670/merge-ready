@@ -1,5 +1,4 @@
 mod branch_sync;
-pub mod cache;
 mod ci_checks;
 pub mod errors;
 mod merge_ready;

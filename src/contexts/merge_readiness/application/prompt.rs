@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::OutputToken;
-use super::cache::{CachePort, DisplayAction};
 use super::errors::{ErrorLogger, ErrorPresenter, ErrorToken};
 use crate::contexts::merge_readiness::domain::{
     branch_sync::BranchSyncRepository, ci_checks::CiChecksRepository,
@@ -19,32 +18,6 @@ pub enum ExecutionMode {
     Direct,
     /// daemon 経由でキャッシュを参照する
     Cached,
-}
-
-/// キャッシュ表示の結果として CLI 層が実行すべき意図を表す
-pub enum PromptEffect {
-    /// そのまま表示（daemon がリフレッシュを内部管理）
-    Show(String),
-    /// stale な値を表示（daemon がリフレッシュを内部予約済み）
-    ShowAndRefresh(String),
-    /// "? loading" を表示（daemon がリフレッシュを内部予約済み）
-    ShowLoadingAndRefresh,
-    /// 何も表示しない（git リポジトリ外など）
-    NoOutput,
-}
-
-/// キャッシュ方針に基づいて表示意図を返す（副作用なし）。
-///
-/// git リポジトリ外の場合は [`PromptEffect::NoOutput`] を返す。
-pub fn resolve_cached(repo_id: &impl RepoIdPort, cache: &impl CachePort) -> PromptEffect {
-    let Some(id) = repo_id.get() else {
-        return PromptEffect::NoOutput;
-    };
-    match super::cache::resolve(&id, cache) {
-        DisplayAction::Display(s) => PromptEffect::Show(s),
-        DisplayAction::DisplayAndRefresh(s) => PromptEffect::ShowAndRefresh(s),
-        DisplayAction::LoadingWithRefresh => PromptEffect::ShowLoadingAndRefresh,
-    }
 }
 
 /// gh を呼んで出力トークンを返す。エラー発生時は `None` を返す（daemon 書き込み回避）。

@@ -1,4 +1,5 @@
 mod args;
+pub mod cached;
 pub mod direct;
 
 pub use args::{AFTER_HELP, PromptArgs};

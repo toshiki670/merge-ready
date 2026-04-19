@@ -75,26 +75,12 @@ impl DaemonClient {
         let Ok(exe) = std::env::current_exe() else {
             return;
         };
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            let _ = std::process::Command::new(&exe)
-                .args(["daemon", "start"])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .process_group(0)
-                .spawn();
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = std::process::Command::new(&exe)
-                .args(["daemon", "start"])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn();
-        }
+        let _ = std::process::Command::new(&exe)
+            .args(["daemon", "start"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
     }
 }
 

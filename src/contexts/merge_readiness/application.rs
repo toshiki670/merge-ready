@@ -6,12 +6,20 @@ mod pr_state;
 pub mod prompt;
 mod review;
 
-// interface 層が application のみに依存できるよう domain トレイトを再エクスポート
-pub use super::domain::branch_sync::BranchSyncRepository;
-pub use super::domain::ci_checks::CiChecksRepository;
-pub use super::domain::merge_ready::MergeReadinessRepository;
-pub use super::domain::pr_state::PrStateRepository;
-pub use super::domain::review::ReviewRepository;
+pub trait BranchSyncRepository: super::domain::branch_sync::BranchSyncRepository {}
+impl<T> BranchSyncRepository for T where T: super::domain::branch_sync::BranchSyncRepository {}
+
+pub trait CiChecksRepository: super::domain::ci_checks::CiChecksRepository {}
+impl<T> CiChecksRepository for T where T: super::domain::ci_checks::CiChecksRepository {}
+
+pub trait MergeReadinessRepository: super::domain::merge_ready::MergeReadinessRepository {}
+impl<T> MergeReadinessRepository for T where T: super::domain::merge_ready::MergeReadinessRepository {}
+
+pub trait PrStateRepository: super::domain::pr_state::PrStateRepository {}
+impl<T> PrStateRepository for T where T: super::domain::pr_state::PrStateRepository {}
+
+pub trait ReviewRepository: super::domain::review::ReviewRepository {}
+impl<T> ReviewRepository for T where T: super::domain::review::ReviewRepository {}
 
 use errors::{ErrorLogger, ErrorPresenter};
 

@@ -4,8 +4,8 @@ use clap::{CommandFactory, Parser, Subcommand};
 use contexts::configuration::application::config_service::ConfigService;
 use contexts::configuration::infrastructure::toml_loader::TomlConfigRepository;
 use contexts::merge_readiness::application::{
-    cache::{CachePort, CacheState},
     OutputToken,
+    cache::{CachePort, CacheState},
     errors::ErrorToken,
     prompt::{ExecutionMode, PromptEffect, RepoIdPort},
 };
@@ -130,7 +130,8 @@ fn run_cached_prompt(repo_id_port: &impl RepoIdPort) {
 }
 
 fn run_daemon_refresh(repo_id: &str) {
-    let tokens = contexts::merge_readiness::application::prompt::fetch_output(&GhClient::new(), &Logger);
+    let tokens =
+        contexts::merge_readiness::application::prompt::fetch_output(&GhClient::new(), &Logger);
     if let Some(tokens) = tokens {
         let output = Presenter::new(ConfigAdapter::load()).render_to_string(&tokens);
         status_cache_app::update(&DaemonClient, repo_id, &output);

@@ -71,6 +71,13 @@ pub fn run(on_refresh: &RefreshFn) {
 
     pid::write(std::process::id());
 
+    // 外側プロセスへ起動完了を通知する（stdout pipe 経由）
+    {
+        use std::io::Write;
+        let _ = std::io::stdout().write_all(b"ready\n");
+        let _ = std::io::stdout().flush();
+    }
+
     let state = Arc::new(Mutex::new(DaemonState::new()));
 
     // アイドルタイムアウト監視スレッド

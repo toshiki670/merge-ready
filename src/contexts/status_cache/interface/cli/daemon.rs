@@ -1,10 +1,14 @@
+use std::io::{BufRead, BufReader, Read};
 use std::process::Stdio;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use clap::Subcommand;
 
 use crate::contexts::status_cache::application::lifecycle::{self, Port};
 
 const DAEMON_INNER_ENV: &str = "MERGE_READY_DAEMON_INNER";
+const START_TIMEOUT_SECS: u64 = 2;
 
 #[derive(Subcommand, Clone, Copy)]
 pub enum DaemonCommand {
@@ -43,13 +47,62 @@ fn start(port: &impl Port) {
         eprintln!("merge-ready: failed to locate executable");
         std::process::exit(1);
     };
-    let _ = std::process::Command::new(exe)
+    let mut child = match std::process::Command::new(exe)
         .args(["daemon", "start"])
         .env(DAEMON_INNER_ENV, "1")
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
+        .stdout(Stdio::piped())
+        // inherit ではなく piped にする。inherit だと内側プロセスが外側の stderr fd
+        // のコピーを保持したまま走り続けるため、assert_cmd が EOF 待ちでハングする。
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("merge-ready: failed to spawn daemon: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let Some(stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        eprintln!("merge-ready: failed to capture daemon stdout");
+        std::process::exit(1);
+    };
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let mut reader = BufReader::new(stdout);
+        let _ = reader.read_line(&mut line);
+        let _ = tx.send(line);
+    });
+
+    let deadline = Instant::now() + Duration::from_secs(START_TIMEOUT_SECS);
+    loop {
+        // 内側プロセスが早期終了した場合（already running / bind 失敗等）
+        if let Ok(Some(status)) = child.try_wait() {
+            // 捕捉した stderr を外側の stderr へ中継する
+            if let Some(mut err) = child.stderr.take() {
+                let mut buf = String::new();
+                let _ = err.read_to_string(&mut buf);
+                if !buf.is_empty() {
+                    eprint!("{buf}");
+                }
+            }
+            let code = if status.success() { 1 } else { status.code().unwrap_or(1) };
+            std::process::exit(code);
+        }
+        if matches!(rx.try_recv().ok().as_deref(), Some("ready\n")) {
+            println!("daemon started");
+            return;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            eprintln!("merge-ready: daemon did not start within {START_TIMEOUT_SECS}s");
+            std::process::exit(1);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 fn stop(port: &impl Port) {

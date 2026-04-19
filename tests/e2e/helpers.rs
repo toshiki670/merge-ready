@@ -20,8 +20,6 @@ pub struct TestEnv {
     /// バイナリを実行するワーキングディレクトリ（`.git/HEAD` を持つ偽リポジトリ）
     /// `None` = `.git` のない空ディレクトリ（git リポジトリ外シナリオ）
     pub repo_dir: TempDir,
-    /// `repo_dir/.git/HEAD` に書き込んだブランチ名
-    pub branch: String,
 }
 
 /// テスト用の固定ブランチ名
@@ -53,26 +51,6 @@ impl TestEnv {
         let repo_dir = tempdir().expect("failed to create repo_dir");
         // repo_dir に .git を作らない
         (bin_dir, home_dir, repo_dir)
-    }
-
-    /// FNV-1a ハッシュで `repo_id` を計算する（`infra::repo_id::path_to_id` と同じアルゴリズム）。
-    ///
-    /// キーは `"<toplevel>\0<branch>"` の形式。
-    /// macOS では `/var/folders/...` が `/private/var/folders/...` のシンボリックリンクのため、
-    /// `std::env::current_dir()` が返す正規化パスと一致させるために `canonicalize()` を使用する。
-    pub fn repo_id(&self) -> String {
-        let canonical = self
-            .repo_dir
-            .path()
-            .canonicalize()
-            .unwrap_or_else(|_| self.repo_dir.path().to_path_buf());
-        let input = format!("{}\0{}", canonical.display(), self.branch);
-        let mut hash: u64 = 14_695_981_039_346_656_037;
-        for byte in input.bytes() {
-            hash ^= byte as u64;
-            hash = hash.wrapping_mul(1_099_511_628_211);
-        }
-        format!("{hash:016x}")
     }
 
     /// 正常系: `pr view` / `pr checks` それぞれの JSON を返す `fake gh` を配置する。
@@ -110,7 +88,6 @@ impl TestEnv {
             bin_dir,
             home_dir,
             repo_dir,
-            branch: DEFAULT_BRANCH.to_owned(),
         }
     }
 
@@ -156,7 +133,6 @@ impl TestEnv {
             bin_dir,
             home_dir,
             repo_dir,
-            branch: DEFAULT_BRANCH.to_owned(),
         }
     }
 
@@ -200,7 +176,6 @@ impl TestEnv {
             bin_dir,
             home_dir,
             repo_dir,
-            branch: DEFAULT_BRANCH.to_owned(),
         }
     }
 
@@ -213,7 +188,6 @@ impl TestEnv {
             bin_dir,
             home_dir,
             repo_dir,
-            branch: DEFAULT_BRANCH.to_owned(),
         }
     }
 
@@ -242,7 +216,6 @@ impl TestEnv {
             bin_dir,
             home_dir,
             repo_dir,
-            branch: DEFAULT_BRANCH.to_owned(),
         }
     }
 
@@ -253,7 +226,6 @@ impl TestEnv {
             bin_dir,
             home_dir,
             repo_dir,
-            branch: DEFAULT_BRANCH.to_owned(),
         }
     }
 
@@ -269,7 +241,6 @@ impl TestEnv {
             bin_dir,
             home_dir,
             repo_dir,
-            branch: DEFAULT_BRANCH.to_owned(),
         }
     }
 

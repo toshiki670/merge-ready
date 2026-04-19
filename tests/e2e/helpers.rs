@@ -20,8 +20,6 @@ pub struct TestEnv {
     /// バイナリを実行するワーキングディレクトリ（`.git/HEAD` を持つ偽リポジトリ）
     /// `None` = `.git` のない空ディレクトリ（git リポジトリ外シナリオ）
     pub repo_dir: TempDir,
-    /// `repo_dir/.git/HEAD` に書き込んだブランチ名
-    pub branch: String,
 }
 
 /// テスト用の固定ブランチ名
@@ -53,26 +51,6 @@ impl TestEnv {
         let repo_dir = tempdir().expect("failed to create repo_dir");
         // repo_dir に .git を作らない
         (bin_dir, home_dir, repo_dir)
-    }
-
-    /// FNV-1a ハッシュで `repo_id` を計算する（`infra::repo_id::path_to_id` と同じアルゴリズム）。
-    ///
-    /// キーは `"<toplevel>\0<branch>"` の形式。
-    /// macOS では `/var/folders/...` が `/private/var/folders/...` のシンボリックリンクのため、
-    /// `std::env::current_dir()` が返す正規化パスと一致させるために `canonicalize()` を使用する。
-    pub fn repo_id(&self) -> String {
-        let canonical = self
-            .repo_dir
-            .path()
-            .canonicalize()
-            .unwrap_or_else(|_| self.repo_dir.path().to_path_buf());
-        let input = format!("{}\0{}", canonical.display(), self.branch);
-        let mut hash: u64 = 14_695_981_039_346_656_037;
-        for byte in input.bytes() {
-            hash ^= byte as u64;
-            hash = hash.wrapping_mul(1_099_511_628_211);
-        }
-        format!("{hash:016x}")
     }
 
     /// 正常系: `pr view` / `pr checks` それぞれの JSON を返す `fake gh` を配置する。
@@ -110,7 +88,6 @@ impl TestEnv {
             bin_dir,
             home_dir,
             repo_dir,
-            branch: DEFAULT_BRANCH.to_owned(),
         }
     }
 
@@ -156,7 +133,6 @@ impl TestEnv {
             bin_dir,
             home_dir,
             repo_dir,
-            branch: DEFAULT_BRANCH.to_owned(),
         }
     }
 
@@ -200,7 +176,6 @@ impl TestEnv {
             bin_dir,
             home_dir,
             repo_dir,
-            branch: DEFAULT_BRANCH.to_owned(),
         }
     }
 
@@ -213,7 +188,6 @@ impl TestEnv {
             bin_dir,
             home_dir,
             repo_dir,
-            branch: DEFAULT_BRANCH.to_owned(),
         }
     }
 
@@ -242,7 +216,6 @@ impl TestEnv {
             bin_dir,
             home_dir,
             repo_dir,
-            branch: DEFAULT_BRANCH.to_owned(),
         }
     }
 
@@ -253,7 +226,6 @@ impl TestEnv {
             bin_dir,
             home_dir,
             repo_dir,
-            branch: DEFAULT_BRANCH.to_owned(),
         }
     }
 
@@ -269,7 +241,6 @@ impl TestEnv {
             bin_dir,
             home_dir,
             repo_dir,
-            branch: DEFAULT_BRANCH.to_owned(),
         }
     }
 
@@ -348,8 +319,248 @@ impl TestEnv {
     }
 }
 
+/// `status_cache::infrastructure::paths::dir_name()` と同一のロジック。
+///
+/// macOS: `"merge-ready"`、Linux: `"merge-ready-{uid}"`
+fn daemon_dir_name() -> String {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(meta) = std::fs::metadata("/proc/self") {
+            return format!("merge-ready-{}", meta.uid());
+        }
+    }
+    "merge-ready".to_owned()
+}
+
 fn write_executable(path: impl AsRef<Path>, content: &str) {
     let path = path.as_ref();
     fs::write(path, content).expect("failed to write script");
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("failed to chmod script");
+}
+
+/// daemon プロセスを管理するテストヘルパー。
+///
+/// socket ファイルの出現をポーリングして起動完了を検知する（固定 sleep は使わない）。
+/// Drop 時に daemon を停止する。
+pub struct DaemonHandle {
+    process: std::process::Child,
+    tmpdir: std::path::PathBuf,
+}
+
+impl DaemonHandle {
+    /// daemon を起動し、socket が出現するまで最大 2000ms ポーリングする。
+    #[must_use]
+    pub fn start(env: &TestEnv) -> Self {
+        Self::start_with_env(env, &[])
+    }
+
+    /// 追加の環境変数を指定して daemon を起動する。
+    #[must_use]
+    pub fn start_with_env(env: &TestEnv, extra_envs: &[(&str, &str)]) -> Self {
+        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
+
+        let mut cmd = std::process::Command::new(&bin);
+        cmd.args(["daemon", "start"])
+            .env("PATH", env.path_env())
+            .env("HOME", env.home())
+            .env("TMPDIR", env.home())
+            .env("XDG_CONFIG_HOME", env.home().join(".config"))
+            .current_dir(env.repo_dir.path())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        for (k, v) in extra_envs {
+            cmd.env(k, v);
+        }
+        let child = cmd.spawn().expect("daemon spawn failed");
+
+        let socket = env
+            .home_dir
+            .path()
+            .join(daemon_dir_name())
+            .join("daemon.sock");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
+        while std::time::Instant::now() < deadline {
+            if socket.exists() {
+                return DaemonHandle {
+                    process: child,
+                    tmpdir: env.home_dir.path().to_path_buf(),
+                };
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("daemon did not start within 2000ms");
+    }
+
+    /// キャッシュに有効な値が入るまで最大 `max_ms` ミリ秒ポーリングする。
+    pub fn wait_for_cache(env: &TestEnv, max_ms: u64) {
+        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
+        loop {
+            let out = std::process::Command::new(&bin)
+                .arg("prompt")
+                .env("PATH", env.path_env())
+                .env("HOME", env.home())
+                .env("TMPDIR", env.home())
+                .current_dir(env.repo_dir.path())
+                .output()
+                .expect("prompt failed");
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if stdout != "? loading" {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "cache not populated within {max_ms}ms"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+}
+
+impl Drop for DaemonHandle {
+    fn drop(&mut self) {
+        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
+        let _ = std::process::Command::new(&bin)
+            .args(["daemon", "stop"])
+            .env("TMPDIR", &self.tmpdir)
+            .output();
+        let _ = self.process.kill();
+    }
+}
+
+/// 複数リポジトリが同一 daemon を共有するシナリオ用の環境。
+///
+/// `fake gh` は `$PWD/.gh_pr_view.json` を読み取り応答するため、
+/// daemon が各エントリの cwd で `gh` を実行するかどうかをそのまま検証できる。
+pub struct MultiRepoEnv {
+    /// 共有 `fake gh` を配置するディレクトリ
+    pub bin_dir: TempDir,
+    /// 共有 `HOME` / `TMPDIR`（daemon socket の置き場）
+    pub home_dir: TempDir,
+    /// リポジトリ A のワーキングディレクトリ
+    pub repo_a: TempDir,
+    /// リポジトリ B のワーキングディレクトリ
+    pub repo_b: TempDir,
+}
+
+impl MultiRepoEnv {
+    /// `pr_view_a` / `pr_view_b` をそれぞれの repo_dir に仕込み、
+    /// `$PWD` ベースで応答する共有 `fake gh` をセットアップする。
+    pub fn new(pr_view_a: &str, pr_view_b: &str) -> Self {
+        let bin_dir = tempdir().expect("bin_dir");
+        let home_dir = tempdir().expect("home_dir");
+        let repo_a = tempdir().expect("repo_a");
+        let repo_b = tempdir().expect("repo_b");
+
+        // fake gh: $PWD/.gh_pr_view.json を読み取って応答する
+        let gh_script = "#!/bin/sh\n\
+            case \"$*\" in\n\
+              *'pr view'*)\n\
+                cat \"$PWD/.gh_pr_view.json\"\n\
+                ;;\n\
+              *'pr checks'*)\n\
+                printf '[{\"bucket\":\"pass\",\"state\":\"SUCCESS\"}]'\n\
+                ;;\n\
+              *'api'*'compare'*)\n\
+                printf '{\"behind_by\":0}'\n\
+                ;;\n\
+              *)\n\
+                printf 'unknown gh command: %s' \"$*\" >&2\n\
+                exit 127\n\
+                ;;\n\
+            esac\n";
+        write_executable(bin_dir.path().join("gh"), gh_script);
+
+        for (repo, json) in [(&repo_a, pr_view_a), (&repo_b, pr_view_b)] {
+            let git_dir = repo.path().join(".git");
+            fs::create_dir_all(&git_dir).expect("create .git");
+            fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").expect("write HEAD");
+            fs::write(repo.path().join(".gh_pr_view.json"), json).expect("write response json");
+        }
+
+        Self {
+            bin_dir,
+            home_dir,
+            repo_a,
+            repo_b,
+        }
+    }
+
+    pub fn path_env(&self) -> String {
+        format!("{}:/bin:/usr/bin", self.bin_dir.path().display())
+    }
+
+    pub fn home(&self) -> &Path {
+        self.home_dir.path()
+    }
+
+    /// daemon を `repo_a` の cwd で起動し、socket 出現まで最大 2000ms 待つ。
+    pub fn start_daemon(&self) -> DaemonHandle {
+        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
+        let child = std::process::Command::new(&bin)
+            .args(["daemon", "start"])
+            .env("PATH", self.path_env())
+            .env("HOME", self.home())
+            .env("TMPDIR", self.home())
+            .current_dir(self.repo_a.path())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("daemon spawn failed");
+
+        let socket = self.home().join(daemon_dir_name()).join("daemon.sock");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
+        while std::time::Instant::now() < deadline {
+            if socket.exists() {
+                return DaemonHandle {
+                    process: child,
+                    tmpdir: self.home().to_path_buf(),
+                };
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("daemon did not start within 2000ms");
+    }
+
+    /// `repo_dir` の `prompt` 出力が `"? loading"` でなくなるまで最大 `max_ms` ms 待つ。
+    pub fn wait_for_cache_in(&self, repo_dir: &TempDir, max_ms: u64) {
+        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
+        loop {
+            let out = std::process::Command::new(&bin)
+                .arg("prompt")
+                .env("PATH", self.path_env())
+                .env("HOME", self.home())
+                .env("TMPDIR", self.home())
+                .current_dir(repo_dir.path())
+                .output()
+                .expect("prompt failed");
+            let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+            if stdout != "? loading" {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "cache not populated within {max_ms}ms"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    /// `repo_dir` から `prompt` を実行してその出力を返す。
+    pub fn prompt_output(&self, repo_dir: &TempDir) -> String {
+        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
+        let out = std::process::Command::new(&bin)
+            .arg("prompt")
+            .env("PATH", self.path_env())
+            .env("HOME", self.home())
+            .env("TMPDIR", self.home())
+            .current_dir(repo_dir.path())
+            .output()
+            .expect("prompt failed");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
 }

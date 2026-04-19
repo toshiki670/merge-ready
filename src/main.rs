@@ -1,6 +1,4 @@
-mod cached;
 mod contexts;
-mod refresh;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use contexts::configuration::application::config_service::ConfigService;
@@ -13,8 +11,11 @@ use contexts::merge_readiness::application::{
 use contexts::merge_readiness::infrastructure::{gh::GhClient, logger::Logger};
 use contexts::merge_readiness::interface::{
     cli::prompt::{self, AFTER_HELP, PromptArgs},
-    presentation::PresentationConfigPort,
+    presentation::{PresentationConfigPort, Presenter},
 };
+use contexts::status_cache::application::cache as status_cache_app;
+use contexts::status_cache::infrastructure::daemon_client::{self as daemon_client, DaemonClient};
+use contexts::status_cache::interface::cli::DaemonCommand;
 
 #[derive(Parser)]
 #[command(
@@ -32,10 +33,18 @@ enum Command {
     /// Show PR merge status for your shell prompt
     #[command(after_help = AFTER_HELP)]
     Prompt(PromptArgs),
+    // TODO: ConfigCommand も configuration::interface::cli に移動し、
+    //       ここでは ConfigCommand を re-export して使う形に統一する。
+    //       現状は main.rs に ConfigCommand 定義と CLI ロジックが漏洩している。
     /// Manage the configuration file
     Config {
         #[command(subcommand)]
         subcommand: ConfigCommand,
+    },
+    /// Manage the background cache daemon
+    Daemon {
+        #[command(subcommand)]
+        subcommand: DaemonCommand,
     },
 }
 
@@ -88,22 +97,18 @@ impl PresentationConfigPort for ConfigAdapter {
 fn main() {
     let repo_id_port = InfraRepoIdPort;
     match Cli::parse().command {
-        Some(Command::Prompt(args)) => {
-            let Some(mode) = prompt::resolve_mode(&args, &repo_id_port) else {
-                return;
-            };
-            match mode {
-                ExecutionMode::Direct => {
-                    contexts::merge_readiness::interface::cli::prompt::direct::run(
-                        &GhClient::new(),
-                        &Logger,
-                        ConfigAdapter::load(),
-                    );
-                }
-                ExecutionMode::Cached => cached::run(),
-                ExecutionMode::BackgroundRefresh { repo_id } => refresh::run(&repo_id),
+        Some(Command::Prompt(args)) => match prompt::resolve_mode(&args, &repo_id_port) {
+            ExecutionMode::Direct => {
+                contexts::merge_readiness::interface::cli::prompt::direct::run(
+                    &GhClient::new(),
+                    &Logger,
+                    ConfigAdapter::load(),
+                );
             }
-        }
+            ExecutionMode::Cached => {
+                prompt::cached::run(&repo_id_port, daemon_client::query_via_daemon);
+            }
+        },
         Some(Command::Config { subcommand }) => match subcommand {
             ConfigCommand::Edit => {
                 let Some(path) =
@@ -128,6 +133,24 @@ fn main() {
                 }
             }
         },
+        Some(Command::Daemon { subcommand }) => {
+            let lifecycle =
+                contexts::status_cache::infrastructure::daemon_lifecycle::DaemonLifecycle::new(
+                    |repo_id: &str, cwd: &std::path::Path| {
+                        let repo_id = repo_id.to_owned();
+                        let tokens = contexts::merge_readiness::application::prompt::fetch_output(
+                            &GhClient::new_in(cwd.to_path_buf()),
+                            &Logger,
+                        );
+                        if let Some(tokens) = tokens {
+                            let output =
+                                Presenter::new(ConfigAdapter::load()).render_to_string(&tokens);
+                            status_cache_app::update(&DaemonClient, &repo_id, &output);
+                        }
+                    },
+                );
+            contexts::status_cache::interface::cli::daemon::run(subcommand, &lifecycle);
+        }
         None => {
             let _ = Cli::command().print_help();
         }

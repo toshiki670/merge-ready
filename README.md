@@ -34,7 +34,7 @@ Show merge status tokens for prompt integration:
 merge-ready prompt
 ```
 
-Bypass cache and fetch fresh state:
+Bypass the daemon cache and fetch fresh state directly from `gh`:
 
 ```bash
 merge-ready prompt --no-cache
@@ -63,6 +63,23 @@ This makes it easy to use from shell scripts and prompt hooks.
 - `✗ conflict` - merge conflicts exist
 - `✗ update-branch` - branch is behind base branch
 - `? sync-unknown` - branch sync status is unknown
+- `? loading` - cache miss; daemon is fetching in the background
+
+## Background Daemon
+
+`merge-ready` uses a background daemon to cache GitHub API results and serve prompt queries with near-zero latency.
+
+The daemon starts automatically the first time `merge-ready prompt` runs. You can also manage it manually:
+
+```bash
+merge-ready daemon start   # start the background daemon (returns immediately)
+merge-ready daemon stop    # stop the running daemon
+merge-ready daemon status  # show pid, cache entries, and uptime
+```
+
+On the first query the daemon has no cache yet, so `? loading` is printed while it fetches in the background. Subsequent calls return the cached value instantly.
+
+The daemon exits automatically after 30 minutes of inactivity.
 
 ## Requirements
 
@@ -73,4 +90,5 @@ This makes it easy to use from shell scripts and prompt hooks.
 
 - Minimal output focused on actionable blockers
 - Prompt-friendly status token output
-- Short-lived caching to reduce GitHub API calls
+- Background daemon caches GitHub API results, eliminating per-prompt API calls
+- Daemon auto-starts on first use; no manual setup required

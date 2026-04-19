@@ -58,6 +58,7 @@ pub struct GhClient {
     ///
     /// `OnceLock` を使用してスレッド間でのキャッシュ共有を安全にする（並列フェッチ対応）。
     pr_view_cache: OnceLock<GhPrView>,
+    cwd: Option<std::path::PathBuf>,
 }
 
 impl Default for GhClient {
@@ -71,14 +72,27 @@ impl GhClient {
     pub fn new() -> Self {
         Self {
             pr_view_cache: OnceLock::new(),
+            cwd: None,
         }
+    }
+
+    #[must_use]
+    pub fn new_in(cwd: std::path::PathBuf) -> Self {
+        Self {
+            pr_view_cache: OnceLock::new(),
+            cwd: Some(cwd),
+        }
+    }
+
+    fn run_gh(&self, args: &[&str]) -> Result<Vec<u8>, RepositoryError> {
+        run_gh(args, self.cwd.as_deref())
     }
 
     fn pr_view_cached(&self) -> Result<&GhPrView, RepositoryError> {
         if let Some(cached) = self.pr_view_cache.get() {
             return Ok(cached);
         }
-        let bytes = run_gh(&[
+        let bytes = self.run_gh(&[
             "pr",
             "view",
             "--json",
@@ -101,14 +115,15 @@ impl PrStateRepository for GhClient {
 impl BranchSyncRepository for GhClient {
     fn fetch_sync_status(&self) -> Result<BranchSyncStatus, RepositoryError> {
         let raw = self.pr_view_cached()?;
-        let behind_by = fetch_behind_by(&raw.base_ref_name, &raw.head_ref_name);
+        let behind_by =
+            fetch_behind_by(&raw.base_ref_name, &raw.head_ref_name, self.cwd.as_deref());
         Ok(translate_sync(&raw.mergeable, behind_by))
     }
 }
 
 impl CiChecksRepository for GhClient {
     fn fetch_check_buckets(&self) -> Result<Vec<CheckBucket>, RepositoryError> {
-        let bytes = match run_gh(&["pr", "checks", "--json", "bucket,state"]) {
+        let bytes = match self.run_gh(&["pr", "checks", "--json", "bucket,state"]) {
             Ok(b) => b,
             // CI が未設定のブランチではチェックなし（正常）として扱う
             Err(RepositoryError::Unexpected(msg)) if msg.contains("no checks reported") => {
@@ -165,12 +180,12 @@ fn translate_sync(mergeable: &str, behind_by: Option<u64>) -> BranchSyncStatus {
 /// 存在しない旧形式 JSON 等）は `Some(0)` を返す（フィールドなし ≒ 追跡不要）。
 /// Compare API 呼び出しに失敗した場合は `None` を返す。
 /// 呼び出し元は `None` を `BranchSyncStatus::Unknown`（同期状態判定不能）として扱う。
-fn fetch_behind_by(base_ref: &str, head_ref: &str) -> Option<u64> {
+fn fetch_behind_by(base_ref: &str, head_ref: &str, cwd: Option<&std::path::Path>) -> Option<u64> {
     if base_ref.is_empty() || head_ref.is_empty() {
         return Some(0);
     }
 
-    let name_with_owner = match run_gh(&["repo", "view", "--json", "nameWithOwner"]) {
+    let name_with_owner = match run_gh(&["repo", "view", "--json", "nameWithOwner"], cwd) {
         Ok(bytes) => match serde_json::from_slice::<GhRepoView>(&bytes) {
             Ok(r) => r.name_with_owner,
             Err(_) => return None,
@@ -180,7 +195,7 @@ fn fetch_behind_by(base_ref: &str, head_ref: &str) -> Option<u64> {
 
     let path = format!("repos/{name_with_owner}/compare/{base_ref}...{head_ref}");
 
-    match run_gh(&["api", &path]) {
+    match run_gh(&["api", &path], cwd) {
         Ok(bytes) => serde_json::from_slice::<GhCompare>(&bytes)
             .map(|c| c.behind_by)
             .ok(),
@@ -239,8 +254,13 @@ impl From<GhError> for RepositoryError {
     }
 }
 
-fn run_gh(args: &[&str]) -> Result<Vec<u8>, RepositoryError> {
-    let output = Command::new("gh").args(args).output();
+fn run_gh(args: &[&str], cwd: Option<&std::path::Path>) -> Result<Vec<u8>, RepositoryError> {
+    let mut cmd = Command::new("gh");
+    cmd.args(args);
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    let output = cmd.output();
     let gh_err = match output {
         Err(e) if e.kind() == ErrorKind::NotFound => GhError::NotInstalled,
         Err(e) => GhError::ApiError(e.to_string()),

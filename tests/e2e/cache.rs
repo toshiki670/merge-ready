@@ -1,29 +1,25 @@
 //! キャッシュ機構の e2e テスト
 //!
-//! これらのテストは `TestEnv::apply_with_cache()` を使用してキャッシュを有効にする。
-//! `home_dir` は tempdir で分離されているため、テスト間でキャッシュはリークしない。
+//! daemon 経由のキャッシュ動作を検証する。
+//! 各テストは独立した `home_dir`（= `TMPDIR`）を持つため、daemon socket が分離される。
 
 use assert_cmd::Command;
 use predicates::prelude::*;
-use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::helpers::TestEnv;
+use super::helpers::{DaemonHandle, MultiRepoEnv, TestEnv};
 
 /// merge-ready のバイナリ名
 const BIN: &str = "merge-ready";
 
-/// マージ可能な PR の `gh pr view` JSON（キャッシュテスト用の最小セット）
-/// `baseRefName` / `headRefName` を空にすることで `gh repo view` 呼び出しを回避し
-/// ブランチ同期を "Clean" として扱う
+/// マージ可能な PR の `gh pr view` JSON
 const OPEN_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
 
 /// CI が Pass の `gh pr checks` JSON
 const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
 
-// ── キャッシュなし（初回起動） ──────────────────────────────────────────
+// ── daemon なし（初回起動） ─────────────────────────────────────────────
 
-/// キャッシュなし → `? loading` を出力する
+/// daemon 未起動時 → `? loading` を出力してバックグラウンドで daemon を起動する
 #[test]
 fn test_cache_miss_shows_loading() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
@@ -35,114 +31,76 @@ fn test_cache_miss_shows_loading() {
         .stdout(predicate::str::diff("? loading"));
 }
 
-// ── --refresh モード ─────────────────────────────────────────────────────
+// ── daemon あり ─────────────────────────────────────────────────────────
 
-/// `--refresh` モードを明示的に実行すると state.json が作成される
+/// daemon 起動直後（キャッシュなし）→ `? loading`
 #[test]
-fn test_refresh_mode_writes_cache() {
+fn test_daemon_miss_shows_loading() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+    let _daemon = DaemonHandle::start(&env);
 
     let mut cmd = Command::cargo_bin(BIN).unwrap();
     env.apply_with_cache(&mut cmd);
-    cmd.arg("--refresh");
-    // prompt --refresh は stdout に何も出力しない
-    cmd.assert().success().stdout(predicate::str::is_empty());
-
-    // state.json が作成されていること
-    let state_path = state_json_path(&env);
-    assert!(
-        state_path.exists(),
-        "state.json should be created by --refresh at: {}",
-        state_path.display()
-    );
-
-    // state.json の内容確認
-    let state = read_state_json(&env).expect("state.json should be parseable");
-    let fetched_at: u64 = state["fetched_at_secs"]
-        .as_u64()
-        .expect("fetched_at_secs should be u64");
-    assert!(
-        fetched_at > now_secs() - 5,
-        "fetched_at_secs should be recent (was: {fetched_at})"
-    );
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::diff("? loading"));
 }
 
-// ── キャッシュヒット（新鮮） ────────────────────────────────────────────
-
-/// 新鮮な state.json が存在する場合、キャッシュの値がそのまま返る
+/// キャッシュミス後、daemon が内部でリフレッシュ完了 → prompt がキャッシュから出力を返す
 #[test]
-fn test_cache_fresh_returns_cached_output() {
+fn test_daemon_fresh_returns_cached_output() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
-    let cached_output = "✓ merge-ready";
+    let _daemon = DaemonHandle::start(&env);
 
-    // state.json を手動で書き込む（fetched_at_secs = now）
-    write_state_json(&env, cached_output, now_secs());
+    // 初回クエリ: キャッシュミス → daemon が内部スレッドでリフレッシュを実行
+    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::diff("? loading"));
 
-    // 壊れた fake gh を使っても、キャッシュが使われるためエラーにならない
+    // daemon 内部リフレッシュ完了をポーリングで待つ（最大 2000ms）
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    // 壊れた gh を使っても daemon キャッシュからヒットすること
     let broken_env = TestEnv::with_error("gh is broken", 1);
     let mut cmd = Command::cargo_bin(BIN).unwrap();
-    cmd.env("PATH", broken_env.path_env()); // 壊れた gh の PATH
-    cmd.env("HOME", env.home()); // HOME は env.home() で隔離
-    cmd.env("TMPDIR", env.home()); // キャッシュが存在する TMPDIR
-    cmd.current_dir(env.repo_dir.path()); // repo_id を一致させる
-    cmd.arg("prompt"); // キャッシュ有効モード
-
+    cmd.env("PATH", broken_env.path_env());
+    cmd.env("HOME", env.home());
+    cmd.env("TMPDIR", env.home());
+    cmd.current_dir(env.repo_dir.path());
+    cmd.arg("prompt");
     cmd.assert()
         .success()
-        .stdout(predicate::str::diff(cached_output));
+        .stdout(predicate::str::diff("✓ merge-ready"));
 }
 
-// ── キャッシュ stale（期限切れ） ───────────────────────────────────────
-
-/// stale_ttl より古いキャッシュが存在する場合、キャッシュの値を出力する
+/// TTL 超過後も stale 値を返す（daemon が内部でリフレッシュを予約）
 #[test]
-fn test_cache_stale_returns_cached_output() {
+fn test_daemon_stale_returns_output() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
-    let cached_output = "✗ conflict";
+    // TTL=0 で起動し、キャッシュが常に stale になるようにする
+    let _daemon = DaemonHandle::start_with_env(&env, &[("MERGE_READY_STALE_TTL", "0")]);
 
-    // stale_ttl(5秒)より古いキャッシュを作成: now - 10秒
-    write_state_json(&env, cached_output, now_secs() - 10);
-
+    // 初回クエリ: キャッシュミス → daemon が内部スレッドでリフレッシュを実行
     let mut cmd = Command::cargo_bin(BIN).unwrap();
     env.apply_with_cache(&mut cmd);
-    // stale でもキャッシュ値を返す（ブロックしない）
     cmd.assert()
         .success()
-        .stdout(predicate::str::diff(cached_output));
-}
+        .stdout(predicate::str::diff("? loading"));
 
-/// stale 後に `--refresh` を実行すると state.json が更新される
-#[test]
-fn test_stale_cache_is_updated_by_refresh() {
-    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
-    let stale_output = "✗ conflict";
+    // daemon 内部リフレッシュ完了をポーリングで待つ（最大 2000ms）
+    DaemonHandle::wait_for_cache(&env, 5000);
 
-    // stale_ttl より古いキャッシュを作成
-    write_state_json(&env, stale_output, now_secs() - 10);
-
-    // prompt --refresh を明示的に実行
-    let mut refresh_cmd = Command::cargo_bin(BIN).unwrap();
-    env.apply_with_cache(&mut refresh_cmd);
-    refresh_cmd.arg("--refresh");
-    refresh_cmd
-        .assert()
-        .success()
-        .stdout(predicate::str::is_empty());
-
-    // state.json の fetched_at_secs が更新されていること
-    let state = read_state_json(&env).expect("state.json should exist");
-    let new_fetched_at: u64 = state["fetched_at_secs"]
-        .as_u64()
-        .expect("fetched_at_secs should be u64");
-    assert!(
-        new_fetched_at > now_secs() - 5,
-        "fetched_at_secs should be updated by --refresh (was: {new_fetched_at})"
-    );
+    // TTL=0 なので stale だが、それでも値を返すこと
+    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert().success().stdout(predicate::str::contains("✓"));
 }
 
 // ── git リポジトリ外 ────────────────────────────────────────────────────
 
-/// git リポジトリでない場合、何も出力せずキャッシュも作らない
+/// git リポジトリでない場合、何も出力しない
 #[test]
 fn test_no_git_remote_shows_nothing() {
     let env = TestEnv::without_git_remote();
@@ -150,56 +108,37 @@ fn test_no_git_remote_shows_nothing() {
     let mut cmd = Command::cargo_bin(BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout(predicate::str::is_empty());
-
-    // キャッシュが作成されていないこと
-    let state_path = state_json_path(&env);
-    assert!(
-        !state_path.exists(),
-        "state.json should NOT be created when not in a git repository"
-    );
 }
 
-// ── ヘルパー関数 ────────────────────────────────────────────────────────
+// ── 複数リポジトリの分離 ────────────────────────────────────────────────
 
-fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-}
-
-/// `std::env::temp_dir()` と同じロジックでキャッシュディレクトリのサブディレクトリ名を返す。
+/// 同一 daemon が複数リポジトリを正しく分離してキャッシュすること。
 ///
-/// `infra::tmp_cache_dir::dir_name()` と同一のロジックを複製している。
-/// macOS: "merge-ready"、Linux: "merge-ready-{uid}"
-fn cache_dir_name() -> String {
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if let Ok(meta) = std::fs::metadata("/proc/self") {
-            return format!("merge-ready-{}", meta.uid());
-        }
-    }
-    "merge-ready".to_owned()
-}
+/// repo_a（merge-ready）と repo_b（conflict）が同じ daemon を共有するとき、
+/// daemon は各エントリの cwd で `gh` を実行するため、互いの出力を汚染しない。
+/// fake gh は `$PWD/.gh_pr_view.json` を読むため、cwd が正しくなければ
+/// repo_b のリフレッシュが repo_a のレスポンスを返してしまうことで検出できる。
+#[test]
+fn test_daemon_multi_repo_isolation() {
+    let env = MultiRepoEnv::new(
+        // repo_a: merge-ready
+        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#,
+        // repo_b: conflict
+        r#"{"state":"OPEN","isDraft":false,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","reviewDecision":null}"#,
+    );
+    let _daemon = env.start_daemon();
 
-fn state_json_path(env: &TestEnv) -> std::path::PathBuf {
-    env.home()
-        .join(cache_dir_name())
-        .join(format!("{}.json", env.repo_id()))
-}
+    // 両リポジトリのキャッシュが揃うまで待つ
+    env.wait_for_cache_in(&env.repo_a, 5000);
+    env.wait_for_cache_in(&env.repo_b, 5000);
 
-/// 指定した env の state.json を書き込む
-fn write_state_json(env: &TestEnv, output: &str, fetched_at_secs: u64) {
-    let state_path = state_json_path(env);
-    if let Some(parent) = state_path.parent() {
-        fs::create_dir_all(parent).unwrap();
-    }
-    let content = format!(r#"{{"fetched_at_secs":{fetched_at_secs},"output":"{output}"}}"#);
-    fs::write(&state_path, content).unwrap();
-}
+    let out_a = env.prompt_output(&env.repo_a);
+    let out_b = env.prompt_output(&env.repo_b);
 
-fn read_state_json(env: &TestEnv) -> Option<serde_json::Value> {
-    let content = fs::read_to_string(state_json_path(env)).ok()?;
-    serde_json::from_str(&content).ok()
+    assert_eq!(out_a, "✓ merge-ready", "repo_a should be merge-ready");
+    assert!(
+        out_b.contains("conflict"),
+        "repo_b should show conflict, got: {out_b}"
+    );
+    assert_ne!(out_a, out_b, "repos must not share cached output");
 }

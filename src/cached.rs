@@ -2,11 +2,42 @@ use std::process::Stdio;
 
 use crate::contexts::merge_readiness::application::prompt::PromptEffect;
 use crate::contexts::merge_readiness::infrastructure::{cache::CacheStore, refresh_lock};
+use crate::contexts::status_cache::domain::CacheQueryResult;
+use crate::contexts::status_cache::infrastructure::daemon_client::DaemonClient;
 
 use crate::InfraRepoIdPort;
 
 /// キャッシュ方針に基づいて表示し、必要に応じてバックグラウンドリフレッシュを起動する。
+///
+/// デーモンが起動中の場合は Unix ソケット経由でキャッシュを取得する（sub-ms パス）。
+/// デーモンが未起動の場合はファイルキャッシュへフォールバックしてバックグラウンドリフレッシュを起動する。
 pub fn run() {
+    let Some(repo_id) = crate::contexts::merge_readiness::infrastructure::repo_id::get() else {
+        return;
+    };
+
+    // デーモン経由の高速パス
+    match DaemonClient::query(&repo_id) {
+        CacheQueryResult::Fresh(s) | CacheQueryResult::Stale(s) => {
+            // デーモンがリフレッシュを内部管理するため追加処理不要
+            print!("{s}");
+            return;
+        }
+        CacheQueryResult::Miss => {
+            // デーモンがリフレッシュを内部で予約済み
+            print!("? loading");
+            return;
+        }
+        CacheQueryResult::Unavailable => {
+            // フォールバック: ファイルキャッシュ（デーモン未起動時）
+        }
+    }
+
+    run_with_file_cache();
+}
+
+/// ファイルキャッシュを使う従来パス（デーモン未起動時のフォールバック）。
+fn run_with_file_cache() {
     let cache = CacheStore;
     match crate::contexts::merge_readiness::application::prompt::resolve_cached(
         &InfraRepoIdPort,

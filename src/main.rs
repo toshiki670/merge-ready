@@ -37,6 +37,11 @@ enum Command {
         #[command(subcommand)]
         subcommand: ConfigCommand,
     },
+    /// Manage the background cache daemon
+    Daemon {
+        #[command(subcommand)]
+        subcommand: DaemonCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -45,6 +50,16 @@ enum ConfigCommand {
     Edit,
     /// Update the configuration file to the latest schema (preserves valid keys, removes obsolete ones, adds missing ones with defaults)
     Update,
+}
+
+#[derive(Subcommand)]
+enum DaemonCommand {
+    /// Start the background cache daemon (blocks; use as a background process)
+    Start,
+    /// Stop the running daemon
+    Stop,
+    /// Show daemon status
+    Status,
 }
 
 struct InfraRepoIdPort;
@@ -126,6 +141,17 @@ fn main() {
                     eprintln!("failed to update config: {e}");
                     std::process::exit(1);
                 }
+            }
+        },
+        Some(Command::Daemon { subcommand }) => match subcommand {
+            DaemonCommand::Start => {
+                contexts::status_cache::interface::cli::daemon::start();
+            }
+            DaemonCommand::Stop => {
+                contexts::status_cache::interface::cli::daemon::stop();
+            }
+            DaemonCommand::Status => {
+                contexts::status_cache::interface::cli::daemon::status();
             }
         },
         None => {

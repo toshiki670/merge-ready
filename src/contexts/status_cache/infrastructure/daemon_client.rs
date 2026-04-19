@@ -5,49 +5,42 @@ use std::time::Duration;
 
 use super::paths;
 use super::protocol::{Request, Response};
-use crate::contexts::status_cache::domain::CacheQueryResult;
+use crate::contexts::status_cache::domain::{CachePort, CacheState};
 
 /// デーモンソケットへの接続タイムアウト（ms）
 const READ_TIMEOUT_MS: u64 = 500;
 
 pub struct DaemonClient;
 
-impl DaemonClient {
-    /// キャッシュを問い合わせる。
-    ///
-    /// デーモンが応答しない場合はバックグラウンドで起動を試み、[`CacheQueryResult::Unavailable`] を返す。
-    pub fn query(repo_id: &str) -> CacheQueryResult {
+impl CachePort for DaemonClient {
+    fn query(&self, repo_id: &str) -> Result<CacheState, ()> {
         match Self::send(&Request::Query {
             repo_id: repo_id.to_owned(),
         }) {
-            Ok(Response::Fresh { output }) => CacheQueryResult::Fresh(output),
-            Ok(Response::Stale { output }) => CacheQueryResult::Stale(output),
-            Ok(Response::Miss) => CacheQueryResult::Miss,
+            Ok(Response::Fresh { output }) => Ok(CacheState::Fresh(output)),
+            Ok(Response::Stale { output }) => Ok(CacheState::Stale(output)),
+            Ok(Response::Miss) => Ok(CacheState::Miss),
             Ok(_) | Err(()) => {
                 Self::lazy_start();
-                CacheQueryResult::Unavailable
+                Err(())
             }
         }
     }
 
-    /// キャッシュを更新する（fire-and-forget）。
-    ///
-    /// デーモンが起動していない場合は静かに無視する。
-    pub fn update(repo_id: &str, output: &str) {
+    fn update(&self, repo_id: &str, output: &str) {
         let _ = Self::send(&Request::Update {
             repo_id: repo_id.to_owned(),
             output: output.to_owned(),
         });
     }
+}
 
-    /// デーモンに停止を要求する。応答を受け取れた場合 `true` を返す。
-    pub fn stop() -> bool {
+impl DaemonClient {
+    pub(super) fn stop() -> bool {
         Self::send(&Request::Stop).is_ok()
     }
 
-    /// デーモンのステータスを取得する。起動していない場合は `None` を返す。
-    #[must_use]
-    pub fn status_info() -> Option<(u32, usize, u64)> {
+    pub(super) fn status_raw() -> Option<(u32, usize, u64)> {
         match Self::send(&Request::Status) {
             Ok(Response::Status {
                 pid,

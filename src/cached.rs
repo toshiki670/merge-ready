@@ -2,7 +2,7 @@ use std::process::Stdio;
 
 use crate::contexts::merge_readiness::application::prompt::PromptEffect;
 use crate::contexts::merge_readiness::infrastructure::{cache::CacheStore, refresh_lock};
-use crate::contexts::status_cache::domain::CacheQueryResult;
+use crate::contexts::status_cache::application::cache::{self, CacheQueryResult};
 use crate::contexts::status_cache::infrastructure::daemon_client::DaemonClient;
 
 use crate::InfraRepoIdPort;
@@ -17,7 +17,8 @@ pub fn run() {
     };
 
     // デーモン経由の高速パス
-    match DaemonClient::query(&repo_id) {
+    let client = DaemonClient;
+    match cache::query(&client, &repo_id) {
         CacheQueryResult::Fresh(s) | CacheQueryResult::Stale(s) => {
             // デーモンがリフレッシュを内部管理するため追加処理不要
             print!("{s}");

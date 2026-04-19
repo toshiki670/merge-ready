@@ -2,6 +2,7 @@ use crate::contexts::merge_readiness::infrastructure::{
     cache, gh::GhClient, logger::Logger, refresh_lock,
 };
 use crate::contexts::merge_readiness::interface::presentation::Presenter;
+use crate::contexts::status_cache::application::cache as status_cache;
 use crate::contexts::status_cache::infrastructure::daemon_client::DaemonClient;
 
 use crate::ConfigAdapter;
@@ -20,7 +21,8 @@ pub fn run(repo_id: &str) {
         // ファイルキャッシュに書き込む（デーモン未起動時のフォールバック用）
         cache::write(repo_id, &output);
         // デーモンが起動中であれば通知する（fire-and-forget）
-        DaemonClient::update(repo_id, &output);
+        let client = DaemonClient;
+        status_cache::update(&client, repo_id, &output);
     }
     refresh_lock::release(repo_id);
 }

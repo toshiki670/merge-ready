@@ -143,17 +143,21 @@ fn main() {
                 }
             }
         },
-        Some(Command::Daemon { subcommand }) => match subcommand {
-            DaemonCommand::Start => {
-                contexts::status_cache::interface::cli::daemon::start();
+        Some(Command::Daemon { subcommand }) => {
+            let lifecycle =
+                contexts::status_cache::infrastructure::daemon_lifecycle::DaemonLifecycle;
+            match subcommand {
+                DaemonCommand::Start => {
+                    contexts::status_cache::interface::cli::daemon::start(&lifecycle);
+                }
+                DaemonCommand::Stop => {
+                    contexts::status_cache::interface::cli::daemon::stop(&lifecycle);
+                }
+                DaemonCommand::Status => {
+                    contexts::status_cache::interface::cli::daemon::status(&lifecycle);
+                }
             }
-            DaemonCommand::Stop => {
-                contexts::status_cache::interface::cli::daemon::stop();
-            }
-            DaemonCommand::Status => {
-                contexts::status_cache::interface::cli::daemon::status();
-            }
-        },
+        }
         None => {
             let _ = Cli::command().print_help();
         }

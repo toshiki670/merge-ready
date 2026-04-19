@@ -4,15 +4,15 @@ use clap::{CommandFactory, Parser, Subcommand};
 use contexts::configuration::application::config_service::ConfigService;
 use contexts::configuration::infrastructure::toml_loader::TomlConfigRepository;
 use contexts::merge_readiness::application::{
+    cache::{CachePort, CacheState},
     OutputToken,
     errors::ErrorToken,
     prompt::{ExecutionMode, PromptEffect, RepoIdPort},
 };
-use contexts::merge_readiness::domain::cache::{CachePort, CacheState};
 use contexts::merge_readiness::infrastructure::{gh::GhClient, logger::Logger};
 use contexts::merge_readiness::interface::{
     cli::prompt::{self, AFTER_HELP, PromptArgs},
-    presentation::{Presenter, PresentationConfigPort},
+    presentation::{PresentationConfigPort, Presenter},
 };
 use contexts::status_cache::application::cache::{self as status_cache_app, CacheQueryResult};
 use contexts::status_cache::infrastructure::daemon_client::DaemonClient;
@@ -107,7 +107,6 @@ impl PresentationConfigPort for ConfigAdapter {
     }
 }
 
-/// daemon 経由でキャッシュを参照する `CachePort` アダプタ（bin 層）
 struct DaemonCacheAdapter;
 
 impl CachePort for DaemonCacheAdapter {
@@ -121,31 +120,36 @@ impl CachePort for DaemonCacheAdapter {
     }
 }
 
+fn run_cached_prompt(repo_id_port: &impl RepoIdPort) {
+    let cache = DaemonCacheAdapter;
+    match contexts::merge_readiness::application::prompt::resolve_cached(repo_id_port, &cache) {
+        PromptEffect::NoOutput => {}
+        PromptEffect::Show(s) | PromptEffect::ShowAndRefresh(s) => print!("{s}"),
+        PromptEffect::ShowLoadingAndRefresh => print!("? loading"),
+    }
+}
+
+fn run_daemon_refresh(repo_id: &str) {
+    let tokens = contexts::merge_readiness::application::prompt::fetch_output(&GhClient::new(), &Logger);
+    if let Some(tokens) = tokens {
+        let output = Presenter::new(ConfigAdapter::load()).render_to_string(&tokens);
+        status_cache_app::update(&DaemonClient, repo_id, &output);
+    }
+}
+
 fn main() {
     let repo_id_port = InfraRepoIdPort;
     match Cli::parse().command {
-        Some(Command::Prompt(args)) => {
-            match prompt::resolve_mode(&args, &repo_id_port) {
-                ExecutionMode::Direct => {
-                    contexts::merge_readiness::interface::cli::prompt::direct::run(
-                        &GhClient::new(),
-                        &Logger,
-                        ConfigAdapter::load(),
-                    );
-                }
-                ExecutionMode::Cached => {
-                    let cache = DaemonCacheAdapter;
-                    match contexts::merge_readiness::application::prompt::resolve_cached(
-                        &repo_id_port,
-                        &cache,
-                    ) {
-                        PromptEffect::NoOutput => {}
-                        PromptEffect::Show(s) | PromptEffect::ShowAndRefresh(s) => print!("{s}"),
-                        PromptEffect::ShowLoadingAndRefresh => print!("? loading"),
-                    }
-                }
+        Some(Command::Prompt(args)) => match prompt::resolve_mode(&args, &repo_id_port) {
+            ExecutionMode::Direct => {
+                contexts::merge_readiness::interface::cli::prompt::direct::run(
+                    &GhClient::new(),
+                    &Logger,
+                    ConfigAdapter::load(),
+                );
             }
-        }
+            ExecutionMode::Cached => run_cached_prompt(&repo_id_port),
+        },
         Some(Command::Config { subcommand }) => match subcommand {
             ConfigCommand::Edit => {
                 let Some(path) =
@@ -183,17 +187,7 @@ fn main() {
                 DaemonCommand::Status => {
                     contexts::status_cache::interface::cli::daemon::status(&lifecycle);
                 }
-                DaemonCommand::Refresh { repo_id } => {
-                    let tokens = contexts::merge_readiness::application::prompt::fetch_output(
-                        &GhClient::new(),
-                        &Logger,
-                    );
-                    if let Some(tokens) = tokens {
-                        let output =
-                            Presenter::new(ConfigAdapter::load()).render_to_string(&tokens);
-                        status_cache_app::update(&DaemonClient, &repo_id, &output);
-                    }
-                }
+                DaemonCommand::Refresh { repo_id } => run_daemon_refresh(&repo_id),
             }
         }
         None => {

@@ -348,6 +348,20 @@ impl TestEnv {
     }
 }
 
+/// `status_cache::infrastructure::paths::dir_name()` と同一のロジック。
+///
+/// macOS: `"merge-ready"`、Linux: `"merge-ready-{uid}"`
+fn daemon_dir_name() -> String {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(meta) = std::fs::metadata("/proc/self") {
+            return format!("merge-ready-{}", meta.uid());
+        }
+    }
+    "merge-ready".to_owned()
+}
+
 fn write_executable(path: impl AsRef<Path>, content: &str) {
     let path = path.as_ref();
     fs::write(path, content).expect("failed to write script");
@@ -383,7 +397,7 @@ impl DaemonHandle {
             .spawn()
             .expect("daemon spawn failed");
 
-        let socket = env.home_dir.path().join("merge-ready").join("daemon.sock");
+        let socket = env.home_dir.path().join(daemon_dir_name()).join("daemon.sock");
         let deadline =
             std::time::Instant::now() + std::time::Duration::from_millis(2000);
         while std::time::Instant::now() < deadline {

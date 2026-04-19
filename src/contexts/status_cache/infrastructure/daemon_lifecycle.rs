@@ -5,11 +5,11 @@ use crate::contexts::status_cache::domain::daemon::{DaemonLifecyclePort, DaemonS
 use super::{daemon_client::DaemonClient, daemon_server, pid};
 
 pub struct DaemonLifecycle {
-    on_refresh: Arc<dyn Fn(&str) + Send + Sync + 'static>,
+    on_refresh: Arc<dyn Fn(&str, &std::path::Path) + Send + Sync + 'static>,
 }
 
 impl DaemonLifecycle {
-    pub fn new(on_refresh: impl Fn(&str) + Send + Sync + 'static) -> Self {
+    pub fn new(on_refresh: impl Fn(&str, &std::path::Path) + Send + Sync + 'static) -> Self {
         Self {
             on_refresh: Arc::new(on_refresh),
         }

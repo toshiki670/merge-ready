@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Request {
-    Query { repo_id: String },
+    Query { repo_id: String, cwd: String },
     Update { repo_id: String, output: String },
     Stop,
     Status,

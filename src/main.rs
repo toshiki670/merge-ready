@@ -136,10 +136,10 @@ fn main() {
         Some(Command::Daemon { subcommand }) => {
             let lifecycle =
                 contexts::status_cache::infrastructure::daemon_lifecycle::DaemonLifecycle::new(
-                    |repo_id: &str| {
+                    |repo_id: &str, cwd: &std::path::Path| {
                         let repo_id = repo_id.to_owned();
                         let tokens = contexts::merge_readiness::application::prompt::fetch_output(
-                            &GhClient::new(),
+                            &GhClient::new_in(cwd.to_path_buf()),
                             &Logger,
                         );
                         if let Some(tokens) = tokens {

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -18,6 +19,7 @@ struct CacheEntry {
     fetched_at: Instant,
     refreshing: bool,
     refresh_started_at: Option<Instant>,
+    cwd: PathBuf,
 }
 
 struct DaemonState {
@@ -41,10 +43,11 @@ struct ActionResult {
     response: Response,
     /// `Some(repo_id)` のとき、ロック解放後にリフレッシュを起動する
     refresh_repo_id: Option<String>,
+    refresh_cwd: Option<PathBuf>,
     stop: bool,
 }
 
-type RefreshFn = Arc<dyn Fn(&str) + Send + Sync + 'static>;
+type RefreshFn = Arc<dyn Fn(&str, &std::path::Path) + Send + Sync + 'static>;
 
 /// デーモンのメインループ。ソケットをバインドして接続を待ち受ける。
 ///
@@ -105,8 +108,8 @@ pub fn run(on_refresh: &RefreshFn) {
             loop {
                 std::thread::sleep(Duration::from_secs(interval));
                 let refresh_targets = collect_background_refresh_targets(&state, interval);
-                for repo_id in refresh_targets {
-                    spawn_refresh(&repo_id, &on_refresh);
+                for (repo_id, cwd) in refresh_targets {
+                    spawn_refresh(&repo_id, &cwd, &on_refresh);
                 }
             }
         });
@@ -147,6 +150,7 @@ fn handle_client(
     let ActionResult {
         response,
         refresh_repo_id,
+        refresh_cwd,
         stop,
     } = process(&request, state);
 
@@ -155,8 +159,8 @@ fn handle_client(
     }
     drop(stream);
 
-    if let Some(repo_id) = refresh_repo_id {
-        spawn_refresh(&repo_id, on_refresh);
+    if let (Some(repo_id), Some(cwd)) = (refresh_repo_id, refresh_cwd) {
+        spawn_refresh(&repo_id, &cwd, on_refresh);
     }
 
     if stop {
@@ -175,65 +179,83 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
     s.last_activity = Instant::now();
 
     match request {
-        Request::Query { repo_id } => match s.entries.get(repo_id) {
-            Some(entry) if entry.fetched_at.elapsed().as_secs() <= ttl => ActionResult {
-                response: Response::Fresh {
-                    output: entry.output.clone(),
-                },
-                refresh_repo_id: None,
-                stop: false,
-            },
-            Some(entry) => {
-                let output = entry.output.clone();
-                let need_refresh = !entry.refreshing;
-                if need_refresh {
-                    mark_refreshing(s.entries.get_mut(repo_id).expect("entry exists"));
-                }
-                ActionResult {
-                    response: Response::Stale { output },
-                    refresh_repo_id: need_refresh.then(|| repo_id.clone()),
+        Request::Query { repo_id, cwd } => {
+            let cwd_path = PathBuf::from(cwd);
+            match s.entries.get(repo_id) {
+                Some(entry) if entry.fetched_at.elapsed().as_secs() <= ttl => ActionResult {
+                    response: Response::Fresh {
+                        output: entry.output.clone(),
+                    },
+                    refresh_repo_id: None,
+                    refresh_cwd: None,
                     stop: false,
+                },
+                Some(entry) => {
+                    let output = entry.output.clone();
+                    let stored_cwd = entry.cwd.clone();
+                    let need_refresh = !entry.refreshing;
+                    if need_refresh {
+                        mark_refreshing(s.entries.get_mut(repo_id).expect("entry exists"));
+                    }
+                    ActionResult {
+                        response: Response::Stale { output },
+                        refresh_repo_id: need_refresh.then(|| repo_id.clone()),
+                        refresh_cwd: need_refresh.then_some(stored_cwd),
+                        stop: false,
+                    }
+                }
+                None => {
+                    let past = Instant::now()
+                        .checked_sub(Duration::from_secs(ttl.saturating_add(1)))
+                        .unwrap_or_else(Instant::now);
+                    s.entries.insert(
+                        repo_id.clone(),
+                        CacheEntry {
+                            output: String::new(),
+                            fetched_at: past,
+                            refreshing: true,
+                            refresh_started_at: Some(Instant::now()),
+                            cwd: cwd_path.clone(),
+                        },
+                    );
+                    ActionResult {
+                        response: Response::Miss,
+                        refresh_repo_id: Some(repo_id.clone()),
+                        refresh_cwd: Some(cwd_path),
+                        stop: false,
+                    }
                 }
             }
-            None => {
-                let past = Instant::now()
-                    .checked_sub(Duration::from_secs(ttl.saturating_add(1)))
-                    .unwrap_or_else(Instant::now);
+        }
+        Request::Update { repo_id, output } => {
+            if let Some(entry) = s.entries.get_mut(repo_id) {
+                entry.output = output.clone();
+                entry.fetched_at = Instant::now();
+                entry.refreshing = false;
+                entry.refresh_started_at = None;
+            } else {
                 s.entries.insert(
                     repo_id.clone(),
                     CacheEntry {
-                        output: String::new(),
-                        fetched_at: past,
-                        refreshing: true,
-                        refresh_started_at: Some(Instant::now()),
+                        output: output.clone(),
+                        fetched_at: Instant::now(),
+                        refreshing: false,
+                        refresh_started_at: None,
+                        cwd: PathBuf::new(),
                     },
                 );
-                ActionResult {
-                    response: Response::Miss,
-                    refresh_repo_id: Some(repo_id.clone()),
-                    stop: false,
-                }
             }
-        },
-        Request::Update { repo_id, output } => {
-            s.entries.insert(
-                repo_id.clone(),
-                CacheEntry {
-                    output: output.clone(),
-                    fetched_at: Instant::now(),
-                    refreshing: false,
-                    refresh_started_at: None,
-                },
-            );
             ActionResult {
                 response: Response::Ok,
                 refresh_repo_id: None,
+                refresh_cwd: None,
                 stop: false,
             }
         }
         Request::Stop => ActionResult {
             response: Response::Ok,
             refresh_repo_id: None,
+            refresh_cwd: None,
             stop: true,
         },
         Request::Status => {
@@ -246,16 +268,18 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
                     uptime_secs,
                 },
                 refresh_repo_id: None,
+                refresh_cwd: None,
                 stop: false,
             }
         }
     }
 }
 
-fn spawn_refresh(repo_id: &str, on_refresh: &RefreshFn) {
+fn spawn_refresh(repo_id: &str, cwd: &std::path::Path, on_refresh: &RefreshFn) {
     let repo_id = repo_id.to_owned();
+    let cwd = cwd.to_path_buf();
     let on_refresh = Arc::clone(on_refresh);
-    std::thread::spawn(move || on_refresh(&repo_id));
+    std::thread::spawn(move || on_refresh(&repo_id, &cwd));
 }
 
 fn cleanup() {
@@ -302,7 +326,7 @@ fn refresh_lock_expired(entry: &CacheEntry) -> bool {
 fn collect_background_refresh_targets(
     state: &Arc<Mutex<DaemonState>>,
     interval_secs: u64,
-) -> Vec<String> {
+) -> Vec<(String, PathBuf)> {
     let mut s = state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -323,7 +347,7 @@ fn collect_background_refresh_targets(
             continue;
         }
         mark_refreshing(entry);
-        targets.push(repo_id.clone());
+        targets.push((repo_id.clone(), entry.cwd.clone()));
     }
 
     if !targets.is_empty() {

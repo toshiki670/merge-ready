@@ -6,7 +6,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-use super::helpers::{DaemonHandle, TestEnv};
+use super::helpers::{DaemonHandle, MultiRepoEnv, TestEnv};
 
 /// merge-ready のバイナリ名
 const BIN: &str = "merge-ready";
@@ -108,4 +108,34 @@ fn test_no_git_remote_shows_nothing() {
     let mut cmd = Command::cargo_bin(BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout(predicate::str::is_empty());
+}
+
+// ── 複数リポジトリの分離 ────────────────────────────────────────────────
+
+/// 同一 daemon が複数リポジトリを正しく分離してキャッシュすること。
+///
+/// repo_a（merge-ready）と repo_b（conflict）が同じ daemon を共有するとき、
+/// daemon は各エントリの cwd で `gh` を実行するため、互いの出力を汚染しない。
+/// fake gh は `$PWD/.gh_pr_view.json` を読むため、cwd が正しくなければ
+/// repo_b のリフレッシュが repo_a のレスポンスを返してしまうことで検出できる。
+#[test]
+fn test_daemon_multi_repo_isolation() {
+    let env = MultiRepoEnv::new(
+        // repo_a: merge-ready
+        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#,
+        // repo_b: conflict
+        r#"{"state":"OPEN","isDraft":false,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","reviewDecision":null}"#,
+    );
+    let _daemon = env.start_daemon();
+
+    // 両リポジトリのキャッシュが揃うまで待つ
+    env.wait_for_cache_in(&env.repo_a, 5000);
+    env.wait_for_cache_in(&env.repo_b, 5000);
+
+    let out_a = env.prompt_output(&env.repo_a);
+    let out_b = env.prompt_output(&env.repo_b);
+
+    assert_eq!(out_a, "✓ merge-ready", "repo_a should be merge-ready");
+    assert!(out_b.contains("conflict"), "repo_b should show conflict, got: {out_b}");
+    assert_ne!(out_a, out_b, "repos must not share cached output");
 }

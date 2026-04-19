@@ -14,8 +14,12 @@ pub struct DaemonClient;
 
 impl CachePort for DaemonClient {
     fn query(&self, repo_id: &str) -> Result<CacheState, ()> {
+        let cwd = std::env::current_dir()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
         match Self::send(&Request::Query {
             repo_id: repo_id.to_owned(),
+            cwd,
         }) {
             Ok(Response::Fresh { output }) => Ok(CacheState::Fresh(output)),
             Ok(Response::Stale { output }) => Ok(CacheState::Stale(output)),

@@ -14,8 +14,12 @@ pub enum Request {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "tag", rename_all = "snake_case")]
 pub enum Response {
-    Fresh { output: String },
-    Stale { output: String },
+    Fresh {
+        output: String,
+    },
+    Stale {
+        output: String,
+    },
     Miss,
     Ok,
     Status {

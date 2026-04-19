@@ -39,7 +39,9 @@ fn test_daemon_stop_terminates() {
     let mut stop = Command::cargo_bin(BIN).unwrap();
     env.apply(&mut stop);
     stop.args(["daemon", "stop"]);
-    stop.assert().success().stdout(predicate::str::contains("stopped"));
+    stop.assert()
+        .success()
+        .stdout(predicate::str::contains("stopped"));
 
     // DaemonHandle の Drop が二重停止しないよう少し待つ
     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -49,7 +51,8 @@ fn test_daemon_stop_terminates() {
     let mut status = Command::cargo_bin(BIN).unwrap();
     env.apply(&mut status);
     status.args(["daemon", "status"]);
-    status.assert()
+    status
+        .assert()
         .success()
         .stdout(predicate::str::contains("not running"));
 }
@@ -57,10 +60,7 @@ fn test_daemon_stop_terminates() {
 /// daemon が未起動のときの status → "not running"
 #[test]
 fn test_daemon_status_not_running() {
-    let env = TestEnv::new(
-        r#"{"state":"OPEN"}"#,
-        None,
-    );
+    let env = TestEnv::new(r#"{"state":"OPEN"}"#, None);
 
     let mut cmd = Command::cargo_bin(BIN).unwrap();
     env.apply(&mut cmd);

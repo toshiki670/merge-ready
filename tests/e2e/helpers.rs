@@ -397,9 +397,12 @@ impl DaemonHandle {
             .spawn()
             .expect("daemon spawn failed");
 
-        let socket = env.home_dir.path().join(daemon_dir_name()).join("daemon.sock");
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_millis(2000);
+        let socket = env
+            .home_dir
+            .path()
+            .join(daemon_dir_name())
+            .join("daemon.sock");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
         while std::time::Instant::now() < deadline {
             if socket.exists() {
                 return DaemonHandle {

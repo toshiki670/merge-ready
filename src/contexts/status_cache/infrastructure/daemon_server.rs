@@ -67,17 +67,19 @@ pub fn run() {
     // アイドルタイムアウト監視スレッド
     {
         let state = Arc::clone(&state);
-        std::thread::spawn(move || loop {
-            std::thread::sleep(Duration::from_mins(1));
-            let idle = state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .last_activity
-                .elapsed()
-                .as_secs();
-            if idle >= IDLE_TIMEOUT_SECS {
-                cleanup();
-                std::process::exit(0);
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_mins(1));
+                let idle = state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .last_activity
+                    .elapsed()
+                    .as_secs();
+                if idle >= IDLE_TIMEOUT_SECS {
+                    cleanup();
+                    std::process::exit(0);
+                }
             }
         });
     }
@@ -140,47 +142,45 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
     s.last_activity = Instant::now();
 
     match request {
-        Request::Query { repo_id } => {
-            match s.entries.get(repo_id) {
-                Some(entry) if entry.fetched_at.elapsed().as_secs() <= ttl => ActionResult {
-                    response: Response::Fresh {
-                        output: entry.output.clone(),
-                    },
-                    refresh_repo_id: None,
-                    stop: false,
+        Request::Query { repo_id } => match s.entries.get(repo_id) {
+            Some(entry) if entry.fetched_at.elapsed().as_secs() <= ttl => ActionResult {
+                response: Response::Fresh {
+                    output: entry.output.clone(),
                 },
-                Some(entry) => {
-                    let output = entry.output.clone();
-                    let need_refresh = !entry.refreshing;
-                    if need_refresh {
-                        s.entries.get_mut(repo_id).expect("entry exists").refreshing = true;
-                    }
-                    ActionResult {
-                        response: Response::Stale { output },
-                        refresh_repo_id: need_refresh.then(|| repo_id.clone()),
-                        stop: false,
-                    }
+                refresh_repo_id: None,
+                stop: false,
+            },
+            Some(entry) => {
+                let output = entry.output.clone();
+                let need_refresh = !entry.refreshing;
+                if need_refresh {
+                    s.entries.get_mut(repo_id).expect("entry exists").refreshing = true;
                 }
-                None => {
-                    let past = Instant::now()
-                        .checked_sub(Duration::from_secs(ttl.saturating_add(1)))
-                        .unwrap_or_else(Instant::now);
-                    s.entries.insert(
-                        repo_id.clone(),
-                        CacheEntry {
-                            output: String::new(),
-                            fetched_at: past,
-                            refreshing: true,
-                        },
-                    );
-                    ActionResult {
-                        response: Response::Miss,
-                        refresh_repo_id: Some(repo_id.clone()),
-                        stop: false,
-                    }
+                ActionResult {
+                    response: Response::Stale { output },
+                    refresh_repo_id: need_refresh.then(|| repo_id.clone()),
+                    stop: false,
                 }
             }
-        }
+            None => {
+                let past = Instant::now()
+                    .checked_sub(Duration::from_secs(ttl.saturating_add(1)))
+                    .unwrap_or_else(Instant::now);
+                s.entries.insert(
+                    repo_id.clone(),
+                    CacheEntry {
+                        output: String::new(),
+                        fetched_at: past,
+                        refreshing: true,
+                    },
+                );
+                ActionResult {
+                    response: Response::Miss,
+                    refresh_repo_id: Some(repo_id.clone()),
+                    stop: false,
+                }
+            }
+        },
         Request::Update { repo_id, output } => {
             s.entries.insert(
                 repo_id.clone(),

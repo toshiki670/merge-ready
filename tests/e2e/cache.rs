@@ -56,7 +56,10 @@ fn test_daemon_fresh_returns_cached_output() {
     let mut refresh = Command::cargo_bin(BIN).unwrap();
     env.apply(&mut refresh);
     refresh.args(["daemon", "refresh", "--repo-id", &env.repo_id()]);
-    refresh.assert().success().stdout(predicate::str::is_empty());
+    refresh
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
 
     // daemon キャッシュが更新されるまで少し待つ
     std::thread::sleep(std::time::Duration::from_millis(50));

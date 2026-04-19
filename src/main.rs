@@ -14,6 +14,7 @@ use contexts::merge_readiness::interface::{
     presentation::{PresentationConfigPort, Presenter},
 };
 use contexts::status_cache::application::cache as status_cache_app;
+use contexts::status_cache::interface::cli::DaemonCommand;
 
 #[derive(Parser)]
 #[command(
@@ -31,6 +32,9 @@ enum Command {
     /// Show PR merge status for your shell prompt
     #[command(after_help = AFTER_HELP)]
     Prompt(PromptArgs),
+    // TODO: ConfigCommand も configuration::interface::cli に移動し、
+    //       ここでは ConfigCommand を re-export して使う形に統一する。
+    //       現状は main.rs に ConfigCommand 定義と CLI ロジックが漏洩している。
     /// Manage the configuration file
     Config {
         #[command(subcommand)]
@@ -49,22 +53,6 @@ enum ConfigCommand {
     Edit,
     /// Update the configuration file to the latest schema (preserves valid keys, removes obsolete ones, adds missing ones with defaults)
     Update,
-}
-
-#[derive(Subcommand)]
-enum DaemonCommand {
-    /// Start the background cache daemon (blocks; use as a background process)
-    Start,
-    /// Stop the running daemon
-    Stop,
-    /// Show daemon status
-    Status,
-    /// Fetch fresh data and notify the daemon cache [internal: spawned by daemon]
-    #[command(hide = true)]
-    Refresh {
-        #[arg(long)]
-        repo_id: String,
-    },
 }
 
 struct InfraRepoIdPort;
@@ -104,7 +92,6 @@ impl PresentationConfigPort for ConfigAdapter {
         }
     }
 }
-
 
 fn main() {
     let repo_id_port = InfraRepoIdPort;
@@ -148,28 +135,22 @@ fn main() {
         Some(Command::Daemon { subcommand }) => {
             let lifecycle =
                 contexts::status_cache::infrastructure::daemon_lifecycle::DaemonLifecycle;
-            match subcommand {
-                DaemonCommand::Start => {
-                    contexts::status_cache::interface::cli::daemon::start(&lifecycle);
-                }
-                DaemonCommand::Stop => {
-                    contexts::status_cache::interface::cli::daemon::stop(&lifecycle);
-                }
-                DaemonCommand::Status => {
-                    contexts::status_cache::interface::cli::daemon::status(&lifecycle);
-                }
-                DaemonCommand::Refresh { repo_id } => {
+            contexts::status_cache::interface::cli::daemon::run(
+                subcommand,
+                &lifecycle,
+                |repo_id| {
                     use contexts::status_cache::infrastructure::daemon_client::DaemonClient;
                     let tokens = contexts::merge_readiness::application::prompt::fetch_output(
                         &GhClient::new(),
                         &Logger,
                     );
                     if let Some(tokens) = tokens {
-                        let output = Presenter::new(ConfigAdapter::load()).render_to_string(&tokens);
-                        status_cache_app::update(&DaemonClient, &repo_id, &output);
+                        let output =
+                            Presenter::new(ConfigAdapter::load()).render_to_string(&tokens);
+                        status_cache_app::update(&DaemonClient, repo_id, &output);
                     }
-                }
-            }
+                },
+            );
         }
         None => {
             let _ = Cli::command().print_help();

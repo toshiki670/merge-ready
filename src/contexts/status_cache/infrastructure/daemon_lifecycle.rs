@@ -1,8 +1,20 @@
+use std::sync::Arc;
+
 use crate::contexts::status_cache::domain::daemon::{DaemonLifecyclePort, DaemonStatus};
 
 use super::{daemon_client::DaemonClient, daemon_server, pid};
 
-pub struct DaemonLifecycle;
+pub struct DaemonLifecycle {
+    on_refresh: Arc<dyn Fn(&str) + Send + Sync + 'static>,
+}
+
+impl DaemonLifecycle {
+    pub fn new(on_refresh: impl Fn(&str) + Send + Sync + 'static) -> Self {
+        Self {
+            on_refresh: Arc::new(on_refresh),
+        }
+    }
+}
 
 impl DaemonLifecyclePort for DaemonLifecycle {
     fn start(&self) {
@@ -13,7 +25,7 @@ impl DaemonLifecyclePort for DaemonLifecycle {
             }
             pid::remove();
         }
-        daemon_server::run();
+        daemon_server::run(&self.on_refresh);
     }
 
     fn stop(&self) -> bool {

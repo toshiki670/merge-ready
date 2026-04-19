@@ -381,11 +381,16 @@ impl DaemonHandle {
     /// daemon を起動し、socket が出現するまで最大 2000ms ポーリングする。
     #[must_use]
     pub fn start(env: &TestEnv) -> Self {
-        // テスト用バイナリのパスを解決する
+        Self::start_with_env(env, &[])
+    }
+
+    /// 追加の環境変数を指定して daemon を起動する。
+    #[must_use]
+    pub fn start_with_env(env: &TestEnv, extra_envs: &[(&str, &str)]) -> Self {
         let bin = assert_cmd::cargo::cargo_bin("merge-ready");
 
-        let child = std::process::Command::new(&bin)
-            .args(["daemon", "start"])
+        let mut cmd = std::process::Command::new(&bin);
+        cmd.args(["daemon", "start"])
             .env("PATH", env.path_env())
             .env("HOME", env.home())
             .env("TMPDIR", env.home())
@@ -393,9 +398,11 @@ impl DaemonHandle {
             .current_dir(env.repo_dir.path())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .expect("daemon spawn failed");
+            .stderr(std::process::Stdio::null());
+        for (k, v) in extra_envs {
+            cmd.env(k, v);
+        }
+        let child = cmd.spawn().expect("daemon spawn failed");
 
         let socket = env
             .home_dir
@@ -413,6 +420,31 @@ impl DaemonHandle {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         panic!("daemon did not start within 2000ms");
+    }
+
+    /// キャッシュに有効な値が入るまで最大 `max_ms` ミリ秒ポーリングする。
+    pub fn wait_for_cache(env: &TestEnv, max_ms: u64) {
+        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
+        loop {
+            let out = std::process::Command::new(&bin)
+                .arg("prompt")
+                .env("PATH", env.path_env())
+                .env("HOME", env.home())
+                .env("TMPDIR", env.home())
+                .current_dir(env.repo_dir.path())
+                .output()
+                .expect("prompt failed");
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if stdout != "? loading" {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "cache not populated within {max_ms}ms"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
     }
 }
 

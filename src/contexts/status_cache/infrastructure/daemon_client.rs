@@ -99,10 +99,10 @@ impl DaemonClient {
 }
 
 /// `DaemonClient` を使ってキャッシュを問い合わせる。
-/// Fresh/Stale なら `Some(出力文字列)`、Miss/接続失敗なら `None`。
+/// Fresh/Stale かつ出力が空でなければ `Some(出力文字列)`、それ以外は `None`。
 pub fn query_via_daemon(repo_id: &str) -> Option<String> {
     match DaemonClient.query(repo_id) {
-        Ok(CacheState::Fresh(s) | CacheState::Stale(s)) => Some(s),
-        Ok(CacheState::Miss) | Err(()) => None,
+        Ok(CacheState::Fresh(s) | CacheState::Stale(s)) if !s.is_empty() => Some(s),
+        _ => None,
     }
 }

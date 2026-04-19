@@ -135,22 +135,21 @@ fn main() {
         },
         Some(Command::Daemon { subcommand }) => {
             let lifecycle =
-                contexts::status_cache::infrastructure::daemon_lifecycle::DaemonLifecycle;
-            contexts::status_cache::interface::cli::daemon::run(
-                subcommand,
-                &lifecycle,
-                |repo_id| {
-                    let tokens = contexts::merge_readiness::application::prompt::fetch_output(
-                        &GhClient::new(),
-                        &Logger,
-                    );
-                    if let Some(tokens) = tokens {
-                        let output =
-                            Presenter::new(ConfigAdapter::load()).render_to_string(&tokens);
-                        status_cache_app::update(&DaemonClient, repo_id, &output);
-                    }
-                },
-            );
+                contexts::status_cache::infrastructure::daemon_lifecycle::DaemonLifecycle::new(
+                    |repo_id: &str| {
+                        let repo_id = repo_id.to_owned();
+                        let tokens = contexts::merge_readiness::application::prompt::fetch_output(
+                            &GhClient::new(),
+                            &Logger,
+                        );
+                        if let Some(tokens) = tokens {
+                            let output =
+                                Presenter::new(ConfigAdapter::load()).render_to_string(&tokens);
+                            status_cache_app::update(&DaemonClient, &repo_id, &output);
+                        }
+                    },
+                );
+            contexts::status_cache::interface::cli::daemon::run(subcommand, &lifecycle);
         }
         None => {
             let _ = Cli::command().print_help();

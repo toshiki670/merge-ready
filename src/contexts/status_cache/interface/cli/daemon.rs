@@ -2,7 +2,7 @@ use clap::Subcommand;
 
 use crate::contexts::status_cache::application::lifecycle::{self, Port};
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone, Copy)]
 pub enum DaemonCommand {
     /// Start the background cache daemon (blocks; use as a background process)
     Start,
@@ -10,22 +10,13 @@ pub enum DaemonCommand {
     Stop,
     /// Show daemon status
     Status,
-    /// Fetch fresh data and notify the daemon cache [internal: spawned by daemon]
-    #[command(hide = true)]
-    Refresh {
-        #[arg(long)]
-        repo_id: String,
-    },
 }
 
-/// サブコマンドをディスパッチする。
-/// `Refresh` はクロスコンテキスト処理のため呼び出し元から `on_refresh` を渡す。
-pub fn run(subcommand: DaemonCommand, port: &impl Port, on_refresh: impl FnOnce(&str)) {
+pub fn run(subcommand: DaemonCommand, port: &impl Port) {
     match subcommand {
         DaemonCommand::Start => start(port),
         DaemonCommand::Stop => stop(port),
         DaemonCommand::Status => status(port),
-        DaemonCommand::Refresh { repo_id } => on_refresh(&repo_id),
     }
 }
 

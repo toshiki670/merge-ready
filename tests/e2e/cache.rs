@@ -46,23 +46,21 @@ fn test_daemon_miss_shows_loading() {
         .stdout(predicate::str::diff("? loading"));
 }
 
-/// `daemon refresh` でキャッシュ投入後 → prompt が daemon キャッシュから出力を返す
+/// キャッシュミス後、daemon が内部でリフレッシュ完了 → prompt がキャッシュから出力を返す
 #[test]
 fn test_daemon_fresh_returns_cached_output() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
     let _daemon = DaemonHandle::start(&env);
 
-    // daemon refresh でキャッシュを投入する
-    let mut refresh = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut refresh);
-    refresh.args(["daemon", "refresh", "--repo-id", &env.repo_id()]);
-    refresh
-        .assert()
+    // 初回クエリ: キャッシュミス → daemon が内部スレッドでリフレッシュを実行
+    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert()
         .success()
-        .stdout(predicate::str::is_empty());
+        .stdout(predicate::str::diff("? loading"));
 
-    // daemon キャッシュが更新されるまで少し待つ
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    // daemon 内部リフレッシュ完了をポーリングで待つ（最大 2000ms）
+    DaemonHandle::wait_for_cache(&env, 5000);
 
     // 壊れた gh を使っても daemon キャッシュからヒットすること
     let broken_env = TestEnv::with_error("gh is broken", 1);
@@ -81,18 +79,22 @@ fn test_daemon_fresh_returns_cached_output() {
 #[test]
 fn test_daemon_stale_returns_output() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
-    let _daemon = DaemonHandle::start(&env);
+    // TTL=0 で起動し、キャッシュが常に stale になるようにする
+    let _daemon = DaemonHandle::start_with_env(&env, &[("MERGE_READY_STALE_TTL", "0")]);
 
-    // キャッシュを投入
-    let mut refresh = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut refresh);
-    refresh.args(["daemon", "refresh", "--repo-id", &env.repo_id()]);
-    refresh.assert().success();
-
-    // TTL を 0 に設定して stale を強制、それでも値を返すこと
+    // 初回クエリ: キャッシュミス → daemon が内部スレッドでリフレッシュを実行
     let mut cmd = Command::cargo_bin(BIN).unwrap();
     env.apply_with_cache(&mut cmd);
-    cmd.env("MERGE_READY_STALE_TTL", "0");
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::diff("? loading"));
+
+    // daemon 内部リフレッシュ完了をポーリングで待つ（最大 2000ms）
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    // TTL=0 なので stale だが、それでも値を返すこと
+    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout(predicate::str::contains("✓"));
 }
 

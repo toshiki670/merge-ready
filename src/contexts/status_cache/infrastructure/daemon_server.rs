@@ -44,10 +44,13 @@ struct ActionResult {
     stop: bool,
 }
 
+type RefreshFn = Arc<dyn Fn(&str) + Send + Sync + 'static>;
+
 /// デーモンのメインループ。ソケットをバインドして接続を待ち受ける。
 ///
+/// `on_refresh` はキャッシュ更新が必要になったときにスレッドで呼ばれる。
 /// この関数は正常には返らない（アイドルタイムアウトまたは Stop リクエストで exit する）。
-pub fn run() {
+pub fn run(on_refresh: &RefreshFn) {
     let socket_path = paths::socket_path();
     if let Some(parent) = socket_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -92,6 +95,7 @@ pub fn run() {
     // 定期バックグラウンドリフレッシュ（prompt 問い合わせがなくても有効PRを更新）
     {
         let state = Arc::clone(&state);
+        let on_refresh = Arc::clone(on_refresh);
         std::thread::spawn(move || {
             let interval = background_refresh_secs();
             if interval == 0 {
@@ -102,7 +106,7 @@ pub fn run() {
                 std::thread::sleep(Duration::from_secs(interval));
                 let refresh_targets = collect_background_refresh_targets(&state, interval);
                 for repo_id in refresh_targets {
-                    spawn_refresh(&repo_id);
+                    spawn_refresh(&repo_id, &on_refresh);
                 }
             }
         });
@@ -112,7 +116,8 @@ pub fn run() {
         match stream {
             Ok(s) => {
                 let state = Arc::clone(&state);
-                std::thread::spawn(move || handle_client(s, &state));
+                let on_refresh = Arc::clone(on_refresh);
+                std::thread::spawn(move || handle_client(s, &state, &on_refresh));
             }
             Err(_) => break,
         }
@@ -121,7 +126,11 @@ pub fn run() {
     cleanup();
 }
 
-fn handle_client(mut stream: std::os::unix::net::UnixStream, state: &Arc<Mutex<DaemonState>>) {
+fn handle_client(
+    mut stream: std::os::unix::net::UnixStream,
+    state: &Arc<Mutex<DaemonState>>,
+    on_refresh: &RefreshFn,
+) {
     let mut buf = String::new();
     {
         let mut reader = BufReader::new(&stream);
@@ -147,7 +156,7 @@ fn handle_client(mut stream: std::os::unix::net::UnixStream, state: &Arc<Mutex<D
     drop(stream);
 
     if let Some(repo_id) = refresh_repo_id {
-        spawn_refresh(&repo_id);
+        spawn_refresh(&repo_id, on_refresh);
     }
 
     if stop {
@@ -243,16 +252,10 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
     }
 }
 
-fn spawn_refresh(repo_id: &str) {
-    let Ok(exe) = std::env::current_exe() else {
-        return;
-    };
-    let _ = std::process::Command::new(exe)
-        .args(["daemon", "refresh", "--repo-id", repo_id])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
+fn spawn_refresh(repo_id: &str, on_refresh: &RefreshFn) {
+    let repo_id = repo_id.to_owned();
+    let on_refresh = Arc::clone(on_refresh);
+    std::thread::spawn(move || on_refresh(&repo_id));
 }
 
 fn cleanup() {

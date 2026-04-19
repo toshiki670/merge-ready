@@ -14,6 +14,7 @@ use contexts::merge_readiness::interface::{
     presentation::{PresentationConfigPort, Presenter},
 };
 use contexts::status_cache::application::cache as status_cache_app;
+use contexts::status_cache::infrastructure::daemon_client::{self as daemon_client, DaemonClient};
 use contexts::status_cache::interface::cli::DaemonCommand;
 
 #[derive(Parser)]
@@ -105,7 +106,7 @@ fn main() {
                 );
             }
             ExecutionMode::Cached => {
-                prompt::cached::run(&repo_id_port, status_cache_app::query_via_daemon);
+                prompt::cached::run(&repo_id_port, daemon_client::query_via_daemon);
             }
         },
         Some(Command::Config { subcommand }) => match subcommand {
@@ -139,7 +140,6 @@ fn main() {
                 subcommand,
                 &lifecycle,
                 |repo_id| {
-                    use contexts::status_cache::infrastructure::daemon_client::DaemonClient;
                     let tokens = contexts::merge_readiness::application::prompt::fetch_output(
                         &GhClient::new(),
                         &Logger,

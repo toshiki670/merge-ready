@@ -236,7 +236,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
         }
         Request::Update { repo_id, output } => {
             if let Some(entry) = s.entries.get_mut(repo_id) {
-                entry.output = output.clone();
+                entry.output.clone_from(output);
                 entry.fetched_at = Instant::now();
                 entry.refreshing = false;
                 entry.refresh_started_at = None;

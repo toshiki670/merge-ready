@@ -89,7 +89,11 @@ fn start(port: &impl Port) {
                     eprint!("{buf}");
                 }
             }
-            let code = if status.success() { 1 } else { status.code().unwrap_or(1) };
+            let code = if status.success() {
+                1
+            } else {
+                status.code().unwrap_or(1)
+            };
             std::process::exit(code);
         }
         if matches!(rx.try_recv().ok().as_deref(), Some("ready\n")) {

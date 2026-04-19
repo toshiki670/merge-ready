@@ -4,8 +4,10 @@ use crate::contexts::status_cache::domain::daemon::{DaemonLifecyclePort, DaemonS
 
 use super::{daemon_client::DaemonClient, daemon_server, pid};
 
+type RefreshCallback = dyn Fn(&str, &std::path::Path) + Send + Sync + 'static;
+
 pub struct DaemonLifecycle {
-    on_refresh: Arc<dyn Fn(&str, &std::path::Path) + Send + Sync + 'static>,
+    on_refresh: Arc<RefreshCallback>,
 }
 
 impl DaemonLifecycle {

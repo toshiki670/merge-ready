@@ -136,6 +136,9 @@ fn test_daemon_multi_repo_isolation() {
     let out_b = env.prompt_output(&env.repo_b);
 
     assert_eq!(out_a, "✓ merge-ready", "repo_a should be merge-ready");
-    assert!(out_b.contains("conflict"), "repo_b should show conflict, got: {out_b}");
+    assert!(
+        out_b.contains("conflict"),
+        "repo_b should show conflict, got: {out_b}"
+    );
     assert_ne!(out_a, out_b, "repos must not share cached output");
 }

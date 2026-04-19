@@ -480,7 +480,12 @@ impl MultiRepoEnv {
             fs::write(repo.path().join(".gh_pr_view.json"), json).expect("write response json");
         }
 
-        Self { bin_dir, home_dir, repo_a, repo_b }
+        Self {
+            bin_dir,
+            home_dir,
+            repo_a,
+            repo_b,
+        }
     }
 
     pub fn path_env(&self) -> String {

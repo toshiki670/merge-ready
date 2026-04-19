@@ -115,7 +115,8 @@ impl PrStateRepository for GhClient {
 impl BranchSyncRepository for GhClient {
     fn fetch_sync_status(&self) -> Result<BranchSyncStatus, RepositoryError> {
         let raw = self.pr_view_cached()?;
-        let behind_by = fetch_behind_by(&raw.base_ref_name, &raw.head_ref_name, self.cwd.as_deref());
+        let behind_by =
+            fetch_behind_by(&raw.base_ref_name, &raw.head_ref_name, self.cwd.as_deref());
         Ok(translate_sync(&raw.mergeable, behind_by))
     }
 }

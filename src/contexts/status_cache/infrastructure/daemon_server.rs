@@ -10,11 +10,14 @@ use super::protocol::{Request, Response};
 
 const DEFAULT_STALE_TTL_SECS: u64 = 5;
 const IDLE_TIMEOUT_SECS: u64 = 30 * 60;
+const DEFAULT_BACKGROUND_REFRESH_SECS: u64 = 180;
+const DEFAULT_REFRESH_LOCK_TIMEOUT_SECS: u64 = 120;
 
 struct CacheEntry {
     output: String,
     fetched_at: Instant,
     refreshing: bool,
+    refresh_started_at: Option<Instant>,
 }
 
 struct DaemonState {
@@ -70,15 +73,36 @@ pub fn run() {
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_mins(1));
-                let idle = state
+                let guard = state
                     .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .last_activity
-                    .elapsed()
-                    .as_secs();
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let has_active_entries = guard.entries.values().any(is_active_entry);
+                let idle = guard.last_activity.elapsed().as_secs();
+                if has_active_entries {
+                    continue;
+                }
                 if idle >= IDLE_TIMEOUT_SECS {
                     cleanup();
                     std::process::exit(0);
+                }
+            }
+        });
+    }
+
+    // 定期バックグラウンドリフレッシュ（prompt 問い合わせがなくても有効PRを更新）
+    {
+        let state = Arc::clone(&state);
+        std::thread::spawn(move || {
+            let interval = background_refresh_secs();
+            if interval == 0 {
+                return;
+            }
+
+            loop {
+                std::thread::sleep(Duration::from_secs(interval));
+                let refresh_targets = collect_background_refresh_targets(&state, interval);
+                for repo_id in refresh_targets {
+                    spawn_refresh(&repo_id);
                 }
             }
         });
@@ -154,7 +178,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
                 let output = entry.output.clone();
                 let need_refresh = !entry.refreshing;
                 if need_refresh {
-                    s.entries.get_mut(repo_id).expect("entry exists").refreshing = true;
+                    mark_refreshing(s.entries.get_mut(repo_id).expect("entry exists"));
                 }
                 ActionResult {
                     response: Response::Stale { output },
@@ -172,6 +196,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
                         output: String::new(),
                         fetched_at: past,
                         refreshing: true,
+                        refresh_started_at: Some(Instant::now()),
                     },
                 );
                 ActionResult {
@@ -188,6 +213,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
                     output: output.clone(),
                     fetched_at: Instant::now(),
                     refreshing: false,
+                    refresh_started_at: None,
                 },
             );
             ActionResult {
@@ -239,4 +265,67 @@ fn stale_ttl_secs() -> u64 {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(DEFAULT_STALE_TTL_SECS)
+}
+
+fn background_refresh_secs() -> u64 {
+    std::env::var("MERGE_READY_BACKGROUND_REFRESH_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_BACKGROUND_REFRESH_SECS)
+}
+
+fn refresh_lock_timeout_secs() -> u64 {
+    std::env::var("MERGE_READY_REFRESH_LOCK_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_REFRESH_LOCK_TIMEOUT_SECS)
+}
+
+fn mark_refreshing(entry: &mut CacheEntry) {
+    entry.refreshing = true;
+    entry.refresh_started_at = Some(Instant::now());
+}
+
+fn is_active_entry(entry: &CacheEntry) -> bool {
+    !entry.output.is_empty()
+}
+
+fn refresh_lock_expired(entry: &CacheEntry) -> bool {
+    entry
+        .refresh_started_at
+        .is_some_and(|started| started.elapsed().as_secs() >= refresh_lock_timeout_secs())
+}
+
+fn collect_background_refresh_targets(
+    state: &Arc<Mutex<DaemonState>>,
+    interval_secs: u64,
+) -> Vec<String> {
+    let mut s = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    let mut targets = Vec::new();
+    for (repo_id, entry) in &mut s.entries {
+        if !is_active_entry(entry) {
+            continue;
+        }
+        if entry.refreshing && refresh_lock_expired(entry) {
+            entry.refreshing = false;
+            entry.refresh_started_at = None;
+        }
+        if entry.refreshing {
+            continue;
+        }
+        if entry.fetched_at.elapsed().as_secs() < interval_secs {
+            continue;
+        }
+        mark_refreshing(entry);
+        targets.push(repo_id.clone());
+    }
+
+    if !targets.is_empty() {
+        // 有効PRの定期更新が動いている間は daemon を生かす
+        s.last_activity = Instant::now();
+    }
+    targets
 }

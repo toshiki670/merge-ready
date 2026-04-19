@@ -3,6 +3,7 @@ mod cache;
 mod ci_checks;
 mod cli;
 mod config;
+mod daemon;
 mod errors;
 mod helpers;
 mod merge_ready;

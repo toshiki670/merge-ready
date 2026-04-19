@@ -11,13 +11,7 @@ pub const AFTER_HELP: &str = "Output tokens:
 
 #[derive(Args)]
 pub struct PromptArgs {
-    /// Bypass cache and fetch fresh data directly
+    /// Bypass daemon and fetch fresh data directly from gh
     #[arg(long)]
     pub no_cache: bool,
-    /// Fetch fresh data and update cache without displaying output
-    #[arg(long, hide = true, conflicts_with = "no_cache")]
-    pub refresh: bool,
-    /// Repository ID for lock release (passed by parent process via --refresh)
-    #[arg(long, hide = true, requires = "refresh")]
-    pub repo_id: Option<String>,
 }

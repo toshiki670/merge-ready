@@ -353,3 +353,59 @@ fn write_executable(path: impl AsRef<Path>, content: &str) {
     fs::write(path, content).expect("failed to write script");
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("failed to chmod script");
 }
+
+/// daemon プロセスを管理するテストヘルパー。
+///
+/// socket ファイルの出現をポーリングして起動完了を検知する（固定 sleep は使わない）。
+/// Drop 時に daemon を停止する。
+pub struct DaemonHandle {
+    process: std::process::Child,
+    tmpdir: std::path::PathBuf,
+}
+
+impl DaemonHandle {
+    /// daemon を起動し、socket が出現するまで最大 2000ms ポーリングする。
+    #[must_use]
+    pub fn start(env: &TestEnv) -> Self {
+        // テスト用バイナリのパスを解決する
+        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
+
+        let child = std::process::Command::new(&bin)
+            .args(["daemon", "start"])
+            .env("PATH", env.path_env())
+            .env("HOME", env.home())
+            .env("TMPDIR", env.home())
+            .env("XDG_CONFIG_HOME", env.home().join(".config"))
+            .current_dir(env.repo_dir.path())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("daemon spawn failed");
+
+        let socket = env.home_dir.path().join("merge-ready").join("daemon.sock");
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_millis(2000);
+        while std::time::Instant::now() < deadline {
+            if socket.exists() {
+                return DaemonHandle {
+                    process: child,
+                    tmpdir: env.home_dir.path().to_path_buf(),
+                };
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("daemon did not start within 2000ms");
+    }
+}
+
+impl Drop for DaemonHandle {
+    fn drop(&mut self) {
+        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
+        let _ = std::process::Command::new(&bin)
+            .args(["daemon", "stop"])
+            .env("TMPDIR", &self.tmpdir)
+            .output();
+        let _ = self.process.kill();
+    }
+}

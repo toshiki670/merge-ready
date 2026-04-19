@@ -222,7 +222,7 @@ fn spawn_refresh(repo_id: &str) {
         return;
     };
     let _ = std::process::Command::new(exe)
-        .args(["prompt", "--refresh", "--repo-id", repo_id])
+        .args(["daemon", "refresh", "--repo-id", repo_id])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

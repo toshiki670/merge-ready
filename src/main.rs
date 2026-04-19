@@ -60,6 +60,12 @@ enum DaemonCommand {
     Stop,
     /// Show daemon status
     Status,
+    /// Fetch fresh data and notify the daemon cache [internal: spawned by daemon]
+    #[command(hide = true)]
+    Refresh {
+        #[arg(long)]
+        repo_id: String,
+    },
 }
 
 struct InfraRepoIdPort;
@@ -104,10 +110,7 @@ fn main() {
     let repo_id_port = InfraRepoIdPort;
     match Cli::parse().command {
         Some(Command::Prompt(args)) => {
-            let Some(mode) = prompt::resolve_mode(&args, &repo_id_port) else {
-                return;
-            };
-            match mode {
+            match prompt::resolve_mode(&args, &repo_id_port) {
                 ExecutionMode::Direct => {
                     contexts::merge_readiness::interface::cli::prompt::direct::run(
                         &GhClient::new(),
@@ -116,7 +119,6 @@ fn main() {
                     );
                 }
                 ExecutionMode::Cached => cached::run(),
-                ExecutionMode::BackgroundRefresh { repo_id } => refresh::run(&repo_id),
             }
         }
         Some(Command::Config { subcommand }) => match subcommand {
@@ -156,6 +158,7 @@ fn main() {
                 DaemonCommand::Status => {
                     contexts::status_cache::interface::cli::daemon::status(&lifecycle);
                 }
+                DaemonCommand::Refresh { repo_id } => refresh::run(&repo_id),
             }
         }
         None => {

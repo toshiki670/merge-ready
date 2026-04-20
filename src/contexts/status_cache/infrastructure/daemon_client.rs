@@ -89,10 +89,58 @@ impl DaemonClient {
 }
 
 /// `DaemonClient` を使ってキャッシュを問い合わせる。
-/// Fresh/Stale かつ出力が空でなければ `Some(出力文字列)`、それ以外は `None`。
+/// `Fresh(s)` → `Some(s)`（空文字 = PRなし）、`Stale("")` / `Miss` / 接続失敗 → `None`（ロード中）。
 pub fn query_via_daemon(repo_id: &str) -> Option<String> {
-    match DaemonClient.query(repo_id) {
-        Ok(CacheState::Fresh(s) | CacheState::Stale(s)) if !s.is_empty() => Some(s),
+    cache_state_to_output(DaemonClient.query(repo_id))
+}
+
+fn cache_state_to_output(state: Result<CacheState, ()>) -> Option<String> {
+    match state {
+        Ok(CacheState::Fresh(s)) => Some(s),
+        Ok(CacheState::Stale(s)) if !s.is_empty() => Some(s),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fresh_with_output_returns_some() {
+        let result = cache_state_to_output(Ok(CacheState::Fresh("✓ merge-ready".into())));
+        assert_eq!(result, Some("✓ merge-ready".into()));
+    }
+
+    #[test]
+    fn stale_with_output_returns_some() {
+        let result = cache_state_to_output(Ok(CacheState::Stale("✓ merge-ready".into())));
+        assert_eq!(result, Some("✓ merge-ready".into()));
+    }
+
+    #[test]
+    fn miss_returns_none() {
+        let result = cache_state_to_output(Ok(CacheState::Miss));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn error_returns_none() {
+        let result = cache_state_to_output(Err(()));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn fresh_empty_returns_some_empty() {
+        // PRなし = キャッシュ済みの空文字列 → Some("") であり None ではない
+        let result = cache_state_to_output(Ok(CacheState::Fresh(String::new())));
+        assert_eq!(result, Some(String::new()));
+    }
+
+    #[test]
+    fn stale_empty_returns_none() {
+        // Stale("") はリフレッシュ中の空プレースホルダーの可能性があるため None
+        let result = cache_state_to_output(Ok(CacheState::Stale(String::new())));
+        assert_eq!(result, None);
     }
 }

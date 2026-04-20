@@ -67,14 +67,19 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: "ci"
-          cache-all-crates: true
-      - name: Install cargo-deny (if needed)
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-deny
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+          key: cargo-deny-${{ runner.os }}-0.19.4-v2
+      - name: Install cargo-deny (if missing)
         run: |
-          REQUIRED_CARGO_DENY_VERSION="0.19.4"
-          if command -v cargo-deny >/dev/null 2>&1 && cargo deny --version | grep -q "^cargo-deny ${REQUIRED_CARGO_DENY_VERSION}$"; then
-            echo "cargo-deny ${REQUIRED_CARGO_DENY_VERSION} already installed; skipping install."
+          if command -v cargo-deny >/dev/null 2>&1 && [ "$(cargo deny --version | awk '{ print $2 }')" = "0.19.4" ]; then
+            echo "cargo-deny 0.19.4 already installed; skipping install."
           else
-            cargo install cargo-deny --version "${REQUIRED_CARGO_DENY_VERSION}" --locked
+            cargo install cargo-deny --version 0.19.4 --locked
           fi
       - name: Run cargo-deny
         run: cargo deny check

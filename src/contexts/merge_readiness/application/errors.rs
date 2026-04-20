@@ -1,7 +1,8 @@
 use crate::contexts::merge_readiness::domain::error::RepositoryError;
 
-pub trait ErrorLogger: crate::contexts::merge_readiness::domain::error::ErrorLogger {}
-impl<T> ErrorLogger for T where T: crate::contexts::merge_readiness::domain::error::ErrorLogger {}
+pub trait ErrorLogger {
+    fn log(&self, msg: &str);
+}
 
 /// エラー時に表示するトークンの意味オブジェクト
 ///

@@ -15,8 +15,3 @@ pub fn fetch(
         }
     }
 }
-
-/// PR が処理対象（`OPEN`）かどうかを判定する
-pub fn is_open(lifecycle: &PrLifecycle) -> bool {
-    crate::contexts::merge_readiness::domain::pr_state::is_open(lifecycle)
-}

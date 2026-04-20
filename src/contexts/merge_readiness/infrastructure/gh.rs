@@ -5,15 +5,17 @@ use std::sync::OnceLock;
 use serde::Deserialize;
 
 use crate::contexts::merge_readiness::domain::branch_sync::{
-    BranchSyncRepository, BranchSyncStatus,
+    BranchSync, BranchSyncRepository, BranchSyncStatus,
 };
-use crate::contexts::merge_readiness::domain::ci_checks::{CheckBucket, CiChecksRepository};
+use crate::contexts::merge_readiness::domain::ci_checks::{
+    CheckBucket, CiChecks, CiChecksRepository,
+};
 use crate::contexts::merge_readiness::domain::error::RepositoryError;
 use crate::contexts::merge_readiness::domain::merge_ready::{
     MergeReadiness, MergeReadinessRepository,
 };
 use crate::contexts::merge_readiness::domain::pr_state::{PrLifecycle, PrStateRepository};
-use crate::contexts::merge_readiness::domain::review::{ReviewRepository, ReviewStatus};
+use crate::contexts::merge_readiness::domain::review::{Review, ReviewRepository, ReviewStatus};
 
 // ── gh コマンドの生 JSON 構造（infra 内にのみ存在）──────────────────────────
 
@@ -113,34 +115,38 @@ impl PrStateRepository for GhClient {
 }
 
 impl BranchSyncRepository for GhClient {
-    fn fetch_sync_status(&self) -> Result<BranchSyncStatus, RepositoryError> {
+    fn fetch_sync_status(&self) -> Result<BranchSync, RepositoryError> {
         let raw = self.pr_view_cached()?;
         let behind_by =
             fetch_behind_by(&raw.base_ref_name, &raw.head_ref_name, self.cwd.as_deref());
-        Ok(translate_sync(&raw.mergeable, behind_by))
+        Ok(BranchSync::new(translate_sync(&raw.mergeable, behind_by)))
     }
 }
 
 impl CiChecksRepository for GhClient {
-    fn fetch_check_buckets(&self) -> Result<Vec<CheckBucket>, RepositoryError> {
+    fn fetch_checks(&self) -> Result<CiChecks, RepositoryError> {
         let bytes = match self.run_gh(&["pr", "checks", "--json", "bucket,state"]) {
             Ok(b) => b,
             // CI が未設定のブランチではチェックなし（正常）として扱う
             Err(RepositoryError::Unexpected(msg)) if msg.contains("no checks reported") => {
-                return Ok(vec![]);
+                return Ok(CiChecks::new(vec![]));
             }
             Err(e) => return Err(e),
         };
         let items: Vec<GhCheckItem> = serde_json::from_slice(&bytes)
             .map_err(|e| RepositoryError::Unexpected(e.to_string()))?;
-        Ok(items.iter().map(|c| translate_bucket(&c.bucket)).collect())
+        Ok(CiChecks::new(
+            items.iter().map(|c| translate_bucket(&c.bucket)).collect(),
+        ))
     }
 }
 
 impl ReviewRepository for GhClient {
-    fn fetch_review_status(&self) -> Result<ReviewStatus, RepositoryError> {
+    fn fetch_review(&self) -> Result<Review, RepositoryError> {
         let raw = self.pr_view_cached()?;
-        Ok(translate_review(raw.review_decision.as_deref()))
+        Ok(Review::new(translate_review(
+            raw.review_decision.as_deref(),
+        )))
     }
 }
 

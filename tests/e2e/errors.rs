@@ -109,6 +109,25 @@ fn test_rate_limited() {
         .stderr("");
 }
 
+// ─── タイムアウト ─────────────────────────────────────────────────────────
+
+/// `gh` がハングした場合、タイムアウト後に `✗ api-error` を返すこと。
+///
+/// `MERGE_READY_GH_TIMEOUT_SECS=2` でタイムアウト、テスト自体は 5 秒で強制終了。
+#[test]
+fn test_gh_timeout() {
+    let env = TestEnv::with_hanging_gh();
+    let mut cmd = Command::cargo_bin("merge-ready").unwrap();
+    env.apply(&mut cmd);
+
+    cmd.args(["prompt", "--no-cache"])
+        .env("MERGE_READY_GH_TIMEOUT_SECS", "2")
+        .timeout(std::time::Duration::from_secs(5))
+        .assert()
+        .success()
+        .stdout("✗ api-error");
+}
+
 // ─── エラーログ ───────────────────────────────────────────────────────────
 
 /// API エラー発生時に `$HOME/.cache/ci-status/error.log` へ追記されること。

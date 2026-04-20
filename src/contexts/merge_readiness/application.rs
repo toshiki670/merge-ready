@@ -21,6 +21,9 @@ impl<T> PrStateRepository for T where T: super::domain::pr_state::PrStateReposit
 pub trait ReviewRepository: super::domain::review::ReviewRepository {}
 impl<T> ReviewRepository for T where T: super::domain::review::ReviewRepository {}
 
+use crate::contexts::merge_readiness::domain::policy::{PromptDecisionPolicy, PromptEvaluation};
+use crate::contexts::merge_readiness::domain::pr_state::is_open;
+use crate::contexts::merge_readiness::domain::signal::PromptSignal;
 use errors::{ErrorLogger, ErrorPresenter};
 
 /// アプリケーション層が返す出力トークンの意味オブジェクト
@@ -34,6 +37,18 @@ pub enum OutputToken {
     CiAction,
     ReviewRequested,
     MergeReady,
+}
+
+fn map_signal_to_output_token(signal: PromptSignal) -> OutputToken {
+    match signal {
+        PromptSignal::Conflict => OutputToken::Conflict,
+        PromptSignal::UpdateBranch => OutputToken::UpdateBranch,
+        PromptSignal::SyncUnknown => OutputToken::SyncUnknown,
+        PromptSignal::CiFail => OutputToken::CiFail,
+        PromptSignal::CiAction => OutputToken::CiAction,
+        PromptSignal::ReviewRequested => OutputToken::ReviewRequested,
+        PromptSignal::MergeReady => OutputToken::MergeReady,
+    }
 }
 
 /// PR マージ可否チェックのユースケース
@@ -60,7 +75,7 @@ where
     let Some(lifecycle) = pr_state::fetch(client, err_logger, err_presenter) else {
         return vec![];
     };
-    if !pr_state::is_open(&lifecycle) {
+    if !is_open(&lifecycle) {
         return vec![];
     }
 
@@ -91,24 +106,14 @@ where
         return vec![];
     };
 
-    let mut tokens: Vec<OutputToken> = Vec::new();
-    for token in [
-        branch_sync::check(&sync_status),
-        ci_checks::check(&buckets),
-        review::check(&review_status),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        let _ = tokens.push_mut(token);
-    }
-
-    // ブロッカーがなければマージ可否を判定
-    if tokens.is_empty()
-        && let Some(token) = merge_ready::check(&readiness)
-    {
-        let _ = tokens.push_mut(token);
-    }
-
-    tokens
+    PromptDecisionPolicy::new()
+        .evaluate(PromptEvaluation {
+            branch_sync: &sync_status,
+            ci_checks: &buckets,
+            review: &review_status,
+            readiness: &readiness,
+        })
+        .into_iter()
+        .map(map_signal_to_output_token)
+        .collect()
 }

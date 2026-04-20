@@ -1,7 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 
-use crate::contexts::merge_readiness::domain::error::ErrorLogger;
+use crate::contexts::merge_readiness::application::errors::ErrorLogger;
 
 pub struct Logger;
 

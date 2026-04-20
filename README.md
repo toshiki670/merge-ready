@@ -90,11 +90,14 @@ Add merge status to your [Starship](https://starship.rs/) prompt by using a cust
 command = "merge-ready prompt"
 when = true
 require_repo = true
+shell = ["/bin/zsh"]
 format = "[$output]($style) "
 style = "bold yellow"
 ```
 
 `require_repo = true` limits the module to git repositories without any shell command overhead. `merge-ready prompt` itself returns `? ...` tokens when there is no associated PR, so no additional filtering is needed.
+
+If your environment sets `STARSHIP_SHELL` to a slower shell (for example `fish`), custom modules can be noticeably slower due to shell startup cost. Pinning `shell = ["/bin/zsh"]` (or another lightweight shell on your system) keeps prompt latency low.
 
 ## Requirements
 

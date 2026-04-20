@@ -1,4 +1,3 @@
-use super::OutputToken;
 use super::errors::{ErrorLogger, ErrorPresenter};
 use crate::contexts::merge_readiness::domain::merge_ready::{
     MergeReadiness, MergeReadinessRepository,
@@ -16,14 +15,5 @@ pub fn fetch(
             super::errors::handle(e, err_logger, err_presenter);
             None
         }
-    }
-}
-
-/// マージ可否状態を評価し、該当するトークンを返す
-pub fn check(readiness: &MergeReadiness) -> Option<OutputToken> {
-    if crate::contexts::merge_readiness::domain::merge_ready::is_ready(readiness) {
-        Some(OutputToken::MergeReady)
-    } else {
-        None
     }
 }

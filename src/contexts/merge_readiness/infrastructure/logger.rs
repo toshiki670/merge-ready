@@ -1,8 +1,6 @@
 use std::fs::{self, OpenOptions};
 use std::io::Write as _;
 
-use crate::contexts::merge_readiness::domain::error::ErrorLogger;
-
 pub struct Logger;
 
 /// `$HOME/.cache/ci-status/error.log` にエラーメッセージを追記する。
@@ -20,10 +18,4 @@ pub fn append_error(message: &str) {
         return;
     };
     let _ = writeln!(file, "{message}");
-}
-
-impl ErrorLogger for Logger {
-    fn log(&self, msg: &str) {
-        append_error(msg);
-    }
 }

@@ -229,6 +229,18 @@ impl TestEnv {
         }
     }
 
+    /// PRなしシナリオ: `gh pr view` が "no pull requests found" で exit 1 を返す。
+    pub fn with_no_pr() -> Self {
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
+        let script = "#!/bin/sh\nprintf 'no pull requests found' >&2\nexit 1\n";
+        write_executable(bin_dir.path().join("gh"), script);
+        Self {
+            bin_dir,
+            home_dir,
+            repo_dir,
+        }
+    }
+
     /// git リポジトリ外シナリオ（`.git` のない空ディレクトリで実行）
     pub fn without_git_remote() -> Self {
         let (bin_dir, home_dir, repo_dir) = Self::setup_without_git();

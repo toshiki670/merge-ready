@@ -68,7 +68,13 @@ jobs:
         with:
           shared-key: "ci"
           cache-all-crates: true
-      - name: Install cargo-deny
-        run: cargo install cargo-deny --locked
+      - name: Install cargo-deny (if needed)
+        run: |
+          REQUIRED_CARGO_DENY_VERSION="0.19.4"
+          if command -v cargo-deny >/dev/null 2>&1 && cargo deny --version | grep -q "^cargo-deny ${REQUIRED_CARGO_DENY_VERSION}$"; then
+            echo "cargo-deny ${REQUIRED_CARGO_DENY_VERSION} already installed; skipping install."
+          else
+            cargo install cargo-deny --version "${REQUIRED_CARGO_DENY_VERSION}" --locked
+          fi
       - name: Run cargo-deny
         run: cargo deny check

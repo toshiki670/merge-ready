@@ -81,6 +81,21 @@ On the first query the daemon has no cache yet, so `? loading` is printed while 
 
 The daemon exits automatically after 30 minutes of inactivity.
 
+## Starship Integration
+
+Add merge status to your [Starship](https://starship.rs/) prompt by using a custom command module in `~/.config/starship.toml`:
+
+```toml
+[custom.merge_ready]
+command = "merge-ready prompt"
+when = true
+require_repo = true
+format = "[$output]($style) "
+style = "bold yellow"
+```
+
+`require_repo = true` limits the module to git repositories without any shell command overhead. `merge-ready prompt` itself returns `? ...` tokens when there is no associated PR, so no additional filtering is needed.
+
 ## Requirements
 
 - `gh` CLI installed and authenticated

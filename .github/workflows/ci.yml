@@ -67,6 +67,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: "ci"
+          cache-all-crates: true
       - name: Install cargo-deny
         run: cargo install cargo-deny --locked
       - name: Run cargo-deny

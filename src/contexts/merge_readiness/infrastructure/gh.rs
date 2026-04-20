@@ -1,6 +1,7 @@
-use std::io::ErrorKind;
-use std::process::Command;
-use std::sync::OnceLock;
+use std::io::{ErrorKind, Read};
+use std::process::{Command, Stdio};
+use std::sync::{OnceLock, mpsc};
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
@@ -260,24 +261,67 @@ impl From<GhError> for RepositoryError {
     }
 }
 
+fn gh_timeout() -> Duration {
+    let secs = std::env::var("MERGE_READY_GH_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(30);
+    Duration::from_secs(secs)
+}
+
 fn run_gh(args: &[&str], cwd: Option<&std::path::Path>) -> Result<Vec<u8>, RepositoryError> {
     let mut cmd = Command::new("gh");
     cmd.args(args);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
-    let output = cmd.output();
-    let gh_err = match output {
-        Err(e) if e.kind() == ErrorKind::NotFound => GhError::NotInstalled,
-        Err(e) => GhError::ApiError(e.to_string()),
-        Ok(out) if out.status.success() => return Ok(out.stdout),
-        Ok(out) => {
-            let exit_code = out.status.code().unwrap_or(1);
-            let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-            classify_gh_error(exit_code, &stderr)
-        }
+
+    let mut child = match cmd.spawn() {
+        Err(e) if e.kind() == ErrorKind::NotFound => return Err(GhError::NotInstalled.into()),
+        Err(e) => return Err(GhError::ApiError(e.to_string()).into()),
+        Ok(c) => c,
     };
-    Err(gh_err.into())
+
+    let mut stdout_pipe = child.stdout.take().expect("piped");
+    let mut stderr_pipe = child.stderr.take().expect("piped");
+
+    let (tx_out, rx_out) = mpsc::channel::<Vec<u8>>();
+    let (tx_err, rx_err) = mpsc::channel::<Vec<u8>>();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout_pipe.read_to_end(&mut buf);
+        let _ = tx_out.send(buf);
+    });
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stderr_pipe.read_to_end(&mut buf);
+        let _ = tx_err.send(buf);
+    });
+
+    let deadline = Instant::now() + gh_timeout();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let stdout = rx_out.recv().unwrap_or_default();
+                let stderr = rx_err.recv().unwrap_or_default();
+                if status.success() {
+                    return Ok(stdout);
+                }
+                let exit_code = status.code().unwrap_or(1);
+                let stderr_str = String::from_utf8_lossy(&stderr).into_owned();
+                return Err(classify_gh_error(exit_code, &stderr_str).into());
+            }
+            Ok(None) if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(GhError::ApiError("gh command timed out".to_string()).into());
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(e) => return Err(GhError::ApiError(e.to_string()).into()),
+        }
+    }
 }
 
 fn classify_gh_error(exit_code: i32, stderr: &str) -> GhError {

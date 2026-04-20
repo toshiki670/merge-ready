@@ -244,6 +244,17 @@ impl TestEnv {
         }
     }
 
+    /// `gh` バイナリが無期限にハングするシナリオ（タイムアウト検証用）
+    pub fn with_hanging_gh() -> Self {
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
+        write_executable(bin_dir.path().join("gh"), "#!/bin/sh\nsleep 9999\n");
+        Self {
+            bin_dir,
+            home_dir,
+            repo_dir,
+        }
+    }
+
     /// `PATH` 文字列を返す（`bin_dir` を先頭に追加）
     pub fn path_env(&self) -> String {
         format!("{}:/bin:/usr/bin", self.bin_dir.path().display())

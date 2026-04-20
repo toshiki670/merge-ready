@@ -64,6 +64,12 @@ impl RepoIdPort for InfraRepoIdPort {
     }
 }
 
+impl contexts::merge_readiness::application::errors::ErrorLogger for Logger {
+    fn log(&self, msg: &str) {
+        contexts::merge_readiness::infrastructure::logger::append_error(msg);
+    }
+}
+
 pub(crate) struct ConfigAdapter(ConfigService);
 
 impl ConfigAdapter {

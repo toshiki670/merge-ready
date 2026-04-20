@@ -1,7 +1,7 @@
+mod model;
 mod repository;
-mod review;
 mod status;
 
+pub use model::Review;
 pub use repository::ReviewRepository;
-pub use review::Review;
 pub use status::ReviewStatus;

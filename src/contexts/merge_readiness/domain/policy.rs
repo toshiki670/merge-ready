@@ -13,20 +13,9 @@ pub struct PromptEvaluation<'a> {
 
 pub struct PromptDecisionPolicy;
 
-impl Default for PromptDecisionPolicy {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl PromptDecisionPolicy {
     #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
-
-    #[must_use]
-    pub fn evaluate(&self, input: PromptEvaluation<'_>) -> Vec<PromptSignal> {
+    pub fn evaluate(input: &PromptEvaluation<'_>) -> Vec<PromptSignal> {
         let mut signals = Vec::new();
 
         if let Some(signal) = input.branch_sync.signal() {
@@ -55,7 +44,7 @@ mod tests {
 
     #[test]
     fn includes_merge_ready_when_no_blockers() {
-        let signals = PromptDecisionPolicy::new().evaluate(PromptEvaluation {
+        let signals = PromptDecisionPolicy::evaluate(&PromptEvaluation {
             branch_sync: &BranchSync::new(super::super::branch_sync::BranchSyncStatus::Clean),
             ci_checks: &CiChecks::new(vec![super::super::ci_checks::CheckBucket::Other]),
             review: &Review::new(super::super::review::ReviewStatus::Other),
@@ -70,7 +59,7 @@ mod tests {
 
     #[test]
     fn does_not_include_merge_ready_when_blockers_exist() {
-        let signals = PromptDecisionPolicy::new().evaluate(PromptEvaluation {
+        let signals = PromptDecisionPolicy::evaluate(&PromptEvaluation {
             branch_sync: &BranchSync::new(super::super::branch_sync::BranchSyncStatus::Conflicting),
             ci_checks: &CiChecks::new(vec![super::super::ci_checks::CheckBucket::Fail]),
             review: &Review::new(super::super::review::ReviewStatus::ChangesRequested),

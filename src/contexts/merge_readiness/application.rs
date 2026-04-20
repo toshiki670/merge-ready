@@ -106,14 +106,13 @@ where
         return vec![];
     };
 
-    PromptDecisionPolicy::new()
-        .evaluate(PromptEvaluation {
-            branch_sync: &sync_status,
-            ci_checks: &buckets,
-            review: &review_status,
-            readiness: &readiness,
-        })
-        .into_iter()
-        .map(map_signal_to_output_token)
-        .collect()
+    PromptDecisionPolicy::evaluate(&PromptEvaluation {
+        branch_sync: &sync_status,
+        ci_checks: &buckets,
+        review: &review_status,
+        readiness: &readiness,
+    })
+    .into_iter()
+    .map(map_signal_to_output_token)
+    .collect()
 }

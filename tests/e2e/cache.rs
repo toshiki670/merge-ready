@@ -98,6 +98,41 @@ fn test_daemon_stale_returns_output() {
     cmd.assert().success().stdout(predicate::str::contains("✓"));
 }
 
+// ── PR なし（main ブランチ等）────────────────────────────────────────────────
+
+/// PR なしブランチで直接実行（--no-cache）→ 何も出力しない
+#[test]
+fn test_no_pr_direct_shows_nothing() {
+    let env = TestEnv::with_no_pr();
+
+    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    env.apply(&mut cmd);
+    cmd.args(["prompt", "--no-cache"]);
+    cmd.assert().success().stdout(predicate::str::is_empty());
+}
+
+/// PR なしブランチで daemon 経由: リフレッシュ完了後に「? loading」が消える（issue #88）
+#[test]
+fn test_daemon_no_pr_shows_nothing_after_refresh() {
+    let env = TestEnv::with_no_pr();
+    let _daemon = DaemonHandle::start(&env);
+
+    // 初回クエリ: キャッシュミス → ? loading
+    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::diff("? loading"));
+
+    // daemon リフレッシュ完了を待つ（? loading でなくなる ＝ キャッシュ確定）
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    // キャッシュ確定後は何も出力しない（? loading が永続しないことを確認）
+    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert().success().stdout(predicate::str::is_empty());
+}
+
 // ── git リポジトリ外 ────────────────────────────────────────────────────
 
 /// git リポジトリでない場合、何も出力しない

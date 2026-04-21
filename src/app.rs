@@ -6,9 +6,7 @@ use crate::cli::{Cli, Command};
 use crate::contexts::configuration::application::config_service::ConfigService;
 use crate::contexts::configuration::infrastructure::toml_loader::TomlConfigRepository;
 use crate::contexts::merge_readiness::application::{
-    OutputToken,
-    errors::ErrorToken,
-    prompt::{ExecutionMode, RepoIdPort},
+    OutputToken, errors::ErrorToken, prompt::ExecutionMode,
 };
 use crate::contexts::merge_readiness::infrastructure::{gh::GhClient, logger::Logger};
 use crate::contexts::merge_readiness::interface::{
@@ -19,14 +17,6 @@ use crate::contexts::status_cache::application::cache as status_cache_app;
 use crate::contexts::status_cache::infrastructure::daemon_client::{
     self as daemon_client, DaemonClient,
 };
-
-struct InfraRepoIdPort;
-
-impl RepoIdPort for InfraRepoIdPort {
-    fn get(&self) -> Option<String> {
-        crate::contexts::merge_readiness::infrastructure::repo_id::get()
-    }
-}
 
 impl crate::contexts::merge_readiness::application::errors::ErrorLogger for Logger {
     fn log(&self, msg: &str) {
@@ -65,7 +55,6 @@ impl PresentationConfigPort for ConfigAdapter {
 }
 
 pub fn run(cli: Cli) -> ExitCode {
-    let repo_id_port = InfraRepoIdPort;
     match cli.command {
         Some(Command::Prompt(args)) => match prompt::resolve_mode(&args) {
             ExecutionMode::Direct => {
@@ -77,7 +66,10 @@ pub fn run(cli: Cli) -> ExitCode {
                 ExitCode::SUCCESS
             }
             ExecutionMode::Cached => {
-                prompt::cached::run(&repo_id_port, daemon_client::query_via_daemon);
+                prompt::cached::run(
+                    crate::contexts::merge_readiness::infrastructure::repo_id::get,
+                    daemon_client::query_via_daemon,
+                );
                 ExitCode::SUCCESS
             }
         },

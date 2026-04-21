@@ -7,11 +7,6 @@ use crate::contexts::merge_readiness::domain::{
     merge_ready::MergeReadinessRepository, pr_state::PrStateRepository, review::ReviewRepository,
 };
 
-/// git リポジトリ ID を取得するポート
-pub trait RepoIdPort {
-    fn get(&self) -> Option<String>;
-}
-
 /// プロンプト表示の実行モード
 pub enum ExecutionMode {
     /// キャッシュを使わず gh を直接呼ぶ

@@ -12,32 +12,6 @@
 
 ## 関係図（責務のつながり）
 
-```text
-                         reads/writes settings
-                    +-----------------------------+
-                    |        configuration        |
-                    |  token style, user config   |
-                    +-----------------------------+
-                              ^
-                              | uses presentation settings
-                              |
-+-----------------------------+-----------------------------+
-|                        merge_readiness                    |
-|  fetch PR state -> evaluate policy -> output tokens       |
-+-----------------------------+-----------------------------+
-                              ^
-                              | computes and returns tokens
-                              |
-                    +-----------------------------+
-                    |         status_cache        |
-                    | daemon lifecycle + cache    |
-                    +-----------------------------+
-                              ^
-                              | serves prompt command quickly
-                              |
-                           CLI (`merge-ready prompt`)
-```
-
 ```mermaid
 flowchart TD
     CLI["CLI (`merge-ready prompt`)"] -->|serves prompt command quickly| SC["status_cache<br/>daemon lifecycle + cache"]

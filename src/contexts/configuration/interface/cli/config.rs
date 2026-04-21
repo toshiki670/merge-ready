@@ -1,10 +1,9 @@
+use std::path::Path;
 use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
 
-use crate::contexts::configuration::infrastructure::toml_loader::{
-    TomlConfigRepository, config_path,
-};
+use crate::contexts::configuration::application::ConfigRepository;
 
 pub mod edit;
 pub mod update;
@@ -23,23 +22,27 @@ pub enum ConfigCommand {
     Update,
 }
 
-pub fn run(args: &ConfigArgs) -> ExitCode {
+pub fn run(
+    args: &ConfigArgs,
+    repo: &impl ConfigRepository,
+    config_path: Option<&Path>,
+) -> ExitCode {
     match args.subcommand {
         ConfigCommand::Edit => {
-            let Some(path) = config_path() else {
+            let Some(path) = config_path else {
                 eprintln!(
                     "failed to edit config: could not determine config path (HOME or XDG_CONFIG_HOME required)"
                 );
                 return ExitCode::FAILURE;
             };
-            if let Err(e) = edit::run(&path) {
+            if let Err(e) = edit::run(path) {
                 eprintln!("failed to edit config: {e}");
                 return ExitCode::FAILURE;
             }
             ExitCode::SUCCESS
         }
         ConfigCommand::Update => {
-            if let Err(e) = update::run(&TomlConfigRepository) {
+            if let Err(e) = update::run(repo) {
                 eprintln!("failed to update config: {e}");
                 return ExitCode::FAILURE;
             }

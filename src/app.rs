@@ -81,7 +81,15 @@ pub fn run(cli: Cli) -> ExitCode {
                 ExitCode::SUCCESS
             }
         },
-        Some(Command::Config(args)) => crate::contexts::configuration::interface::cli::run(&args),
+        Some(Command::Config(args)) => {
+            let config_path =
+                crate::contexts::configuration::infrastructure::toml_loader::config_path();
+            crate::contexts::configuration::interface::cli::run(
+                &args,
+                &TomlConfigRepository,
+                config_path.as_deref(),
+            )
+        }
         Some(Command::Daemon(args)) => {
             let lifecycle =
                 crate::contexts::status_cache::infrastructure::daemon_lifecycle::DaemonLifecycle::new(

@@ -17,16 +17,21 @@ impl CachePort for DaemonClient {
         let cwd = std::env::current_dir()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
-        match Self::send(&Request::Query {
+        let request = Request::Query {
             repo_id: repo_id.to_owned(),
             cwd,
-        }) {
-            Ok(Response::Fresh { output }) => Ok(CacheState::Fresh(output)),
-            Ok(Response::Stale { output }) => Ok(CacheState::Stale(output)),
-            Ok(Response::Miss) => Ok(CacheState::Miss),
-            Ok(_) | Err(()) => {
+        };
+
+        match Self::send(&request) {
+            Ok(response) => response_to_cache_state(response),
+            Err(()) => {
                 Self::lazy_start();
-                Err(())
+                // Retry once without sleeping. This captures the case where another process
+                // has just started the daemon and the socket becomes available immediately.
+                match Self::send(&request) {
+                    Ok(response) => response_to_cache_state(response),
+                    Err(()) => Err(()),
+                }
             }
         }
     }
@@ -36,6 +41,15 @@ impl CachePort for DaemonClient {
             repo_id: repo_id.to_owned(),
             output: output.to_owned(),
         });
+    }
+}
+
+fn response_to_cache_state(response: Response) -> Result<CacheState, ()> {
+    match response {
+        Response::Fresh { output } => Ok(CacheState::Fresh(output)),
+        Response::Stale { output } => Ok(CacheState::Stale(output)),
+        Response::Miss => Ok(CacheState::Miss),
+        _ => Err(()),
     }
 }
 
@@ -79,12 +93,16 @@ impl DaemonClient {
         let Ok(exe) = std::env::current_exe() else {
             return;
         };
+        // `daemon start` is a bounded blocking call:
+        // the CLI waits until the inner daemon prints "ready\n" or times out.
+        // This avoids the startup race where an immediate query hits before
+        // the socket is available.
         let _ = std::process::Command::new(&exe)
             .args(["daemon", "start"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .spawn();
+            .status();
     }
 }
 

@@ -16,6 +16,7 @@ const DEFAULT_REFRESH_LOCK_TIMEOUT_SECS: u64 = 120;
 
 struct CacheEntry {
     output: String,
+    has_fetched: bool,
     fetched_at: Instant,
     refreshing: bool,
     refresh_started_at: Option<Instant>,
@@ -199,8 +200,36 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
                 },
                 Some(entry) => {
                     let output = entry.output.clone();
+                    let has_fetched = entry.has_fetched;
                     let stored_cwd = entry.cwd.clone();
                     let need_refresh = !entry.refreshing;
+                    let refreshing_now = entry.refreshing;
+
+                    // no-PR cache is a valid empty output. Keep returning empty output while
+                    // scheduling background refresh, but still show loading for initial
+                    // placeholder entries that are currently being refreshed.
+                    if output.is_empty() {
+                        if refreshing_now && !has_fetched {
+                            return ActionResult {
+                                response: Response::Miss,
+                                refresh_repo_id: None,
+                                refresh_cwd: None,
+                                stop: false,
+                            };
+                        }
+                        if need_refresh {
+                            mark_refreshing(s.entries.get_mut(repo_id).expect("entry exists"));
+                        }
+                        return ActionResult {
+                            response: Response::Fresh {
+                                output: String::new(),
+                            },
+                            refresh_repo_id: need_refresh.then(|| repo_id.clone()),
+                            refresh_cwd: need_refresh.then_some(stored_cwd),
+                            stop: false,
+                        };
+                    }
+
                     if need_refresh {
                         mark_refreshing(s.entries.get_mut(repo_id).expect("entry exists"));
                     }
@@ -219,6 +248,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
                         repo_id.clone(),
                         CacheEntry {
                             output: String::new(),
+                            has_fetched: false,
                             fetched_at: past,
                             refreshing: true,
                             refresh_started_at: Some(Instant::now()),
@@ -237,6 +267,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
         Request::Update { repo_id, output } => {
             if let Some(entry) = s.entries.get_mut(repo_id) {
                 entry.output.clone_from(output);
+                entry.has_fetched = true;
                 entry.fetched_at = Instant::now();
                 entry.refreshing = false;
                 entry.refresh_started_at = None;
@@ -245,6 +276,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
                     repo_id.clone(),
                     CacheEntry {
                         output: output.clone(),
+                        has_fetched: true,
                         fetched_at: Instant::now(),
                         refreshing: false,
                         refresh_started_at: None,
@@ -321,6 +353,8 @@ fn mark_refreshing(entry: &mut CacheEntry) {
 }
 
 fn is_active_entry(entry: &CacheEntry) -> bool {
+    // no-PR entries are intentionally treated as inactive so they do not keep
+    // the daemon alive forever. They can be re-created on the next prompt.
     !entry.output.is_empty()
 }
 

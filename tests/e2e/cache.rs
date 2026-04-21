@@ -133,6 +133,44 @@ fn test_daemon_no_pr_shows_nothing_after_refresh() {
     cmd.assert().success().stdout(predicate::str::is_empty());
 }
 
+/// no-PR の stale リフレッシュ中でも `? loading` に戻らず空出力を維持する。
+///
+/// 回帰シナリオ:
+/// - キャッシュ済み空文字（no-PR）で TTL=0 により stale 化
+/// - 1回目の stale クエリで daemon refresh を開始
+/// - refresh 実行中の 2回目 stale クエリでも空出力を返すべき
+#[test]
+fn test_daemon_no_pr_stale_while_refreshing_keeps_empty_output() {
+    // Give enough refresh delay to reliably keep the daemon in refreshing state
+    // while we issue multiple stale queries below.
+    let env = TestEnv::with_no_pr_delay_ms(1000);
+    let _daemon = DaemonHandle::start_with_env(&env, &[("MERGE_READY_STALE_TTL", "0")]);
+
+    // 初回クエリ: キャッシュミス -> loading
+    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::diff("? loading"));
+
+    // 初回リフレッシュ完了で空キャッシュ確定
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    // stale 1回目: リフレッシュ開始しつつ空出力
+    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert().success().stdout(predicate::str::is_empty());
+
+    // stale 2回目以降（refresh実行中を狙う）: loading に戻らず空出力を維持
+    // 1回だけだと refresh 完了後でも偽陽性になりうるため、短間隔で複数回検証する。
+    for _ in 0..5 {
+        let mut cmd = Command::cargo_bin(BIN).unwrap();
+        env.apply_with_cache(&mut cmd);
+        cmd.assert().success().stdout(predicate::str::is_empty());
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
 // ── git リポジトリ外 ────────────────────────────────────────────────────
 
 /// git リポジトリでない場合、何も出力しない

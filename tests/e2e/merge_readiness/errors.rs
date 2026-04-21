@@ -12,7 +12,7 @@
 //! 各テストは独立した `TestEnv`（`bin_dir` + `home_dir`）を持つため、
 //! 並列実行時に `~/.cache/ci-status/error.log` が競合しない。
 
-use super::helpers::TestEnv;
+use super::super::helpers::TestEnv;
 use assert_cmd::Command;
 
 // ─── 認証エラー ───────────────────────────────────────────────────────────

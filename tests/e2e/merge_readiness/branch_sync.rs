@@ -6,7 +6,7 @@
 //! - 同期状態内の優先度（`conflict` > `update-branch`）
 //! - `ci_checks` / `review` との複合出力（`branch_sync` は独立して表示される）
 
-use super::helpers::TestEnv;
+use super::super::helpers::TestEnv;
 use assert_cmd::Command;
 
 fn cmd(env: &TestEnv) -> Command {

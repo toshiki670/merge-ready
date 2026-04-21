@@ -6,7 +6,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-use super::helpers::{DaemonHandle, FakeDaemonHandle, MultiRepoEnv, TestEnv};
+use super::super::helpers::{DaemonHandle, FakeDaemonHandle, MultiRepoEnv, TestEnv};
 
 /// merge-ready のバイナリ名
 const BIN: &str = "merge-ready";

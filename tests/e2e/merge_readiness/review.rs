@@ -4,7 +4,7 @@
 //! `branch_sync` / `ci_checks` とは独立したグループ外条件。
 //! 複合ケースは各グループのテストファイルに配置（co-locate）。
 
-use super::helpers::TestEnv;
+use super::super::helpers::TestEnv;
 use assert_cmd::Command;
 
 /// `reviewDecision == CHANGES_REQUESTED` → `⚠ review`

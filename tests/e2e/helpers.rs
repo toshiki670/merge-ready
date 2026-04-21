@@ -8,8 +8,8 @@
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixListener;
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixListener;
 use std::path::Path;
 use tempfile::{TempDir, tempdir};
 
@@ -533,9 +533,8 @@ impl FakeDaemonHandle {
 impl Drop for FakeDaemonHandle {
     fn drop(&mut self) {
         // Ensure the fake server thread is not left behind if a test fails early.
-        let _ = std::os::unix::net::UnixStream::connect(&self.socket_path).and_then(|mut stream| {
-            stream.write_all(b"{\"action\":\"stop\"}\n")
-        });
+        let _ = std::os::unix::net::UnixStream::connect(&self.socket_path)
+            .and_then(|mut stream| stream.write_all(b"{\"action\":\"stop\"}\n"));
         if let Some(join) = self.join.take() {
             let _ = join.join();
         }

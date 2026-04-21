@@ -4,9 +4,9 @@ pub mod direct;
 
 pub use args::{AFTER_HELP, PromptArgs};
 
-use crate::contexts::merge_readiness::application::prompt::{ExecutionMode, RepoIdPort};
+use crate::contexts::merge_readiness::application::prompt::ExecutionMode;
 
-pub fn resolve_mode(args: &PromptArgs, _repo_id_port: &impl RepoIdPort) -> ExecutionMode {
+pub fn resolve_mode(args: &PromptArgs) -> ExecutionMode {
     if args.no_cache {
         return ExecutionMode::Direct;
     }
@@ -17,24 +17,17 @@ pub fn resolve_mode(args: &PromptArgs, _repo_id_port: &impl RepoIdPort) -> Execu
 mod tests {
     use super::*;
 
-    struct FixedRepoIdPort;
-    impl RepoIdPort for FixedRepoIdPort {
-        fn get(&self) -> Option<String> {
-            Some("repo-id".to_owned())
-        }
-    }
-
     #[test]
     fn no_cache_returns_direct() {
         let args = PromptArgs { no_cache: true };
-        let mode = resolve_mode(&args, &FixedRepoIdPort);
+        let mode = resolve_mode(&args);
         assert!(matches!(mode, ExecutionMode::Direct));
     }
 
     #[test]
     fn default_returns_cached() {
         let args = PromptArgs { no_cache: false };
-        let mode = resolve_mode(&args, &FixedRepoIdPort);
+        let mode = resolve_mode(&args);
         assert!(matches!(mode, ExecutionMode::Cached));
     }
 }

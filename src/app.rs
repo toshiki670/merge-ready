@@ -6,9 +6,7 @@ use crate::cli::{Cli, Command};
 use crate::contexts::configuration::application::config_service::ConfigService;
 use crate::contexts::configuration::infrastructure::toml_loader::TomlConfigRepository;
 use crate::contexts::merge_readiness::application::{
-    OutputToken,
-    errors::ErrorToken,
-    prompt::ExecutionMode,
+    OutputToken, errors::ErrorToken, prompt::ExecutionMode,
 };
 use crate::contexts::merge_readiness::infrastructure::{gh::GhClient, logger::Logger};
 use crate::contexts::merge_readiness::interface::{

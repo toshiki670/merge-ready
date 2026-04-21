@@ -253,7 +253,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
                     pid: std::process::id(),
                     entries,
                     uptime_secs,
-                    version: daemon_version(),
+                    version: env!("CARGO_PKG_VERSION").to_owned(),
                 },
                 refresh_repo_id: None,
                 refresh_cwd: None,
@@ -421,10 +421,4 @@ fn collect_background_refresh_targets(
         s.last_activity = Instant::now();
     }
     targets
-}
-
-fn daemon_version() -> String {
-    // Test-only override to emulate an older daemon binary.
-    std::env::var("MERGE_READY_DAEMON_VERSION_OVERRIDE")
-        .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_owned())
 }

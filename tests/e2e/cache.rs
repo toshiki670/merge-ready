@@ -6,7 +6,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-use super::helpers::{DaemonHandle, MultiRepoEnv, TestEnv};
+use super::helpers::{DaemonHandle, FakeDaemonHandle, MultiRepoEnv, TestEnv};
 
 /// merge-ready のバイナリ名
 const BIN: &str = "merge-ready";
@@ -220,8 +220,7 @@ fn test_daemon_multi_repo_isolation() {
 #[test]
 fn test_prompt_restarts_daemon_on_version_mismatch() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
-    let _old =
-        DaemonHandle::start_with_env(&env, &[("MERGE_READY_DAEMON_VERSION_OVERRIDE", "0.0.0")]);
+    let _old = FakeDaemonHandle::start_versioned(&env, "0.0.0");
 
     // 古い daemon が応答することを確認
     let mut before = Command::cargo_bin(BIN).unwrap();

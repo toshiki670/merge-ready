@@ -122,10 +122,7 @@ fn status(port: &impl Port) {
         Some(s) => {
             println!(
                 "running  pid={}  entries={}  uptime={}s  version={}",
-                s.pid,
-                s.entries,
-                s.uptime_secs,
-                s.version
+                s.pid, s.entries, s.uptime_secs, s.version
             );
         }
         None => println!("not running"),

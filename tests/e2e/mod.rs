@@ -1,11 +1,5 @@
-mod branch_sync;
-mod cache;
-mod ci_checks;
-mod cli;
-mod config;
-mod daemon;
-mod errors;
+mod configuration;
 mod helpers;
-mod merge_ready;
-mod pr_state;
-mod review;
+mod interface;
+mod merge_readiness;
+mod status_cache;

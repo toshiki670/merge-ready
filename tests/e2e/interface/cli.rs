@@ -2,7 +2,7 @@
 //!
 //! `merge-ready prompt` / `merge-ready help` / フラグ類の動作を検証する。
 
-use super::helpers::TestEnv;
+use super::super::helpers::TestEnv;
 use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
 

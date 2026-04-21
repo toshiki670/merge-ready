@@ -5,7 +5,7 @@
 //! - `ci_checks` 内の優先度（`ci-fail` > `ci-action`）
 //! - `review` との複合出力（`ci_checks` は `review` を抑制しない）
 
-use super::helpers::TestEnv;
+use super::super::helpers::TestEnv;
 use assert_cmd::Command;
 
 fn cmd(env: &TestEnv) -> Command {

@@ -3,7 +3,7 @@
 //! symbol / label / format のカスタマイズ、部分設定のフォールバック、
 //! 設定ファイルなし・不正 TOML でのデフォルト出力を検証する。
 
-use super::helpers::TestEnv;
+use super::super::helpers::TestEnv;
 use assert_cmd::Command;
 
 const MERGE_READY_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}"#;

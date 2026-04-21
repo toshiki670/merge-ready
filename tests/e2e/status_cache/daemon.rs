@@ -5,7 +5,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-use super::helpers::{DaemonHandle, TestEnv};
+use super::super::helpers::{DaemonHandle, TestEnv};
 
 const BIN: &str = "merge-ready";
 

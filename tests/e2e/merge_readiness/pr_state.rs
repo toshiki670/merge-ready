@@ -2,7 +2,7 @@
 //!
 //! `OPEN` 以外の PR 状態、および PR が存在しない場合は何も出力しない。
 
-use super::helpers::TestEnv;
+use super::super::helpers::TestEnv;
 use assert_cmd::Command;
 
 fn cmd(env: &TestEnv) -> Command {

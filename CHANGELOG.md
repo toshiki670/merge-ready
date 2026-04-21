@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-04-21
+### Bug Fixes
+- Add timeout to gh command execution to prevent indefinite hang ([#84](https://github.com/toshiki670/merge-ready/pull/84)) ([`ab4f665`](https://github.com/toshiki670/merge-ready/commit/ab4f665aa2bf12d49f16c446e8c9244736055cd9))
+- PRのないブランチで「? loading」が永続表示されるバグを修正 ([#90](https://github.com/toshiki670/merge-ready/pull/90)) ([`551080f`](https://github.com/toshiki670/merge-ready/commit/551080f895c607a36158c8c6c09cddfcb625ad18))
+- Stabilize daemon startup and no-PR stale cache behavior ([#102](https://github.com/toshiki670/merge-ready/pull/102)) ([`3e95be7`](https://github.com/toshiki670/merge-ready/commit/3e95be70fe6cfdc71f95fcb0874fb1aab14a98ad))
+- Restart daemon when prompt detects version mismatch ([#105](https://github.com/toshiki670/merge-ready/pull/105)) ([`cbea420`](https://github.com/toshiki670/merge-ready/commit/cbea42004d71870938297887602f343af24f87f5))
+### Features
+- [**BREAKING**] デーモン + Unix ソケットによる sub-ms キャッシュ応答（StatusCache BC） ([#75](https://github.com/toshiki670/merge-ready/pull/75)) ([`c2f9935`](https://github.com/toshiki670/merge-ready/commit/c2f99352589eeefb431564952e8e2a21228695d7))
+
+
 ## [0.1.2] - 2026-04-18
 ### Features
 - Config edit / update サブコマンドを追加 ([#72](https://github.com/toshiki670/merge-ready/pull/72)) ([`257cb3e`](https://github.com/toshiki670/merge-ready/commit/257cb3ed51f68719951c09a77ae2ae33a8264fcd))

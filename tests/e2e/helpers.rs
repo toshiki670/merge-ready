@@ -241,6 +241,25 @@ impl TestEnv {
         }
     }
 
+    /// PRなしシナリオ（遅延付き）:
+    /// `gh pr view` が指定時間待機後に "no pull requests found" で exit 1 を返す。
+    ///
+    /// stale refresh 中の挙動を再現するため、refresh 処理を意図的に長引かせる。
+    pub fn with_no_pr_delay_ms(delay_ms: u64) -> Self {
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
+        let secs = delay_ms / 1000;
+        let millis = delay_ms % 1000;
+        let sleep_arg = format!("{secs}.{millis:03}");
+        let script =
+            format!("#!/bin/sh\nsleep {sleep_arg}\nprintf 'no pull requests found' >&2\nexit 1\n");
+        write_executable(bin_dir.path().join("gh"), &script);
+        Self {
+            bin_dir,
+            home_dir,
+            repo_dir,
+        }
+    }
+
     /// git リポジトリ外シナリオ（`.git` のない空ディレクトリで実行）
     pub fn without_git_remote() -> Self {
         let (bin_dir, home_dir, repo_dir) = Self::setup_without_git();

@@ -35,7 +35,7 @@ impl Config {
         self.ci_fail.get_or_insert_with(|| tok("✗", "ci-fail"));
         self.ci_action.get_or_insert_with(|| tok("⚠", "ci-action"));
         self.review.get_or_insert_with(|| tok("⚠", "review"));
-        let error = self.error.get_or_insert_with(ErrorConfig::default);
+        let error = self.error.get_or_insert_with(ErrorConfig::empty);
         error
             .auth_required
             .get_or_insert_with(|| tok("!", "gh auth login"));
@@ -46,26 +46,34 @@ impl Config {
     }
 }
 
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Deserialize, Serialize)]
 pub struct TokenConfig {
     pub symbol: Option<String>,
     pub label: Option<String>,
     pub format: Option<String>,
 }
 
-impl TokenConfig {
-    #[must_use]
-    pub fn render(&self, default_symbol: &str, default_label: &str) -> String {
-        let symbol = self.symbol.as_deref().unwrap_or(default_symbol);
-        let label = self.label.as_deref().unwrap_or(default_label);
-        let fmt = self.format.as_deref().unwrap_or(DEFAULT_FORMAT);
-        fmt.replace("$symbol", symbol).replace("$label", label)
-    }
+#[must_use]
+pub fn render_token(token: &TokenConfig, default_symbol: &str, default_label: &str) -> String {
+    let symbol = token.symbol.as_deref().unwrap_or(default_symbol);
+    let label = token.label.as_deref().unwrap_or(default_label);
+    let fmt = token.format.as_deref().unwrap_or(DEFAULT_FORMAT);
+    fmt.replace("$symbol", symbol).replace("$label", label)
 }
 
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Deserialize, Serialize)]
 pub struct ErrorConfig {
     pub auth_required: Option<TokenConfig>,
     pub rate_limited: Option<TokenConfig>,
     pub api_error: Option<TokenConfig>,
+}
+
+impl ErrorConfig {
+    fn empty() -> Self {
+        Self {
+            auth_required: None,
+            rate_limited: None,
+            api_error: None,
+        }
+    }
 }

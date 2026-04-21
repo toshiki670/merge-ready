@@ -1,7 +1,5 @@
-use crate::contexts::merge_readiness::application::prompt::RepoIdPort;
-
-pub fn run(repo_id_port: &impl RepoIdPort, query: impl Fn(&str) -> Option<String>) {
-    let Some(id) = repo_id_port.get() else { return };
+pub fn run(repo_id: impl Fn() -> Option<String>, query: impl Fn(&str) -> Option<String>) {
+    let Some(id) = repo_id() else { return };
     run_with_writer(&id, query, &mut std::io::stdout());
 }
 
@@ -16,13 +14,6 @@ fn run_with_writer(id: &str, query: impl Fn(&str) -> Option<String>, w: &mut imp
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct FixedRepoId(Option<String>);
-    impl RepoIdPort for FixedRepoId {
-        fn get(&self) -> Option<String> {
-            self.0.clone()
-        }
-    }
 
     fn run_capture(id: &str, query: impl Fn(&str) -> Option<String>) -> String {
         let mut buf = Vec::new();

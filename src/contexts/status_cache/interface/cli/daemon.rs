@@ -3,7 +3,7 @@ use std::process::Stdio;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 
 use crate::contexts::status_cache::application::lifecycle::{self, Port};
 
@@ -18,6 +18,12 @@ pub enum DaemonCommand {
     Stop,
     /// Show daemon status
     Status,
+}
+
+#[derive(Args, Clone, Copy)]
+pub struct DaemonArgs {
+    #[command(subcommand)]
+    pub subcommand: DaemonCommand,
 }
 
 pub fn run(subcommand: DaemonCommand, port: &impl Port) {

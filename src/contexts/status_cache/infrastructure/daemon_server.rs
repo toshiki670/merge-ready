@@ -204,41 +204,15 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
                     let stored_cwd = entry.cwd.clone();
                     let need_refresh = !entry.refreshing;
                     let refreshing_now = entry.refreshing;
-
-                    // no-PR cache is a valid empty output. Keep returning empty output while
-                    // scheduling background refresh, but still show loading for initial
-                    // placeholder entries that are currently being refreshed.
-                    if output.is_empty() {
-                        if refreshing_now && !has_fetched {
-                            return ActionResult {
-                                response: Response::Miss,
-                                refresh_repo_id: None,
-                                refresh_cwd: None,
-                                stop: false,
-                            };
-                        }
-                        if need_refresh {
-                            mark_refreshing(s.entries.get_mut(repo_id).expect("entry exists"));
-                        }
-                        return ActionResult {
-                            response: Response::Fresh {
-                                output: String::new(),
-                            },
-                            refresh_repo_id: need_refresh.then(|| repo_id.clone()),
-                            refresh_cwd: need_refresh.then_some(stored_cwd),
-                            stop: false,
-                        };
-                    }
-
-                    if need_refresh {
-                        mark_refreshing(s.entries.get_mut(repo_id).expect("entry exists"));
-                    }
-                    ActionResult {
-                        response: Response::Stale { output },
-                        refresh_repo_id: need_refresh.then(|| repo_id.clone()),
-                        refresh_cwd: need_refresh.then_some(stored_cwd),
-                        stop: false,
-                    }
+                    process_stale_query(
+                        repo_id,
+                        output,
+                        has_fetched,
+                        stored_cwd,
+                        need_refresh,
+                        refreshing_now,
+                        &mut s.entries,
+                    )
                 }
                 None => {
                     let past = Instant::now()
@@ -264,33 +238,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
                 }
             }
         }
-        Request::Update { repo_id, output } => {
-            if let Some(entry) = s.entries.get_mut(repo_id) {
-                entry.output.clone_from(output);
-                entry.has_fetched = true;
-                entry.fetched_at = Instant::now();
-                entry.refreshing = false;
-                entry.refresh_started_at = None;
-            } else {
-                s.entries.insert(
-                    repo_id.clone(),
-                    CacheEntry {
-                        output: output.clone(),
-                        has_fetched: true,
-                        fetched_at: Instant::now(),
-                        refreshing: false,
-                        refresh_started_at: None,
-                        cwd: PathBuf::new(),
-                    },
-                );
-            }
-            ActionResult {
-                response: Response::Ok,
-                refresh_repo_id: None,
-                refresh_cwd: None,
-                stop: false,
-            }
-        }
+        Request::Update { repo_id, output } => process_update(repo_id, output, &mut s.entries),
         Request::Stop => ActionResult {
             response: Response::Ok,
             refresh_repo_id: None,
@@ -352,6 +300,50 @@ fn mark_refreshing(entry: &mut CacheEntry) {
     entry.refresh_started_at = Some(Instant::now());
 }
 
+// no-PR cache is a valid empty output. Keep returning empty output while scheduling background
+// refresh, but still show loading for initial placeholder entries that are currently being refreshed.
+fn process_stale_query(
+    repo_id: &str,
+    output: String,
+    has_fetched: bool,
+    stored_cwd: PathBuf,
+    need_refresh: bool,
+    refreshing_now: bool,
+    entries: &mut HashMap<String, CacheEntry>,
+) -> ActionResult {
+    if output.is_empty() {
+        if refreshing_now && !has_fetched {
+            return ActionResult {
+                response: Response::Miss,
+                refresh_repo_id: None,
+                refresh_cwd: None,
+                stop: false,
+            };
+        }
+        if need_refresh {
+            mark_refreshing(entries.get_mut(repo_id).expect("entry exists"));
+        }
+        return ActionResult {
+            response: Response::Fresh {
+                output: String::new(),
+            },
+            refresh_repo_id: need_refresh.then(|| repo_id.to_owned()),
+            refresh_cwd: need_refresh.then_some(stored_cwd),
+            stop: false,
+        };
+    }
+
+    if need_refresh {
+        mark_refreshing(entries.get_mut(repo_id).expect("entry exists"));
+    }
+    ActionResult {
+        response: Response::Stale { output },
+        refresh_repo_id: need_refresh.then(|| repo_id.to_owned()),
+        refresh_cwd: need_refresh.then_some(stored_cwd),
+        stop: false,
+    }
+}
+
 fn is_active_entry(entry: &CacheEntry) -> bool {
     // no-PR entries are intentionally treated as inactive so they do not keep
     // the daemon alive forever. They can be re-created on the next prompt.
@@ -362,6 +354,38 @@ fn refresh_lock_expired(entry: &CacheEntry) -> bool {
     entry
         .refresh_started_at
         .is_some_and(|started| started.elapsed().as_secs() >= refresh_lock_timeout_secs())
+}
+
+fn process_update(
+    repo_id: &str,
+    output: &str,
+    entries: &mut HashMap<String, CacheEntry>,
+) -> ActionResult {
+    if let Some(entry) = entries.get_mut(repo_id) {
+        entry.output.clone_from(&output.to_owned());
+        entry.has_fetched = true;
+        entry.fetched_at = Instant::now();
+        entry.refreshing = false;
+        entry.refresh_started_at = None;
+    } else {
+        entries.insert(
+            repo_id.to_owned(),
+            CacheEntry {
+                output: output.to_owned(),
+                has_fetched: true,
+                fetched_at: Instant::now(),
+                refreshing: false,
+                refresh_started_at: None,
+                cwd: PathBuf::new(),
+            },
+        );
+    }
+    ActionResult {
+        response: Response::Ok,
+        refresh_repo_id: None,
+        refresh_cwd: None,
+        stop: false,
+    }
 }
 
 fn collect_background_refresh_targets(

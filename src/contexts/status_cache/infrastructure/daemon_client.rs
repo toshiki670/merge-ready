@@ -22,16 +22,15 @@ impl CachePort for DaemonClient {
             cwd,
         };
 
-        match Self::send(&request) {
-            Ok(response) => response_to_cache_state(response),
-            Err(()) => {
-                Self::lazy_start();
-                // Retry once without sleeping. This captures the case where another process
-                // has just started the daemon and the socket becomes available immediately.
-                match Self::send(&request) {
-                    Ok(response) => response_to_cache_state(response),
-                    Err(()) => Err(()),
-                }
+        if let Ok(response) = Self::send(&request) {
+            response_to_cache_state(response)
+        } else {
+            Self::lazy_start();
+            // Retry once without sleeping. This captures the case where another process
+            // has just started the daemon and the socket becomes available immediately.
+            match Self::send(&request) {
+                Ok(response) => response_to_cache_state(response),
+                Err(()) => Err(()),
             }
         }
     }

@@ -250,9 +250,8 @@ impl TestEnv {
         let secs = delay_ms / 1000;
         let millis = delay_ms % 1000;
         let sleep_arg = format!("{secs}.{millis:03}");
-        let script = format!(
-            "#!/bin/sh\nsleep {sleep_arg}\nprintf 'no pull requests found' >&2\nexit 1\n"
-        );
+        let script =
+            format!("#!/bin/sh\nsleep {sleep_arg}\nprintf 'no pull requests found' >&2\nexit 1\n");
         write_executable(bin_dir.path().join("gh"), &script);
         Self {
             bin_dir,

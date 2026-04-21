@@ -103,7 +103,7 @@ impl PresentationConfigPort for ConfigAdapter {
 fn main() {
     let repo_id_port = InfraRepoIdPort;
     match Cli::parse().command {
-        Some(Command::Prompt(args)) => match prompt::resolve_mode(&args, &repo_id_port) {
+        Some(Command::Prompt(args)) => match prompt::resolve_mode(&args) {
             ExecutionMode::Direct => {
                 contexts::merge_readiness::interface::cli::prompt::direct::run(
                     &GhClient::new(),

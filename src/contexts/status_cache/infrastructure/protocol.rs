@@ -26,5 +26,6 @@ pub enum Response {
         pid: u32,
         entries: usize,
         uptime_secs: u64,
+        version: String,
     },
 }

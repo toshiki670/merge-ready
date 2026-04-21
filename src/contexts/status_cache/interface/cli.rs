@@ -1,3 +1,3 @@
 pub mod daemon;
 
-pub use daemon::DaemonCommand;
+pub use daemon::DaemonArgs;

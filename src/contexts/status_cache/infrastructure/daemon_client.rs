@@ -14,6 +14,11 @@ pub struct DaemonClient;
 
 impl CachePort for DaemonClient {
     fn query(&self, repo_id: &str) -> Result<CacheState, ()> {
+        // We pay one extra status round-trip per prompt call to guarantee protocol
+        // compatibility during upgrades. The mismatch case is bounded to upgrade
+        // windows (old daemon still alive right after binary update), while steady
+        // state keeps matching versions and returns quickly.
+        Self::restart_if_version_mismatched();
         let cwd = std::env::current_dir()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
@@ -53,19 +58,33 @@ fn response_to_cache_state(response: Response) -> Result<CacheState, ()> {
 }
 
 impl DaemonClient {
+    const CLIENT_VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
     pub(super) fn stop() -> bool {
         Self::send(&Request::Stop).is_ok()
     }
 
-    pub(super) fn status_raw() -> Option<(u32, usize, u64)> {
+    pub(super) fn status_raw() -> Option<(u32, usize, u64, String)> {
         match Self::send(&Request::Status) {
             Ok(Response::Status {
                 pid,
                 entries,
                 uptime_secs,
-            }) => Some((pid, entries, uptime_secs)),
+                version,
+            }) => Some((pid, entries, uptime_secs, version)),
             _ => None,
         }
+    }
+
+    fn restart_if_version_mismatched() {
+        let Some((_pid, _entries, _uptime_secs, daemon_version)) = Self::status_raw() else {
+            return;
+        };
+        if daemon_version == Self::CLIENT_VERSION {
+            return;
+        }
+        let _ = Self::stop();
+        Self::lazy_start();
     }
 
     fn send(request: &Request) -> Result<Response, ()> {

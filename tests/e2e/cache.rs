@@ -6,7 +6,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-use super::helpers::{DaemonHandle, MultiRepoEnv, TestEnv};
+use super::helpers::{DaemonHandle, FakeDaemonHandle, MultiRepoEnv, TestEnv};
 
 /// merge-ready のバイナリ名
 const BIN: &str = "merge-ready";
@@ -214,4 +214,38 @@ fn test_daemon_multi_repo_isolation() {
         "repo_b should show conflict, got: {out_b}"
     );
     assert_ne!(out_a, out_b, "repos must not share cached output");
+}
+
+/// daemon version が不一致のとき、prompt 実行で自動再起動される。
+#[test]
+fn test_prompt_restarts_daemon_on_version_mismatch() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+    let _old = FakeDaemonHandle::start_versioned(&env, "0.0.0");
+
+    // 古い daemon が応答することを確認
+    let mut before = Command::cargo_bin(BIN).unwrap();
+    env.apply(&mut before);
+    before
+        .args(["daemon", "status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("version=0.0.0"));
+
+    // prompt 実行で version mismatch を検知し、自動再起動する
+    let mut prompt = Command::cargo_bin(BIN).unwrap();
+    env.apply_with_cache(&mut prompt);
+    prompt.assert().success();
+
+    // 再起動後は実バージョンが返る
+    let mut after = Command::cargo_bin(BIN).unwrap();
+    env.apply(&mut after);
+    after
+        .args(["daemon", "status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "version={}",
+            env!("CARGO_PKG_VERSION")
+        )))
+        .stdout(predicate::str::contains("version=0.0.0").not());
 }

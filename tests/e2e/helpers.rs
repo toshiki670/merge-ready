@@ -7,7 +7,9 @@
 //! バイナリの実行ディレクトリを `repo_dir` に設定することで再現性を確保する。
 
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::net::UnixListener;
 use std::path::Path;
 use tempfile::{TempDir, tempdir};
 
@@ -469,6 +471,74 @@ impl Drop for DaemonHandle {
             .env("TMPDIR", &self.tmpdir)
             .output();
         let _ = self.process.kill();
+    }
+}
+
+/// version 不一致を再現するための簡易 fake daemon。
+///
+/// `Status` には指定 version を返し、`Stop` 受信で終了する。
+pub struct FakeDaemonHandle {
+    join: Option<std::thread::JoinHandle<()>>,
+    socket_path: std::path::PathBuf,
+}
+
+impl FakeDaemonHandle {
+    #[must_use]
+    pub fn start_versioned(env: &TestEnv, version: &str) -> Self {
+        let socket_path = env.home().join(daemon_dir_name()).join("daemon.sock");
+        if let Some(parent) = socket_path.parent() {
+            fs::create_dir_all(parent).expect("create fake daemon dir");
+        }
+        let _ = fs::remove_file(&socket_path);
+
+        let listener = UnixListener::bind(&socket_path).expect("bind fake daemon socket");
+        let version = version.to_owned();
+        let socket_path_for_thread = socket_path.clone();
+        let join = std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else {
+                    continue;
+                };
+                let mut line = String::new();
+                {
+                    let mut reader = BufReader::new(&stream);
+                    if reader.read_line(&mut line).is_err() {
+                        continue;
+                    }
+                }
+                if line.contains("\"action\":\"status\"") {
+                    let _ = stream.write_all(
+                        format!(
+                            "{{\"tag\":\"status\",\"pid\":1,\"entries\":0,\"uptime_secs\":0,\"version\":\"{version}\"}}\n"
+                        )
+                        .as_bytes(),
+                    );
+                } else if line.contains("\"action\":\"stop\"") {
+                    let _ = stream.write_all(b"{\"tag\":\"ok\"}\n");
+                    break;
+                } else {
+                    let _ = stream.write_all(b"{\"tag\":\"miss\"}\n");
+                }
+            }
+            let _ = fs::remove_file(&socket_path_for_thread);
+        });
+
+        Self {
+            join: Some(join),
+            socket_path,
+        }
+    }
+}
+
+impl Drop for FakeDaemonHandle {
+    fn drop(&mut self) {
+        // Ensure the fake server thread is not left behind if a test fails early.
+        let _ = std::os::unix::net::UnixStream::connect(&self.socket_path)
+            .and_then(|mut stream| stream.write_all(b"{\"action\":\"stop\"}\n"));
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+        let _ = fs::remove_file(&self.socket_path);
     }
 }
 

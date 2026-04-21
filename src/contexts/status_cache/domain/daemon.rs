@@ -3,6 +3,7 @@ pub struct DaemonStatus {
     pub pid: u32,
     pub entries: usize,
     pub uptime_secs: u64,
+    pub version: String,
 }
 
 /// デーモンのライフサイクル管理ポート

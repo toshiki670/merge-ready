@@ -253,6 +253,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
                     pid: std::process::id(),
                     entries,
                     uptime_secs,
+                    version: env!("CARGO_PKG_VERSION").to_owned(),
                 },
                 refresh_repo_id: None,
                 refresh_cwd: None,

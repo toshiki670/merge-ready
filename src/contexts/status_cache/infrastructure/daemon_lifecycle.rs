@@ -49,10 +49,11 @@ impl DaemonLifecyclePort for DaemonLifecycle {
     }
 
     fn get_status(&self) -> Option<DaemonStatus> {
-        DaemonClient::status_raw().map(|(pid, entries, uptime_secs)| DaemonStatus {
+        DaemonClient::status_raw().map(|(pid, entries, uptime_secs, version)| DaemonStatus {
             pid,
             entries,
             uptime_secs,
+            version,
         })
     }
 }

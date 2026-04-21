@@ -65,6 +65,23 @@ fn test_daemon_status_shows_running() {
         .stdout(predicate::str::contains("running"));
 }
 
+/// daemon status が version を出力する
+#[test]
+fn test_daemon_status_includes_version() {
+    let env = TestEnv::new(
+        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#,
+        Some(r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#),
+    );
+    let _daemon = DaemonHandle::start(&env);
+
+    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    env.apply(&mut cmd);
+    cmd.args(["daemon", "status"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
+}
+
 /// daemon stop 後 → status が "not running"
 #[test]
 fn test_daemon_stop_terminates() {

@@ -71,10 +71,10 @@ mod tests {
         dir
     }
 
-    // worktree: main_repo/.git/worktrees/feat/HEAD + worktree/.git (file)
+    // worktree: main_repo/.git/worktrees/<branch>/HEAD + worktree/.git (file)
     fn make_worktree(branch: &str) -> (TempDir, TempDir) {
         let main_repo = TempDir::new().unwrap();
-        let worktree_meta = main_repo.path().join(".git/worktrees/feat");
+        let worktree_meta = main_repo.path().join(format!(".git/worktrees/{branch}"));
         fs::create_dir_all(&worktree_meta).unwrap();
         fs::write(
             worktree_meta.join("HEAD"),
@@ -144,10 +144,33 @@ mod tests {
 
     #[test]
     fn worktree_head_returns_branch_name() {
-        let (main_repo, _worktree) = make_worktree("feat");
-        let git_dir = main_repo.path().join(".git/worktrees/feat");
+        let (_main_repo, worktree) = make_worktree("feat");
+        let (_, git_dir) = find_git_dir(worktree.path()).unwrap();
         let branch = read_head(&git_dir).unwrap();
         assert_eq!(branch, "feat");
+    }
+
+    #[test]
+    fn worktree_repo_id_differs_from_main_repo_id() {
+        let main_repo = make_normal_repo("main");
+        let (_worktree_main_repo, worktree) = make_worktree("feat");
+
+        let (main_toplevel, main_git_dir) = find_git_dir(main_repo.path()).unwrap();
+        let (worktree_toplevel, worktree_git_dir) = find_git_dir(worktree.path()).unwrap();
+
+        let main_branch = read_head(&main_git_dir).unwrap_or_default();
+        let worktree_branch = read_head(&worktree_git_dir).unwrap_or_default();
+        assert_eq!(main_branch, "main");
+        assert_eq!(worktree_branch, "feat");
+
+        let main_id = path_to_id(&format!("{}\0{}", main_toplevel.display(), main_branch));
+        let worktree_id = path_to_id(&format!(
+            "{}\0{}",
+            worktree_toplevel.display(),
+            worktree_branch
+        ));
+
+        assert_ne!(main_id, worktree_id);
     }
 
     // ── path_to_id ────────────────────────────────────────────────────────────

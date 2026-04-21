@@ -1,15 +1,15 @@
 //! Status cache context.
 //!
-//! `merge-ready prompt` の低遅延応答のために、
-//! バックグラウンドデーモンとキャッシュを管理するコンテキストです。
+//! This context manages the background daemon and cache
+//! to keep `merge-ready prompt` responses low latency.
 //!
 //! ## Main responsibilities
 //!
-//! - キャッシュモデルと更新ロジック (`domain::cache`, `application::cache`)
-//! - デーモン状態・ライフサイクル管理 (`domain::daemon`, `application::lifecycle`)
-//! - サーバー/クライアント IPC 実装 (`infrastructure`)
-//! - PID/ソケット/パス管理 (`infrastructure::pid`, `infrastructure::paths`)
-//! - CLI の daemon コマンド (`interface::cli::daemon`)
+//! - Cache model and update logic (`domain::cache`, `application::cache`)
+//! - Daemon state and lifecycle management (`domain::daemon`, `application::lifecycle`)
+//! - Server/client IPC implementation (`infrastructure`)
+//! - PID/socket/path management (`infrastructure::pid`, `infrastructure::paths`)
+//! - CLI daemon command handling (`interface::cli::daemon`)
 
 pub mod application;
 pub mod domain;

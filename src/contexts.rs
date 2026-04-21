@@ -1,11 +1,10 @@
 //! Bounded contexts for `merge-ready`.
 //!
-//! このモジュールは、アプリケーションを責務ごとに分割した
-//! 3 つのコンテキストを公開します。
+//! This module exposes three contexts, each separated by responsibility.
 //!
-//! - [`configuration`] - 表示・挙動の設定管理
-//! - [`merge_readiness`] - PR のマージ可否判定
-//! - [`status_cache`] - デーモンとキャッシュによる低遅延応答
+//! - [`configuration`] - manages display and behavior settings
+//! - [`merge_readiness`] - evaluates pull request merge readiness
+//! - [`status_cache`] - provides low-latency responses via daemon/cache
 //!
 //! # Context relationship
 //!

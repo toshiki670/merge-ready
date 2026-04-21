@@ -1,15 +1,15 @@
 //! Configuration context.
 //!
-//! `merge-ready` の設定値を取得・更新するコンテキストです。
-//! トークン表示や CLI 挙動に関わる設定を提供します。
+//! This context handles reading and updating `merge-ready` configuration.
+//! It provides settings related to token presentation and CLI behavior.
 //!
 //! ## Main responsibilities
 //!
-//! - 設定取得サービス (`application::config_service`)
-//! - 設定更新ユースケース (`application::config_updater`)
-//! - 設定モデルとリポジトリ境界 (`domain`)
-//! - TOML ベース永続化 (`infrastructure::toml_loader`)
-//! - CLI 入口 (`interface::cli`)
+//! - Configuration retrieval service (`application::config_service`)
+//! - Configuration update use case (`application::config_updater`)
+//! - Configuration model and repository boundary (`domain`)
+//! - TOML-based persistence (`infrastructure::toml_loader`)
+//! - CLI entry points (`interface::cli`)
 
 pub mod application;
 pub mod domain;

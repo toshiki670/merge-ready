@@ -1,5 +1,6 @@
-mod configuration;
+mod cli;
+mod config;
+mod daemon;
 mod helpers;
-mod interface;
-mod merge_readiness;
-mod status_cache;
+mod prompt;
+mod scenarios;

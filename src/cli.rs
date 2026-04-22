@@ -1,8 +1,8 @@
 use clap::{Parser, Subcommand};
 
-use crate::contexts::configuration::interface::cli::ConfigArgs;
-use crate::contexts::merge_readiness::interface::cli::prompt::{AFTER_HELP, PromptArgs};
-use crate::contexts::status_cache::interface::cli::DaemonArgs;
+use crate::contexts::config::interface::cli::ConfigArgs;
+use crate::contexts::daemon::interface::cli::DaemonArgs;
+use crate::contexts::prompt::interface::cli::prompt::{AFTER_HELP, PromptArgs};
 
 #[derive(Parser)]
 #[command(

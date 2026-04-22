@@ -7,6 +7,7 @@
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use rstest::rstest;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
 
@@ -29,48 +30,31 @@ fn assert_prompt_with_config(env: &TestEnv, expected: &str) {
         .stderr("");
 }
 
-// ── #42–48: prompt 出力契約 ──────────────────────────────────────────────────
+// ── #42–46, #48: prompt 出力契約（パラメータ化） ─────────────────────────────
 
-/// #42: 設定ファイルなし → デフォルトのシンボル・ラベルで出力
-#[test]
-fn test_no_config_uses_defaults() {
+/// #42 設定なし / #43 symbol / #44 label / #45 format / #46 全フィールド / #48 不正 TOML
+#[rstest]
+#[case::no_config(None, "✓ merge-ready")]
+#[case::custom_symbol(Some("[merge_ready]\nsymbol = \"★\""), "★ merge-ready")]
+#[case::custom_label(Some("[merge_ready]\nlabel = \"OK!\""), "✓ OK!")]
+#[case::custom_format(
+    Some("[merge_ready]\nformat = \"[$symbol] $label\""),
+    "[✓] merge-ready"
+)]
+#[case::all_fields_custom(
+    Some("[merge_ready]\nsymbol = \"✅\"\nlabel = \"lgtm\"\nformat = \"$label $symbol\""),
+    "lgtm ✅"
+)]
+#[case::invalid_toml(Some("this is not valid toml ][[["), "✓ merge-ready")]
+fn test_config_prompt(#[case] config: Option<&str>, #[case] expected: &str) {
     let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
-    assert_prompt_with_config(&env, "✓ merge-ready");
+    if let Some(cfg) = config {
+        env.write_config(cfg);
+    }
+    assert_prompt_with_config(&env, expected);
 }
 
-/// #43: `symbol` のみカスタマイズ → カスタムシンボル + デフォルトラベル
-#[test]
-fn test_custom_symbol() {
-    let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
-    env.write_config("[merge_ready]\nsymbol = \"★\"");
-    assert_prompt_with_config(&env, "★ merge-ready");
-}
-
-/// #44: `label` のみカスタマイズ → デフォルトシンボル + カスタムラベル
-#[test]
-fn test_custom_label() {
-    let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
-    env.write_config("[merge_ready]\nlabel = \"OK!\"");
-    assert_prompt_with_config(&env, "✓ OK!");
-}
-
-/// #45: `format` をカスタマイズ → 順序・区切りが変わる
-#[test]
-fn test_custom_format() {
-    let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
-    env.write_config("[merge_ready]\nformat = \"[$symbol] $label\"");
-    assert_prompt_with_config(&env, "[✓] merge-ready");
-}
-
-/// #46: `symbol` / `label` / `format` を全部カスタマイズ
-#[test]
-fn test_all_fields_custom() {
-    let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
-    env.write_config(
-        "[merge_ready]\nsymbol = \"✅\"\nlabel = \"lgtm\"\nformat = \"$label $symbol\"",
-    );
-    assert_prompt_with_config(&env, "lgtm ✅");
-}
+// ── #47: 一部セクションのみ設定 ──────────────────────────────────────────────
 
 /// #47: 一部セクションのみ設定 → 未設定セクションはデフォルト値にフォールバック
 #[test]
@@ -78,14 +62,6 @@ fn test_partial_config_other_tokens_use_defaults() {
     let env = TestEnv::new(CONFLICT_JSON, Some(CHECKS_PASS_JSON));
     env.write_config("[conflict]\nsymbol = \"✘\"");
     assert_prompt_with_config(&env, "✘ conflict");
-}
-
-/// #48: 不正な TOML → デフォルト出力にフォールバック（パニックしない）
-#[test]
-fn test_invalid_toml_falls_back_to_defaults() {
-    let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
-    env.write_config("this is not valid toml ][[[");
-    assert_prompt_with_config(&env, "✓ merge-ready");
 }
 
 // ── #49–50: XDG_CONFIG_HOME ───────────────────────────────────────────────────

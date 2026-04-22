@@ -6,6 +6,7 @@
 //! 並列実行時に `error.log` が競合しない。
 
 use assert_cmd::Command;
+use rstest::rstest;
 
 use super::super::helpers::TestEnv;
 
@@ -18,7 +19,7 @@ fn cmd(env: &TestEnv) -> Command {
     c
 }
 
-// ── #34–36: 認証エラー ────────────────────────────────────────────────────────
+// ── #34: gh が PATH に存在しない ──────────────────────────────────────────────
 
 /// #34: `gh` バイナリが `PATH` に存在しない → `! gh auth login`
 #[test]
@@ -31,74 +32,39 @@ fn test_gh_not_installed() {
         .stderr("");
 }
 
-/// #35: `gh` が `exit code 4` を返す（未ログイン）→ `! gh auth login`
-#[test]
-fn test_gh_not_logged_in() {
-    let env = TestEnv::with_error(
-        "To get started with GitHub CLI, please run:  gh auth login",
-        4,
-    );
+// ── #35–39: with_error() 系 ───────────────────────────────────────────────────
+
+/// #35 `exit 4`（未ログイン）/ #36 `HTTP 401`（認証エラー）→ `! gh auth login`
+/// #37 `HTTP 500` / #38 `connection refused` → `✗ api-error`
+/// #39 `HTTP 403`（レート制限）→ `✗ rate-limited`
+#[rstest]
+#[case::not_logged_in(
+    "To get started with GitHub CLI, please run:  gh auth login",
+    4,
+    "! gh auth login"
+)]
+#[case::bad_credentials(
+    "HTTP 401: Bad credentials (https://api.github.com/graphql)",
+    1,
+    "! gh auth login"
+)]
+#[case::api_error("HTTP 500: Internal Server Error", 1, "✗ api-error")]
+#[case::no_network(
+    r#"Post "https://api.github.com/graphql": dial tcp: connection refused"#,
+    1,
+    "✗ api-error"
+)]
+#[case::rate_limited(
+    "HTTP 403: API rate limit exceeded (https://api.github.com/graphql)",
+    1,
+    "✗ rate-limited"
+)]
+fn test_error_output(#[case] msg: &str, #[case] code: u8, #[case] expected: &str) {
+    let env = TestEnv::with_error(msg, code);
     cmd(&env)
         .assert()
         .success()
-        .stdout("! gh auth login")
-        .stderr("");
-}
-
-/// #36: `gh` が `exit 1` + `HTTP 401: Bad credentials` → `! gh auth login`
-#[test]
-fn test_bad_credentials() {
-    let env = TestEnv::with_error(
-        "HTTP 401: Bad credentials (https://api.github.com/graphql)",
-        1,
-    );
-    cmd(&env)
-        .assert()
-        .success()
-        .stdout("! gh auth login")
-        .stderr("");
-}
-
-// ── #37–38: API エラー ────────────────────────────────────────────────────────
-
-/// #37: `gh` が `exit 1` + `HTTP 500` → `✗ api-error`
-#[test]
-fn test_api_error() {
-    let env = TestEnv::with_error("HTTP 500: Internal Server Error", 1);
-    cmd(&env)
-        .assert()
-        .success()
-        .stdout("✗ api-error")
-        .stderr("");
-}
-
-/// #38: `gh` が `exit 1` + `connection refused` → `✗ api-error`
-#[test]
-fn test_no_network() {
-    let env = TestEnv::with_error(
-        r#"Post "https://api.github.com/graphql": dial tcp: connection refused"#,
-        1,
-    );
-    cmd(&env)
-        .assert()
-        .success()
-        .stdout("✗ api-error")
-        .stderr("");
-}
-
-// ── #39: レート制限 ───────────────────────────────────────────────────────────
-
-/// #39: `gh` が `exit 1` + `API rate limit exceeded` → `✗ rate-limited`
-#[test]
-fn test_rate_limited() {
-    let env = TestEnv::with_error(
-        "HTTP 403: API rate limit exceeded (https://api.github.com/graphql)",
-        1,
-    );
-    cmd(&env)
-        .assert()
-        .success()
-        .stdout("✗ rate-limited")
+        .stdout(expected.to_owned())
         .stderr("");
 }
 

@@ -5,10 +5,20 @@
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use rstest::rstest;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
 
 const BIN: &str = "merge-ready";
+
+const BLOCKED_NO_REVIEW: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":null}"#;
+const BLOCKED_CHANGES_REQUESTED: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"CHANGES_REQUESTED"}"#;
+const APPROVED_CLEAN: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}"#;
+
+const FAIL_JSON: &str = r#"[{"bucket":"fail","state":"FAILURE"}]"#;
+const CANCEL_JSON: &str = r#"[{"bucket":"cancel","state":"CANCELLED"}]"#;
+const ACTION_REQUIRED_JSON: &str = r#"[{"bucket":"action_required","state":"ACTION_REQUIRED"}]"#;
+const FAIL_AND_ACTION_JSON: &str = r#"[{"bucket":"fail","state":"FAILURE"},{"bucket":"action_required","state":"ACTION_REQUIRED"}]"#;
 
 fn assert_prompt(env: &TestEnv, expected: &str) {
     let _daemon = DaemonHandle::start(env);
@@ -22,80 +32,31 @@ fn assert_prompt(env: &TestEnv, expected: &str) {
         .stderr("");
 }
 
-// ── 単体 ──────────────────────────────────────────────────────────────────────
+// ── #23–26, #29: checks bucket ────────────────────────────────────────────────
 
-/// #23: `checks bucket == fail` → `✗ ci-fail`
-#[test]
-fn test_ci_fail_failure() {
-    let env = TestEnv::new(
-        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":null}"#,
-        Some(r#"[{"bucket":"fail","state":"FAILURE"}]"#),
-    );
-    assert_prompt(&env, "✗ ci-fail");
+/// #23 `fail` / #24 `cancel` → `✗ ci-fail`
+/// #25 `action_required` → `⚠ ci-action`
+/// #26 `fail` + `action_required` 混在 → `✗ ci-fail`（`ci-action` は抑制）
+/// #29 `ci-fail` + `review` → 両方をスペース区切りで出力
+#[rstest]
+#[case::ci_fail_failure(BLOCKED_NO_REVIEW, FAIL_JSON, "✗ ci-fail")]
+#[case::ci_fail_cancelled(BLOCKED_NO_REVIEW, CANCEL_JSON, "✗ ci-fail")]
+#[case::ci_action(BLOCKED_NO_REVIEW, ACTION_REQUIRED_JSON, "⚠ ci-action")]
+#[case::ci_fail_wins_over_ci_action(BLOCKED_NO_REVIEW, FAIL_AND_ACTION_JSON, "✗ ci-fail")]
+#[case::ci_fail_and_review(BLOCKED_CHANGES_REQUESTED, FAIL_JSON, "✗ ci-fail ⚠ review")]
+fn test_ci_check_prompt(#[case] pr_json: &str, #[case] checks_json: &str, #[case] expected: &str) {
+    let env = TestEnv::new(pr_json, Some(checks_json));
+    assert_prompt(&env, expected);
 }
 
-/// #24: `checks bucket == cancel` も `✗ ci-fail` として扱う
-#[test]
-fn test_ci_fail_cancelled() {
-    let env = TestEnv::new(
-        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":null}"#,
-        Some(r#"[{"bucket":"cancel","state":"CANCELLED"}]"#),
-    );
-    assert_prompt(&env, "✗ ci-fail");
-}
+// ── #27–28: CI 未設定 ─────────────────────────────────────────────────────────
 
-/// #25: `checks bucket == action_required` → `⚠ ci-action`
-#[test]
-fn test_ci_action() {
-    let env = TestEnv::new(
-        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":null}"#,
-        Some(r#"[{"bucket":"action_required","state":"ACTION_REQUIRED"}]"#),
-    );
-    assert_prompt(&env, "⚠ ci-action");
-}
-
-// ── ci_checks 内の優先度 ──────────────────────────────────────────────────────
-
-/// #26: `fail` と `action_required` が混在 → `ci-fail` のみ表示（`ci-action` は抑制される）
-#[test]
-fn test_ci_fail_wins_over_ci_action() {
-    let env = TestEnv::new(
-        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":null}"#,
-        Some(
-            r#"[{"bucket":"fail","state":"FAILURE"},{"bucket":"action_required","state":"ACTION_REQUIRED"}]"#,
-        ),
-    );
-    assert_prompt(&env, "✗ ci-fail");
-}
-
-// ── CI 未設定 ──────────────────────────────────────────────────────────────────
-
-/// #27: `gh pr checks` が "no checks reported" + review なし → `✓ merge-ready`
-#[test]
-fn test_no_ci_checks_merge_ready() {
-    let env = TestEnv::with_no_ci_checks(
-        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}"#,
-    );
-    assert_prompt(&env, "✓ merge-ready");
-}
-
-/// #28: `gh pr checks` が "no checks reported" + review あり → `⚠ review`
-#[test]
-fn test_no_ci_checks_with_review() {
-    let env = TestEnv::with_no_ci_checks(
-        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"CHANGES_REQUESTED"}"#,
-    );
-    assert_prompt(&env, "⚠ review");
-}
-
-// ── review との複合出力 ───────────────────────────────────────────────────────
-
-/// #29: `ci-fail` + `review` → 両方をスペース区切りで出力
-#[test]
-fn test_ci_fail_and_review() {
-    let env = TestEnv::new(
-        r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"CHANGES_REQUESTED"}"#,
-        Some(r#"[{"bucket":"fail","state":"FAILURE"}]"#),
-    );
-    assert_prompt(&env, "✗ ci-fail ⚠ review");
+/// #27 `no checks reported` + review なし → `✓ merge-ready`
+/// #28 `no checks reported` + review あり → `⚠ review`
+#[rstest]
+#[case::merge_ready(APPROVED_CLEAN, "✓ merge-ready")]
+#[case::review(BLOCKED_CHANGES_REQUESTED, "⚠ review")]
+fn test_no_ci_checks_prompt(#[case] pr_json: &str, #[case] expected: &str) {
+    let env = TestEnv::with_no_ci_checks(pr_json);
+    assert_prompt(&env, expected);
 }

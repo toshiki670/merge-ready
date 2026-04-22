@@ -4,10 +4,14 @@
 //! 実行フローは daemon 経由（`merge-ready prompt`）に統一する。
 
 use assert_cmd::Command;
+use rstest::rstest;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
 
 const BIN: &str = "merge-ready";
+
+const CLOSED_PR: &str = r#"{"state":"CLOSED","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null}"#;
+const MERGED_PR: &str = r#"{"state":"MERGED","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null}"#;
 
 fn assert_prompt_empty(env: &TestEnv) {
     let _daemon = DaemonHandle::start(env);
@@ -17,6 +21,8 @@ fn assert_prompt_empty(env: &TestEnv) {
     env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout("").stderr("");
 }
+
+// ── #31: PR なし ──────────────────────────────────────────────────────────────
 
 /// #31: ブランチに PR が存在しない → 空文字（`exit 0`）
 #[test]
@@ -28,22 +34,13 @@ fn test_no_pr() {
     assert_prompt_empty(&env);
 }
 
-/// #32: PR が `CLOSED` → 空文字
-#[test]
-fn test_pr_closed() {
-    let env = TestEnv::new(
-        r#"{"state":"CLOSED","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null}"#,
-        None,
-    );
-    assert_prompt_empty(&env);
-}
+// ── #32–33: CLOSED / MERGED ───────────────────────────────────────────────────
 
-/// #33: PR が `MERGED` → 空文字
-#[test]
-fn test_pr_merged() {
-    let env = TestEnv::new(
-        r#"{"state":"MERGED","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null}"#,
-        None,
-    );
+/// #32 PR が `CLOSED` / #33 PR が `MERGED` → 空文字
+#[rstest]
+#[case::pr_closed(CLOSED_PR)]
+#[case::pr_merged(MERGED_PR)]
+fn test_non_open_pr_shows_nothing(#[case] pr_json: &str) {
+    let env = TestEnv::new(pr_json, None);
     assert_prompt_empty(&env);
 }

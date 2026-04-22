@@ -10,7 +10,7 @@
 //!   - `exit 1` + その他                → `✗ api-error`
 //!
 //! 各テストは独立した `TestEnv`（`bin_dir` + `home_dir`）を持つため、
-//! 並列実行時に `~/.cache/ci-status/error.log` が競合しない。
+//! 並列実行時に `~/.cache/merge-ready/error.log` が競合しない。
 
 use super::super::helpers::TestEnv;
 use assert_cmd::Command;
@@ -130,12 +130,12 @@ fn test_gh_timeout() {
 
 // ─── エラーログ ───────────────────────────────────────────────────────────
 
-/// API エラー発生時に `$HOME/.cache/ci-status/error.log` へ追記されること。
+/// API エラー発生時に `$HOME/.cache/merge-ready/error.log` へ追記されること。
 /// `TestEnv` の `home_dir` を `HOME` に設定しているため実際の `~` には書き込まれない。
 #[test]
 fn test_error_log_written() {
     let env = TestEnv::with_error("HTTP 500: Internal Server Error", 1);
-    let log_path = env.home().join(".cache/ci-status/error.log");
+    let log_path = env.home().join(".cache/merge-ready/error.log");
 
     let mut cmd = Command::cargo_bin("merge-ready").unwrap();
     env.apply(&mut cmd);

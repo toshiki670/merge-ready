@@ -1,21 +1,24 @@
-//! CLI サブコマンドの E2E テスト
+//! CLI フラグ・サブコマンド共通 E2E テスト（シナリオ #64–72）
 //!
-//! `merge-ready prompt` / `merge-ready help` / フラグ類の動作を検証する。
+//! ヘルプ表示、バージョン表示、未知の引数などの CLI インターフェースを検証する。
 
-use super::super::helpers::TestEnv;
 use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
+
+use super::super::helpers::TestEnv;
 
 const MERGE_READY_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}"#;
 const MERGE_READY_PR_CHECKS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS"}]"#;
 
+const BIN: &str = "merge-ready";
+
 fn cmd(env: &TestEnv) -> Command {
-    let mut c = Command::cargo_bin("merge-ready").unwrap();
+    let mut c = Command::cargo_bin(BIN).unwrap();
     env.apply(&mut c);
     c
 }
 
-/// 引数なし → ヘルプを表示する
+/// #64: 引数なし → "Usage:" を含むヘルプを表示
 #[test]
 fn test_default_no_args_shows_help() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
@@ -25,18 +28,7 @@ fn test_default_no_args_shows_help() {
         .stdout(predicates::str::contains("Usage:"));
 }
 
-/// `prompt --no-cache` サブコマンド → PR ステータスを出力する
-#[test]
-fn test_prompt_subcommand() {
-    let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
-    cmd(&env)
-        .args(["prompt", "--no-cache"])
-        .assert()
-        .success()
-        .stdout("✓ merge-ready");
-}
-
-/// `help` サブコマンド → "Usage:" を含む、"Output tokens:" を含まない / exit 0
+/// #65: `help` → "Usage:" を含む・"Output tokens:" を含まない
 #[test]
 fn test_help_subcommand() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
@@ -48,7 +40,7 @@ fn test_help_subcommand() {
         .stdout(predicates::str::contains("Output tokens:").not());
 }
 
-/// `--help` フラグ → "Usage:" を含む、"Output tokens:" を含まない / exit 0
+/// #66: `--help` → "Usage:" を含む・"Output tokens:" を含まない
 #[test]
 fn test_help_flag_long() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
@@ -60,7 +52,7 @@ fn test_help_flag_long() {
         .stdout(predicates::str::contains("Output tokens:").not());
 }
 
-/// `-h` フラグ → "Usage:" を含む、"Output tokens:" を含まない / exit 0
+/// #67: `-h` → "Usage:" を含む・"Output tokens:" を含まない
 #[test]
 fn test_help_flag_short() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
@@ -72,7 +64,7 @@ fn test_help_flag_short() {
         .stdout(predicates::str::contains("Output tokens:").not());
 }
 
-/// `help prompt` → "Output tokens:" を含む / exit 0
+/// #68: `help prompt` → "Output tokens:" を含む
 #[test]
 fn test_help_prompt_subcommand() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
@@ -83,7 +75,7 @@ fn test_help_prompt_subcommand() {
         .stdout(predicates::str::contains("Output tokens:"));
 }
 
-/// `prompt --help` → "Output tokens:" を含む / exit 0
+/// #69: `prompt --help` → "Output tokens:" を含む
 #[test]
 fn test_prompt_help_flag() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
@@ -94,7 +86,7 @@ fn test_prompt_help_flag() {
         .stdout(predicates::str::contains("Output tokens:"));
 }
 
-/// `prompt -h` → "Output tokens:" を含む / exit 0
+/// #70: `prompt -h` → "Output tokens:" を含む
 #[test]
 fn test_prompt_help_flag_short() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
@@ -105,7 +97,7 @@ fn test_prompt_help_flag_short() {
         .stdout(predicates::str::contains("Output tokens:"));
 }
 
-/// `--version` フラグ → バージョン文字列を含む / exit 0
+/// #71: `--version` → CARGO_PKG_VERSION を含む
 #[test]
 fn test_version_flag() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
@@ -116,7 +108,7 @@ fn test_version_flag() {
         .stdout(predicates::str::contains(env!("CARGO_PKG_VERSION")));
 }
 
-/// 未知の引数 → exit 非ゼロ
+/// #72: 未知の引数 → exit 非ゼロ
 #[test]
 fn test_unknown_arg_fails() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));

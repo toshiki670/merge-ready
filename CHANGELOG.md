@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2026-04-22
+### Bug Fixes
+- Write error logs to merge-ready cache directory ([#115](https://github.com/toshiki670/merge-ready/pull/115)) ([`c344e30`](https://github.com/toshiki670/merge-ready/commit/c344e3003f845f08068dbe9ea6036c1ea093bbe4))
+
+
 ## [0.2.0] - 2026-04-21
 ### Bug Fixes
 - Add timeout to gh command execution to prevent indefinite hang ([#84](https://github.com/toshiki670/merge-ready/pull/84)) ([`ab4f665`](https://github.com/toshiki670/merge-ready/commit/ab4f665aa2bf12d49f16c446e8c9244736055cd9))

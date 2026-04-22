@@ -3,24 +3,22 @@ use std::process::ExitCode;
 use clap::CommandFactory;
 
 use crate::cli::{Cli, Command};
-use crate::contexts::configuration::application::config_service::ConfigService;
-use crate::contexts::configuration::infrastructure::toml_loader::TomlConfigRepository;
-use crate::contexts::merge_readiness::application::{
+use crate::contexts::config::application::config_service::ConfigService;
+use crate::contexts::config::infrastructure::toml_loader::TomlConfigRepository;
+use crate::contexts::daemon::application::cache as daemon_cache_app;
+use crate::contexts::daemon::infrastructure::daemon_client::{self as daemon_client, DaemonClient};
+use crate::contexts::prompt::application::{
     OutputToken, errors::ErrorToken, prompt::ExecutionMode,
 };
-use crate::contexts::merge_readiness::infrastructure::{gh::GhClient, logger::Logger};
-use crate::contexts::merge_readiness::interface::{
+use crate::contexts::prompt::infrastructure::{gh::GhClient, logger::Logger};
+use crate::contexts::prompt::interface::{
     cli::prompt::{self},
     presentation::{PresentationConfigPort, Presenter},
 };
-use crate::contexts::status_cache::application::cache as status_cache_app;
-use crate::contexts::status_cache::infrastructure::daemon_client::{
-    self as daemon_client, DaemonClient,
-};
 
-impl crate::contexts::merge_readiness::application::errors::ErrorLogger for Logger {
+impl crate::contexts::prompt::application::errors::ErrorLogger for Logger {
     fn log(&self, msg: &str) {
-        crate::contexts::merge_readiness::infrastructure::logger::append_error(msg);
+        crate::contexts::prompt::infrastructure::logger::append_error(msg);
     }
 }
 
@@ -58,7 +56,7 @@ pub fn run(cli: Cli) -> ExitCode {
     match cli.command {
         Some(Command::Prompt(args)) => match prompt::resolve_mode(&args) {
             ExecutionMode::Direct => {
-                crate::contexts::merge_readiness::interface::cli::prompt::direct::run(
+                crate::contexts::prompt::interface::cli::prompt::direct::run(
                     &GhClient::new(),
                     &Logger,
                     ConfigAdapter::load(),
@@ -67,16 +65,15 @@ pub fn run(cli: Cli) -> ExitCode {
             }
             ExecutionMode::Cached => {
                 prompt::cached::run(
-                    crate::contexts::merge_readiness::infrastructure::repo_id::get,
+                    crate::contexts::prompt::infrastructure::repo_id::get,
                     daemon_client::query_via_daemon,
                 );
                 ExitCode::SUCCESS
             }
         },
         Some(Command::Config(args)) => {
-            let config_path =
-                crate::contexts::configuration::infrastructure::toml_loader::config_path();
-            crate::contexts::configuration::interface::cli::run(
+            let config_path = crate::contexts::config::infrastructure::toml_loader::config_path();
+            crate::contexts::config::interface::cli::run(
                 &args,
                 &TomlConfigRepository,
                 config_path.as_deref(),
@@ -84,21 +81,21 @@ pub fn run(cli: Cli) -> ExitCode {
         }
         Some(Command::Daemon(args)) => {
             let lifecycle =
-                crate::contexts::status_cache::infrastructure::daemon_lifecycle::DaemonLifecycle::new(
+                crate::contexts::daemon::infrastructure::daemon_lifecycle::DaemonLifecycle::new(
                     |repo_id: &str, cwd: &std::path::Path| {
                         let repo_id = repo_id.to_owned();
-                        let tokens = crate::contexts::merge_readiness::application::prompt::fetch_output(
+                        let tokens = crate::contexts::prompt::application::prompt::fetch_output(
                             &GhClient::new_in(cwd.to_path_buf()),
                             &Logger,
                         );
                         if let Some(tokens) = tokens {
                             let output =
                                 Presenter::new(ConfigAdapter::load()).render_to_string(&tokens);
-                            status_cache_app::update(&DaemonClient, &repo_id, &output);
+                            daemon_cache_app::update(&DaemonClient, &repo_id, &output);
                         }
                     },
                 );
-            crate::contexts::status_cache::interface::cli::daemon::run(args.subcommand, &lifecycle);
+            crate::contexts::daemon::interface::cli::daemon::run(args.subcommand, &lifecycle);
             ExitCode::SUCCESS
         }
         None => {

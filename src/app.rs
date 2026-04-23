@@ -11,9 +11,10 @@ use crate::contexts::prompt::application::{
     OutputToken, errors::ErrorToken, prompt::ExecutionMode,
 };
 use crate::contexts::prompt::infrastructure::{gh::GhClient, logger::Logger};
+use crate::contexts::prompt::interface::presentation::Presenter;
 use crate::contexts::prompt::interface::{
     cli::prompt::{self},
-    presentation::{PresentationConfigPort, Presenter},
+    presentation::PresentationConfigPort,
 };
 
 impl crate::contexts::prompt::application::errors::ErrorLogger for Logger {
@@ -84,15 +85,18 @@ pub fn run(cli: Cli) -> ExitCode {
                 crate::contexts::daemon::infrastructure::daemon_lifecycle::DaemonLifecycle::new(
                     |repo_id: &str, cwd: &std::path::Path| {
                         let repo_id = repo_id.to_owned();
-                        let tokens = crate::contexts::prompt::application::prompt::fetch_output(
-                            &GhClient::new_in(cwd.to_path_buf()),
-                            &Logger,
-                        );
-                        if let Some(tokens) = tokens {
-                            let output =
-                                Presenter::new(ConfigAdapter::load()).render_to_string(&tokens);
-                            daemon_cache_app::update(&DaemonClient, &repo_id, &output);
-                        }
+                        let (tokens, error) =
+                            crate::contexts::prompt::application::prompt::fetch_output(
+                                &GhClient::new_in(cwd.to_path_buf()),
+                                &Logger,
+                            );
+                        let config = ConfigAdapter::load();
+                        let output = if let Some(err) = error {
+                            config.render_error_token(err)
+                        } else {
+                            Presenter::new(config).render_to_string(&tokens)
+                        };
+                        daemon_cache_app::update(&DaemonClient, &repo_id, &output);
                     },
                 );
             crate::contexts::daemon::interface::cli::daemon::run(args.subcommand, &lifecycle);

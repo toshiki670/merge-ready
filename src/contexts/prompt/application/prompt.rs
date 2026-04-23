@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use super::OutputToken;
 use super::errors::{ErrorLogger, ErrorPresenter, ErrorToken};
@@ -15,10 +15,11 @@ pub enum ExecutionMode {
     Cached,
 }
 
-/// gh を呼んで出力トークンを返す。エラー発生時は `None` を返す（daemon 書き込み回避）。
+/// gh を呼んで出力トークンとエラートークンを返す。
 ///
-/// `daemon refresh` 処理用。エラーは stderr に出力せず内部追跡のみ行う。
-pub fn fetch_output<C, L>(client: &C, logger: &L) -> Option<Vec<OutputToken>>
+/// `daemon refresh` 処理用。エラーは stderr に出力せず内部で捕捉する。
+/// エラー発生時は `Option<ErrorToken>` に値が入り、daemon がキャッシュに書き込める。
+pub fn fetch_output<C, L>(client: &C, logger: &L) -> (Vec<OutputToken>, Option<ErrorToken>)
 where
     C: PrStateRepository
         + BranchSyncRepository
@@ -28,21 +29,24 @@ where
         + Sync,
     L: ErrorLogger + Sync,
 {
-    struct TrackingPresenter(AtomicBool);
+    struct CapturingPresenter(Mutex<Option<ErrorToken>>);
 
-    impl ErrorPresenter for TrackingPresenter {
-        fn show_error(&self, _token: ErrorToken) {
-            self.0
-                .update(Ordering::Relaxed, Ordering::Relaxed, |_| true);
+    impl ErrorPresenter for CapturingPresenter {
+        fn show_error(&self, token: ErrorToken) {
+            *self
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(token);
         }
     }
 
-    let presenter = TrackingPresenter(AtomicBool::new(false));
+    let presenter = CapturingPresenter(Mutex::new(None));
     let tokens = super::run(client, logger, &presenter);
+    let error = presenter
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take();
 
-    if presenter.0.load(Ordering::Relaxed) {
-        None
-    } else {
-        Some(tokens)
-    }
+    (tokens, error)
 }

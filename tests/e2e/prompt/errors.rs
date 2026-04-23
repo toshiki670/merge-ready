@@ -1,21 +1,20 @@
 //! エラー系 E2E テスト（シナリオ #34–41）
 //!
 //! `gh` CLI の各エラーシナリオに対して正しい `stdout` が返ることを検証する。
-//! daemon はエラー状態をキャッシュしないため、Direct パス（`--no-cache`）で検証する。
+//! daemon がエラー状態をキャッシュするため、daemon 経由（キャッシュパス）で検証する。
 //! 各テストは独立した `TestEnv`（`bin_dir` + `home_dir`）を持つため、
 //! 並列実行時に `error.log` が競合しない。
 
 use assert_cmd::Command;
 use rstest::rstest;
 
-use super::super::helpers::TestEnv;
+use super::super::helpers::{DaemonHandle, TestEnv};
 
 const BIN: &str = "merge-ready";
 
 fn cmd(env: &TestEnv) -> Command {
     let mut c = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut c);
-    c.args(["prompt", "--no-cache"]);
+    env.apply_with_cache(&mut c);
     c
 }
 
@@ -25,6 +24,9 @@ fn cmd(env: &TestEnv) -> Command {
 #[test]
 fn test_gh_not_installed() {
     let env = TestEnv::without_gh();
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
     cmd(&env)
         .assert()
         .success()
@@ -61,6 +63,9 @@ fn test_gh_not_installed() {
 )]
 fn test_error_output(#[case] msg: &str, #[case] code: u8, #[case] expected: &str) {
     let env = TestEnv::with_error(msg, code);
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
     cmd(&env)
         .assert()
         .success()
@@ -74,12 +79,10 @@ fn test_error_output(#[case] msg: &str, #[case] code: u8, #[case] expected: &str
 #[test]
 fn test_gh_timeout() {
     let env = TestEnv::with_hanging_gh();
-    cmd(&env)
-        .env("MERGE_READY_GH_TIMEOUT_SECS", "2")
-        .timeout(std::time::Duration::from_secs(5))
-        .assert()
-        .success()
-        .stdout("✗ api-error");
+    let _daemon = DaemonHandle::start_with_env(&env, &[("MERGE_READY_GH_TIMEOUT_SECS", "2")]);
+    DaemonHandle::wait_for_cache(&env, 10000);
+
+    cmd(&env).assert().success().stdout("✗ api-error");
 }
 
 // ── #41: エラーログ ───────────────────────────────────────────────────────────
@@ -89,6 +92,8 @@ fn test_gh_timeout() {
 fn test_error_log_written() {
     let env = TestEnv::with_error("HTTP 500: Internal Server Error", 1);
     let log_path = env.home().join(".cache/merge-ready/error.log");
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
 
     cmd(&env).assert().success();
 

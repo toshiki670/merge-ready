@@ -5,14 +5,12 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
-use crate::contexts::prompt::domain::branch_sync::{
-    BranchSync, BranchSyncRepository, BranchSyncStatus,
-};
-use crate::contexts::prompt::domain::ci_checks::{CheckBucket, CiChecks, CiChecksRepository};
+use crate::contexts::prompt::domain::branch_sync::{BranchSync, BranchSyncStatus};
+use crate::contexts::prompt::domain::ci_checks::{CheckBucket, CiChecks};
 use crate::contexts::prompt::domain::error::RepositoryError;
-use crate::contexts::prompt::domain::merge_ready::{MergeReadiness, MergeReadinessRepository};
-use crate::contexts::prompt::domain::pr_state::{PrLifecycle, PrStateRepository};
-use crate::contexts::prompt::domain::review::{Review, ReviewRepository, ReviewStatus};
+use crate::contexts::prompt::domain::merge_ready::MergeReadiness;
+use crate::contexts::prompt::domain::pr_state::PrLifecycle;
+use crate::contexts::prompt::domain::review::{Review, ReviewStatus};
 
 // ── gh コマンドの生 JSON 構造（infra 内にのみ存在）──────────────────────────
 
@@ -104,24 +102,26 @@ impl GhClient {
     }
 }
 
-impl PrStateRepository for GhClient {
-    fn fetch_lifecycle(&self) -> Result<PrLifecycle, RepositoryError> {
+impl GhClient {
+    /// # Errors
+    /// Returns `RepositoryError` if the PR lifecycle cannot be fetched.
+    pub fn fetch_lifecycle(&self) -> Result<PrLifecycle, RepositoryError> {
         let raw = self.pr_view_cached()?;
         Ok(translate_lifecycle(&raw.state))
     }
-}
 
-impl BranchSyncRepository for GhClient {
-    fn fetch_sync_status(&self) -> Result<BranchSync, RepositoryError> {
+    /// # Errors
+    /// Returns `RepositoryError` if the sync status cannot be fetched.
+    pub fn fetch_sync_status(&self) -> Result<BranchSync, RepositoryError> {
         let raw = self.pr_view_cached()?;
         let behind_by =
             fetch_behind_by(&raw.base_ref_name, &raw.head_ref_name, self.cwd.as_deref());
         Ok(BranchSync::new(translate_sync(&raw.mergeable, behind_by)))
     }
-}
 
-impl CiChecksRepository for GhClient {
-    fn fetch_checks(&self) -> Result<CiChecks, RepositoryError> {
+    /// # Errors
+    /// Returns `RepositoryError` if the CI checks cannot be fetched.
+    pub fn fetch_checks(&self) -> Result<CiChecks, RepositoryError> {
         let bytes = match self.run_gh(&["pr", "checks", "--json", "bucket,state"]) {
             Ok(b) => b,
             // CI が未設定のブランチではチェックなし（正常）として扱う
@@ -136,19 +136,19 @@ impl CiChecksRepository for GhClient {
             items.iter().map(|c| translate_bucket(&c.bucket)).collect(),
         ))
     }
-}
 
-impl ReviewRepository for GhClient {
-    fn fetch_review(&self) -> Result<Review, RepositoryError> {
+    /// # Errors
+    /// Returns `RepositoryError` if the review state cannot be fetched.
+    pub fn fetch_review(&self) -> Result<Review, RepositoryError> {
         let raw = self.pr_view_cached()?;
         Ok(Review::new(translate_review(
             raw.review_decision.as_deref(),
         )))
     }
-}
 
-impl MergeReadinessRepository for GhClient {
-    fn fetch_readiness(&self) -> Result<MergeReadiness, RepositoryError> {
+    /// # Errors
+    /// Returns `RepositoryError` if the merge readiness cannot be fetched.
+    pub fn fetch_readiness(&self) -> Result<MergeReadiness, RepositoryError> {
         let raw = self.pr_view_cached()?;
         Ok(translate_merge_readiness(
             raw.is_draft,

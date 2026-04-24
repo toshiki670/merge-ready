@@ -3,7 +3,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Subcommand};
 
-use crate::contexts::config::application::ConfigRepository;
+use crate::contexts::config::application::port::UpdateConfigPort;
 
 pub mod edit;
 pub mod update;
@@ -24,7 +24,7 @@ pub enum ConfigCommand {
 
 pub fn run(
     args: &ConfigArgs,
-    repo: &impl ConfigRepository,
+    port: &impl UpdateConfigPort,
     config_path: Option<&Path>,
 ) -> ExitCode {
     match args.subcommand {
@@ -42,7 +42,7 @@ pub fn run(
             ExitCode::SUCCESS
         }
         ConfigCommand::Update => {
-            if let Err(e) = update::run(repo) {
+            if let Err(e) = update::run(port) {
                 eprintln!("failed to update config: {e}");
                 return ExitCode::FAILURE;
             }

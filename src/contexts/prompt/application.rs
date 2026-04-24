@@ -2,29 +2,16 @@ mod branch_sync;
 mod ci_checks;
 pub mod errors;
 mod merge_ready;
+pub mod port;
 mod pr_state;
 pub mod prompt;
 mod review;
-
-pub trait BranchSyncRepository: super::domain::branch_sync::BranchSyncRepository {}
-impl<T> BranchSyncRepository for T where T: super::domain::branch_sync::BranchSyncRepository {}
-
-pub trait CiChecksRepository: super::domain::ci_checks::CiChecksRepository {}
-impl<T> CiChecksRepository for T where T: super::domain::ci_checks::CiChecksRepository {}
-
-pub trait MergeReadinessRepository: super::domain::merge_ready::MergeReadinessRepository {}
-impl<T> MergeReadinessRepository for T where T: super::domain::merge_ready::MergeReadinessRepository {}
-
-pub trait PrStateRepository: super::domain::pr_state::PrStateRepository {}
-impl<T> PrStateRepository for T where T: super::domain::pr_state::PrStateRepository {}
-
-pub trait ReviewRepository: super::domain::review::ReviewRepository {}
-impl<T> ReviewRepository for T where T: super::domain::review::ReviewRepository {}
 
 use crate::contexts::prompt::domain::policy::{PromptDecisionPolicy, PromptEvaluation};
 use crate::contexts::prompt::domain::pr_state::is_open;
 use crate::contexts::prompt::domain::signal::PromptSignal;
 use errors::{ErrorLogger, ErrorPresenter};
+use port::PromptStatusPort;
 
 /// アプリケーション層が返す出力トークンの意味オブジェクト
 ///
@@ -63,12 +50,7 @@ fn map_signal_to_output_token(signal: PromptSignal) -> OutputToken {
 /// スレッドがパニックした場合（内部エラー）。
 pub fn run<C, L, P>(client: &C, err_logger: &L, err_presenter: &P) -> Vec<OutputToken>
 where
-    C: PrStateRepository
-        + BranchSyncRepository
-        + CiChecksRepository
-        + ReviewRepository
-        + MergeReadinessRepository
-        + Sync,
+    C: PromptStatusPort + Sync,
     L: ErrorLogger + Sync,
     P: ErrorPresenter + Sync,
 {

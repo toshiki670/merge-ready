@@ -2,10 +2,7 @@ use std::sync::Mutex;
 
 use super::OutputToken;
 use super::errors::{ErrorLogger, ErrorPresenter, ErrorToken};
-use crate::contexts::prompt::domain::{
-    branch_sync::BranchSyncRepository, ci_checks::CiChecksRepository,
-    merge_ready::MergeReadinessRepository, pr_state::PrStateRepository, review::ReviewRepository,
-};
+use super::port::PromptStatusPort;
 
 /// gh を呼んで出力トークンとエラートークンを返す。
 ///
@@ -13,12 +10,7 @@ use crate::contexts::prompt::domain::{
 /// エラー発生時は `Option<ErrorToken>` に値が入り、daemon がキャッシュに書き込める。
 pub fn fetch_output<C, L>(client: &C, logger: &L) -> (Vec<OutputToken>, Option<ErrorToken>)
 where
-    C: PrStateRepository
-        + BranchSyncRepository
-        + CiChecksRepository
-        + ReviewRepository
-        + MergeReadinessRepository
-        + Sync,
+    C: PromptStatusPort + Sync,
     L: ErrorLogger + Sync,
 {
     struct CapturingPresenter(Mutex<Option<ErrorToken>>);

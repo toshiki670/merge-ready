@@ -4,10 +4,19 @@ use clap::CommandFactory;
 
 use crate::cli::{Cli, Command};
 use crate::contexts::config::application::config_service::ConfigService;
+use crate::contexts::config::application::port::{LoadConfigPort, UpdateConfigPort};
+use crate::contexts::config::domain::config::Config;
 use crate::contexts::config::infrastructure::toml_loader::TomlConfigRepository;
 use crate::contexts::daemon::application::cache as daemon_cache_app;
 use crate::contexts::daemon::infrastructure::daemon_client::{self as daemon_client, DaemonClient};
+use crate::contexts::prompt::application::port::PromptStatusPort;
 use crate::contexts::prompt::application::{OutputToken, errors::ErrorToken};
+use crate::contexts::prompt::domain::branch_sync::BranchSync;
+use crate::contexts::prompt::domain::ci_checks::CiChecks;
+use crate::contexts::prompt::domain::error::RepositoryError;
+use crate::contexts::prompt::domain::merge_ready::MergeReadiness;
+use crate::contexts::prompt::domain::pr_state::PrLifecycle;
+use crate::contexts::prompt::domain::review::Review;
 use crate::contexts::prompt::infrastructure::{gh::GhClient, logger::Logger};
 use crate::contexts::prompt::interface::presentation::Presenter;
 use crate::contexts::prompt::interface::{
@@ -15,11 +24,69 @@ use crate::contexts::prompt::interface::{
     presentation::PresentationConfigPort,
 };
 
+/// Bin-layer adapter that satisfies the config application ports by delegating
+/// to the TOML-backed infrastructure implementation.
+pub(crate) struct TomlConfigPortAdapter(TomlConfigRepository);
+
+impl TomlConfigPortAdapter {
+    pub(crate) const fn new() -> Self {
+        Self(TomlConfigRepository)
+    }
+}
+
+impl LoadConfigPort for TomlConfigPortAdapter {
+    fn load(&self) -> Config {
+        self.0.load()
+    }
+}
+
+impl UpdateConfigPort for TomlConfigPortAdapter {
+    fn load(&self) -> Config {
+        self.0.load()
+    }
+
+    fn save(&self, config: &Config) -> Result<(), std::io::Error> {
+        self.0.save(config)
+    }
+}
+
+/// Bin-layer adapter that satisfies `PromptStatusPort` by delegating to the
+/// gh-backed infrastructure implementation.
+pub(crate) struct GhPromptAdapter(GhClient);
+
+impl GhPromptAdapter {
+    pub(crate) fn new_in(cwd: std::path::PathBuf) -> Self {
+        Self(GhClient::new_in(cwd))
+    }
+}
+
+impl PromptStatusPort for GhPromptAdapter {
+    fn fetch_lifecycle(&self) -> Result<PrLifecycle, RepositoryError> {
+        self.0.fetch_lifecycle()
+    }
+
+    fn fetch_sync_status(&self) -> Result<BranchSync, RepositoryError> {
+        self.0.fetch_sync_status()
+    }
+
+    fn fetch_checks(&self) -> Result<CiChecks, RepositoryError> {
+        self.0.fetch_checks()
+    }
+
+    fn fetch_review(&self) -> Result<Review, RepositoryError> {
+        self.0.fetch_review()
+    }
+
+    fn fetch_readiness(&self) -> Result<MergeReadiness, RepositoryError> {
+        self.0.fetch_readiness()
+    }
+}
+
 pub(crate) struct ConfigAdapter(ConfigService);
 
 impl ConfigAdapter {
     pub(crate) fn load() -> Self {
-        Self(ConfigService::new(&TomlConfigRepository))
+        Self(ConfigService::new(&TomlConfigPortAdapter::new()))
     }
 }
 
@@ -58,7 +125,7 @@ pub fn run(cli: Cli) -> ExitCode {
             let config_path = crate::contexts::config::infrastructure::toml_loader::config_path();
             crate::contexts::config::interface::cli::run(
                 &args,
-                &TomlConfigRepository,
+                &TomlConfigPortAdapter::new(),
                 config_path.as_deref(),
             )
         }
@@ -70,7 +137,7 @@ pub fn run(cli: Cli) -> ExitCode {
                         let repo_id = repo_id.to_owned();
                         let (tokens, error) =
                             crate::contexts::prompt::application::prompt::fetch_output(
-                                &GhClient::new_in(cwd.to_path_buf()),
+                                &GhPromptAdapter::new_in(cwd.to_path_buf()),
                                 &Logger,
                             );
                         let config = ConfigAdapter::load();

@@ -4,11 +4,9 @@ pub fn run(repo_id: impl Fn() -> Option<String>, query: impl Fn(&str) -> Option<
 }
 
 fn run_with_writer(id: &str, query: impl Fn(&str) -> Option<String>, w: &mut impl std::io::Write) {
-    match query(id) {
-        Some(s) if !s.is_empty() => write!(w, "{s}").unwrap(),
-        Some(_) => {}
-        None => write!(w, "? loading").unwrap(),
-    }
+    // SPIKE: 常に stdout にエラーメッセージを出してプロンプトへの見え方を確認する
+    write!(w, "HTTP 500: Internal Server Error").unwrap();
+    let _ = (id, query);
 }
 
 #[cfg(test)]

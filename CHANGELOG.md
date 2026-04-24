@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-04-24
+### Features
+- [**BREAKING**] Remove --no-cache option from prompt subcommand ([#125](https://github.com/toshiki670/merge-ready/pull/125)) ([`a46d89d`](https://github.com/toshiki670/merge-ready/commit/a46d89db104945b1d11986407af02b4a332fcdf8))
+
+
 ## [0.2.1] - 2026-04-22
 ### Bug Fixes
 - Write error logs to merge-ready cache directory ([#115](https://github.com/toshiki670/merge-ready/pull/115)) ([`c344e30`](https://github.com/toshiki670/merge-ready/commit/c344e3003f845f08068dbe9ea6036c1ea093bbe4))

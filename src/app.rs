@@ -16,8 +16,8 @@ use crate::contexts::prompt::interface::{
 };
 
 impl crate::contexts::prompt::application::errors::ErrorLogger for Logger {
-    fn log(&self, msg: &str) {
-        crate::contexts::prompt::infrastructure::logger::append_error(msg);
+    fn log(&self, record: &crate::contexts::prompt::application::errors::LogRecord) {
+        crate::contexts::prompt::infrastructure::logger::append_log_record(record);
     }
 }
 

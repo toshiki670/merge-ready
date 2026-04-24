@@ -65,6 +65,7 @@ pub fn run(on_refresh: &RefreshFn) {
     let listener = match UnixListener::bind(&socket_path) {
         Ok(l) => l,
         Err(e) => {
+            log::error!("failed to bind socket: {e}");
             eprintln!("merge-ready daemon: failed to bind socket: {e}");
             std::process::exit(1);
         }
@@ -130,7 +131,10 @@ pub fn run(on_refresh: &RefreshFn) {
                 let on_refresh = Arc::clone(on_refresh);
                 std::thread::spawn(move || handle_client(s, &state, &on_refresh));
             }
-            Err(_) => break,
+            Err(e) => {
+                log::error!("listener error: {e}");
+                break;
+            }
         }
     }
 

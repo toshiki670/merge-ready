@@ -24,10 +24,6 @@ impl<C: PresentationConfigPort> Presenter<C> {
             .collect::<Vec<_>>()
             .join(" ")
     }
-
-    pub fn display(&self, tokens: &[OutputToken]) {
-        print!("{}", self.render_to_string(tokens));
-    }
 }
 
 impl<C: PresentationConfigPort> ErrorPresenter for Presenter<C> {

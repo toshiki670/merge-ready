@@ -7,9 +7,7 @@ use crate::contexts::config::application::config_service::ConfigService;
 use crate::contexts::config::infrastructure::toml_loader::TomlConfigRepository;
 use crate::contexts::daemon::application::cache as daemon_cache_app;
 use crate::contexts::daemon::infrastructure::daemon_client::{self as daemon_client, DaemonClient};
-use crate::contexts::prompt::application::{
-    OutputToken, errors::ErrorToken, prompt::ExecutionMode,
-};
+use crate::contexts::prompt::application::{OutputToken, errors::ErrorToken};
 use crate::contexts::prompt::infrastructure::{gh::GhClient, logger::Logger};
 use crate::contexts::prompt::interface::presentation::Presenter;
 use crate::contexts::prompt::interface::{
@@ -55,23 +53,13 @@ impl PresentationConfigPort for ConfigAdapter {
 
 pub fn run(cli: Cli) -> ExitCode {
     match cli.command {
-        Some(Command::Prompt(args)) => match prompt::resolve_mode(&args) {
-            ExecutionMode::Direct => {
-                crate::contexts::prompt::interface::cli::prompt::direct::run(
-                    &GhClient::new(),
-                    &Logger,
-                    ConfigAdapter::load(),
-                );
-                ExitCode::SUCCESS
-            }
-            ExecutionMode::Cached => {
-                prompt::cached::run(
-                    crate::contexts::prompt::infrastructure::repo_id::get,
-                    daemon_client::query_via_daemon,
-                );
-                ExitCode::SUCCESS
-            }
-        },
+        Some(Command::Prompt(_args)) => {
+            prompt::cached::run(
+                crate::contexts::prompt::infrastructure::repo_id::get,
+                daemon_client::query_via_daemon,
+            );
+            ExitCode::SUCCESS
+        }
         Some(Command::Config(args)) => {
             let config_path = crate::contexts::config::infrastructure::toml_loader::config_path();
             crate::contexts::config::interface::cli::run(

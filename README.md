@@ -34,12 +34,6 @@ Show merge status tokens for prompt integration:
 merge-ready prompt
 ```
 
-Bypass the daemon cache and fetch fresh state directly from `gh`:
-
-```bash
-merge-ready prompt --no-cache
-```
-
 Example output:
 
 ```text

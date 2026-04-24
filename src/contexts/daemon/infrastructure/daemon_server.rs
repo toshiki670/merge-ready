@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
+use std::process::ExitCode;
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -53,8 +55,8 @@ type RefreshFn = Arc<dyn Fn(&str, &std::path::Path) + Send + Sync + 'static>;
 /// デーモンのメインループ。ソケットをバインドして接続を待ち受ける。
 ///
 /// `on_refresh` はキャッシュ更新が必要になったときにスレッドで呼ばれる。
-/// この関数は正常には返らない（アイドルタイムアウトまたは Stop リクエストで exit する）。
-pub fn run(on_refresh: &RefreshFn) {
+/// アイドルタイムアウトまたは Stop リクエストで `ExitCode` を返す。
+pub fn run(on_refresh: &RefreshFn) -> ExitCode {
     let socket_path = paths::socket_path();
     if let Some(parent) = socket_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -67,7 +69,7 @@ pub fn run(on_refresh: &RefreshFn) {
         Err(e) => {
             log::error!("failed to bind socket: {e}");
             eprintln!("merge-ready daemon: failed to bind socket: {e}");
-            std::process::exit(1);
+            return ExitCode::FAILURE;
         }
     };
 
@@ -81,10 +83,12 @@ pub fn run(on_refresh: &RefreshFn) {
     }
 
     let state = Arc::new(Mutex::new(DaemonState::new()));
+    let (exit_tx, exit_rx) = mpsc::channel::<ExitCode>();
 
     // アイドルタイムアウト監視スレッド
     {
         let state = Arc::clone(&state);
+        let exit_tx = exit_tx.clone();
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_mins(1));
@@ -98,7 +102,8 @@ pub fn run(on_refresh: &RefreshFn) {
                 }
                 if idle >= IDLE_TIMEOUT_SECS {
                     cleanup();
-                    std::process::exit(0);
+                    let _ = exit_tx.send(ExitCode::SUCCESS);
+                    return;
                 }
             }
         });
@@ -124,12 +129,23 @@ pub fn run(on_refresh: &RefreshFn) {
         });
     }
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(s) => {
+    // non-blocking で accept し、終了シグナルを 10ms ごとにポーリングする
+    listener.set_nonblocking(true).ok();
+
+    loop {
+        if let Ok(code) = exit_rx.try_recv() {
+            return code;
+        }
+
+        match listener.accept() {
+            Ok((s, _)) => {
                 let state = Arc::clone(&state);
                 let on_refresh = Arc::clone(on_refresh);
-                std::thread::spawn(move || handle_client(s, &state, &on_refresh));
+                let exit_tx = exit_tx.clone();
+                std::thread::spawn(move || handle_client(s, &state, &on_refresh, &exit_tx));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(10));
             }
             Err(e) => {
                 log::error!("listener error: {e}");
@@ -139,12 +155,14 @@ pub fn run(on_refresh: &RefreshFn) {
     }
 
     cleanup();
+    ExitCode::SUCCESS
 }
 
 fn handle_client(
     mut stream: std::os::unix::net::UnixStream,
     state: &Arc<Mutex<DaemonState>>,
     on_refresh: &RefreshFn,
+    exit_tx: &mpsc::Sender<ExitCode>,
 ) {
     let mut buf = String::new();
     {
@@ -179,7 +197,7 @@ fn handle_client(
         cleanup();
         // レスポンスの書き込みが完了するまで少し待つ
         std::thread::sleep(Duration::from_millis(50));
-        std::process::exit(0);
+        let _ = exit_tx.send(ExitCode::SUCCESS);
     }
 }
 

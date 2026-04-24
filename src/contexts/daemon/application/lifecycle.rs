@@ -1,11 +1,13 @@
+use std::process::ExitCode;
+
 use crate::contexts::daemon::domain::daemon::{DaemonLifecyclePort, DaemonStatus};
 
 pub trait Port: DaemonLifecyclePort {}
 impl<T> Port for T where T: DaemonLifecyclePort {}
 
 /// デーモンを起動するユースケース
-pub fn start(port: &impl Port) {
-    port.start();
+pub fn start(port: &impl Port) -> ExitCode {
+    port.start()
 }
 
 /// デーモンを停止するユースケース。成功時は `true` を返す。

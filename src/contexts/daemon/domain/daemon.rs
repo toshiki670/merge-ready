@@ -1,3 +1,5 @@
+use std::process::ExitCode;
+
 /// デーモンのステータス情報
 pub struct DaemonStatus {
     pub pid: u32,
@@ -8,8 +10,8 @@ pub struct DaemonStatus {
 
 /// デーモンのライフサイクル管理ポート
 pub trait DaemonLifecyclePort {
-    /// デーモンを起動する。通常は返らない（`std::process::exit` で終了）。
-    fn start(&self);
+    /// デーモンを起動する。アイドルタイムアウトまたは Stop リクエストで返る。
+    fn start(&self) -> ExitCode;
     /// デーモンを停止する。成功時は `true` を返す。
     fn stop(&self) -> bool;
     /// デーモンのステータスを取得する。起動していない場合は `None` を返す。

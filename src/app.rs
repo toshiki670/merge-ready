@@ -15,12 +15,6 @@ use crate::contexts::prompt::interface::{
     presentation::PresentationConfigPort,
 };
 
-impl crate::contexts::prompt::application::errors::ErrorLogger for Logger {
-    fn log(&self, record: &crate::contexts::prompt::application::errors::LogRecord) {
-        crate::contexts::prompt::infrastructure::logger::append_log_record(record);
-    }
-}
-
 pub(crate) struct ConfigAdapter(ConfigService);
 
 impl ConfigAdapter {
@@ -69,6 +63,7 @@ pub fn run(cli: Cli) -> ExitCode {
             )
         }
         Some(Command::Daemon(args)) => {
+            crate::contexts::prompt::infrastructure::logger::init();
             let lifecycle =
                 crate::contexts::daemon::infrastructure::daemon_lifecycle::DaemonLifecycle::new(
                     |repo_id: &str, cwd: &std::path::Path| {

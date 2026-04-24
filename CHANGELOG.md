@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] - 2026-04-24
+### Bug Fixes
+- Migrate app-id to client-id in release-prepare workflow ([#130](https://github.com/toshiki670/merge-ready/pull/130)) ([`c2ad532`](https://github.com/toshiki670/merge-ready/commit/c2ad53239efeab4045f0729bb28e2f24bda8fcb3))
+### Features
+- ErrorCategory / LogRecord の導入と simplelog による構造化ロギング ([#133](https://github.com/toshiki670/merge-ready/pull/133)) ([`da5b8ab`](https://github.com/toshiki670/merge-ready/commit/da5b8ab90f8e86112d57c76fb5ed5f5444ccddf4))
+
+
 ## [0.3.0] - 2026-04-24
 ### Features
 - [**BREAKING**] Remove --no-cache option from prompt subcommand ([#125](https://github.com/toshiki670/merge-ready/pull/125)) ([`a46d89d`](https://github.com/toshiki670/merge-ready/commit/a46d89db104945b1d11986407af02b4a332fcdf8))

@@ -5,8 +5,8 @@ pub fn run(repo_id: impl Fn() -> Option<String>, query: impl Fn(&str) -> Option<
 
 fn run_with_writer(id: &str, query: impl Fn(&str) -> Option<String>, w: &mut impl std::io::Write) {
     // SPIKE: stdout と stderr 両方にエラーメッセージを出して見え方を比較する
-    write!(w, "HTTP 500: Internal Server Error").unwrap();
-    eprint!("HTTP 500: Internal Server Error");
+    write!(w, "[stdout] HTTP 500: Internal Server Error").unwrap();
+    eprint!("[stderr] HTTP 500: Internal Server Error");
     let _ = (id, query);
 }
 

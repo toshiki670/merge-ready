@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader, Read};
-use std::process::Stdio;
+use std::process::{ExitCode, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -26,7 +26,7 @@ pub struct DaemonArgs {
     pub subcommand: DaemonCommand,
 }
 
-pub fn run(subcommand: DaemonCommand, port: &impl Port) {
+pub fn run(subcommand: DaemonCommand, port: &impl Port) -> ExitCode {
     match subcommand {
         DaemonCommand::Start => start(port),
         DaemonCommand::Stop => stop(port),
@@ -44,14 +44,13 @@ pub fn run(subcommand: DaemonCommand, port: &impl Port) {
 // 欠点は setsid() を呼べないため SIGHUP を受ける可能性があること。
 // ただしプロンプト統合の用途では端末クローズ時にデーモンが終了しても
 // 次回 prompt 呼び出し時に lazy_start() が再起動するため実害はない。
-fn start(port: &impl Port) {
+fn start(port: &impl Port) -> ExitCode {
     if std::env::var(DAEMON_INNER_ENV).is_ok() {
-        lifecycle::start(port);
-        return;
+        return lifecycle::start(port);
     }
     let Ok(exe) = std::env::current_exe() else {
         eprintln!("merge-ready: failed to locate executable");
-        std::process::exit(1);
+        return ExitCode::FAILURE;
     };
     let mut child = match std::process::Command::new(exe)
         .args(["daemon", "start"])
@@ -66,14 +65,14 @@ fn start(port: &impl Port) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("merge-ready: failed to spawn daemon: {e}");
-            std::process::exit(1);
+            return ExitCode::FAILURE;
         }
     };
 
     let Some(stdout) = child.stdout.take() else {
         let _ = child.kill();
         eprintln!("merge-ready: failed to capture daemon stdout");
-        std::process::exit(1);
+        return ExitCode::FAILURE;
     };
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
@@ -96,34 +95,35 @@ fn start(port: &impl Port) {
                 }
             }
             let code = if status.success() {
-                1
+                1u8
             } else {
-                status.code().unwrap_or(1)
+                u8::try_from(status.code().unwrap_or(1)).unwrap_or(1)
             };
-            std::process::exit(code);
+            return ExitCode::from(code);
         }
         if matches!(rx.try_recv().ok().as_deref(), Some("ready\n")) {
             println!("daemon started");
-            return;
+            return ExitCode::SUCCESS;
         }
         if Instant::now() >= deadline {
             let _ = child.kill();
             eprintln!("merge-ready: daemon did not start within {START_TIMEOUT_SECS}s");
-            std::process::exit(1);
+            return ExitCode::FAILURE;
         }
         std::thread::sleep(Duration::from_millis(10));
     }
 }
 
-fn stop(port: &impl Port) {
+fn stop(port: &impl Port) -> ExitCode {
     if lifecycle::stop(port) {
         println!("daemon stopped");
     } else {
         eprintln!("daemon is not running");
     }
+    ExitCode::SUCCESS
 }
 
-fn status(port: &impl Port) {
+fn status(port: &impl Port) -> ExitCode {
     match lifecycle::get_status(port) {
         Some(s) => {
             println!(
@@ -133,4 +133,5 @@ fn status(port: &impl Port) {
         }
         None => println!("not running"),
     }
+    ExitCode::SUCCESS
 }

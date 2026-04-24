@@ -82,8 +82,7 @@ pub fn run(cli: Cli) -> ExitCode {
                         daemon_cache_app::update(&DaemonClient, &repo_id, &output);
                     },
                 );
-            crate::contexts::daemon::interface::cli::daemon::run(args.subcommand, &lifecycle);
-            ExitCode::SUCCESS
+            crate::contexts::daemon::interface::cli::daemon::run(args.subcommand, &lifecycle)
         }
         None => {
             let _ = Cli::command().print_help();

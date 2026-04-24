@@ -1,3 +1,4 @@
+use std::process::ExitCode;
 use std::sync::Arc;
 
 use crate::contexts::daemon::domain::daemon::{DaemonLifecyclePort, DaemonStatus};
@@ -19,16 +20,16 @@ impl DaemonLifecycle {
 }
 
 impl DaemonLifecyclePort for DaemonLifecycle {
-    fn start(&self) {
+    fn start(&self) -> ExitCode {
         if let Some(p) = pid::read() {
             if pid::is_alive(p) {
                 log::error!("daemon is already running (pid {p})");
                 eprintln!("merge-ready daemon is already running (pid {p})");
-                std::process::exit(1);
+                return ExitCode::FAILURE;
             }
             pid::remove();
         }
-        daemon_server::run(&self.on_refresh);
+        daemon_server::run(&self.on_refresh)
     }
 
     fn stop(&self) -> bool {

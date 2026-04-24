@@ -16,7 +16,9 @@ impl Review {
     pub fn signal(&self) -> Option<PromptSignal> {
         match self.status {
             ReviewStatus::ChangesRequested => Some(PromptSignal::ReviewRequested),
-            ReviewStatus::Other => None,
+            ReviewStatus::Approved | ReviewStatus::ReviewRequired | ReviewStatus::NoDecision => {
+                None
+            }
         }
     }
 }

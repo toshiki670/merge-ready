@@ -3,7 +3,8 @@ use super::error::RepositoryError;
 /// PR のライフサイクル状態（外部コマンドの文字列表現に非依存）
 pub enum PrLifecycle {
     Open,
-    NotOpen,
+    Merged,
+    Closed,
 }
 
 #[must_use]

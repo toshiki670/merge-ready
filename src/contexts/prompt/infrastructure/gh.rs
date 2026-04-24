@@ -160,10 +160,10 @@ impl MergeReadinessRepository for GhClient {
 // ── 翻訳関数（gh 固有文字列 → domain enum）──────────────────────────────────
 
 fn translate_lifecycle(state: &str) -> PrLifecycle {
-    if state == "OPEN" {
-        PrLifecycle::Open
-    } else {
-        PrLifecycle::NotOpen
+    match state {
+        "OPEN" => PrLifecycle::Open,
+        "MERGED" => PrLifecycle::Merged,
+        _ => PrLifecycle::Closed,
     }
 }
 
@@ -207,10 +207,11 @@ fn fetch_behind_by(base_ref: &str, head_ref: &str, cwd: Option<&std::path::Path>
 }
 
 fn translate_review(decision: Option<&str>) -> ReviewStatus {
-    if decision == Some("CHANGES_REQUESTED") {
-        ReviewStatus::ChangesRequested
-    } else {
-        ReviewStatus::Other
+    match decision {
+        Some("CHANGES_REQUESTED") => ReviewStatus::ChangesRequested,
+        Some("APPROVED") => ReviewStatus::Approved,
+        Some("REVIEW_REQUIRED") => ReviewStatus::ReviewRequired,
+        _ => ReviewStatus::NoDecision,
     }
 }
 

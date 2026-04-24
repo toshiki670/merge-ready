@@ -1,5 +1,7 @@
 /// レビュー決定状態
 pub enum ReviewStatus {
     ChangesRequested,
-    Other,
+    Approved,
+    ReviewRequired,
+    NoDecision,
 }

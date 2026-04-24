@@ -47,7 +47,7 @@ mod tests {
         let signals = PromptDecisionPolicy::evaluate(&PromptEvaluation {
             branch_sync: &BranchSync::new(super::super::branch_sync::BranchSyncStatus::Clean),
             ci_checks: &CiChecks::new(vec![super::super::ci_checks::CheckBucket::Other]),
-            review: &Review::new(super::super::review::ReviewStatus::Other),
+            review: &Review::new(super::super::review::ReviewStatus::Approved),
             readiness: &MergeReadiness {
                 is_draft: false,
                 is_protected: true,

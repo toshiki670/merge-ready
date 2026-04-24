@@ -46,7 +46,7 @@ impl PresentationConfigPort for ConfigAdapter {
         match token {
             ErrorToken::AuthRequired => self.0.render_auth_required(),
             ErrorToken::RateLimited => self.0.render_rate_limited(),
-            ErrorToken::ApiError => self.0.render_api_error(),
+            ErrorToken::ApiError(msg) => msg,
         }
     }
 }

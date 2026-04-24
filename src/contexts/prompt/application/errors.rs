@@ -7,14 +7,14 @@ pub trait ErrorLogger {
 /// エラー時に表示するトークンの意味オブジェクト
 ///
 /// 文字列表現への変換は presentation 層が担う。
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub enum ErrorToken {
     /// 認証が必要（ツール未インストール含む）
     AuthRequired,
     /// レート制限によりアクセス不可
     RateLimited,
-    /// 予期しない API エラー
-    ApiError,
+    /// 予期しない API エラー（raw メッセージを保持）
+    ApiError(String),
 }
 
 /// エラーをユーザーに表示するポート
@@ -39,7 +39,7 @@ pub fn handle(
         }
         RepositoryError::Unexpected(msg) => {
             err_logger.log(&msg);
-            err_presenter.show_error(ErrorToken::ApiError);
+            err_presenter.show_error(ErrorToken::ApiError(msg));
         }
     }
 }

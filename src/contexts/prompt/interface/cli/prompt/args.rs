@@ -10,8 +10,4 @@ pub const AFTER_HELP: &str = "Output tokens:
   ? sync-unknown   Branch sync status unknown";
 
 #[derive(Args)]
-pub struct PromptArgs {
-    /// Bypass daemon and fetch fresh data directly from gh
-    #[arg(long)]
-    pub no_cache: bool,
-}
+pub struct PromptArgs {}

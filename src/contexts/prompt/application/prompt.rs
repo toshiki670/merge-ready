@@ -7,14 +7,6 @@ use crate::contexts::prompt::domain::{
     merge_ready::MergeReadinessRepository, pr_state::PrStateRepository, review::ReviewRepository,
 };
 
-/// プロンプト表示の実行モード
-pub enum ExecutionMode {
-    /// キャッシュを使わず gh を直接呼ぶ
-    Direct,
-    /// daemon 経由でキャッシュを参照する
-    Cached,
-}
-
 /// gh を呼んで出力トークンとエラートークンを返す。
 ///
 /// `daemon refresh` 処理用。エラーは stderr に出力せず内部で捕捉する。

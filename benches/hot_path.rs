@@ -160,29 +160,5 @@ fn bench_cache_hit(c: &mut Criterion) {
     });
 }
 
-/// キャッシュなし直接実行パスのベンチマーク（フェイク gh 使用）
-///
-/// `prompt --no-cache` で gh を直接呼ぶフローを計測する。
-/// ネットワーク遅延はないが、プロセス起動 + JSON パース + ロジックのコストが含まれる。
-fn bench_no_cache_direct(c: &mut Criterion) {
-    let env = setup_bench_env();
-    let bin = binary_path();
-    let path = path_env(&env);
-    let tmpdir = env.tmp_dir.path().to_owned();
-    let repo_dir = env.repo_dir.path().to_owned();
-
-    c.bench_function("no_cache_direct", |b| {
-        b.iter(|| {
-            Command::new(&bin)
-                .env("PATH", &path)
-                .env("TMPDIR", &tmpdir)
-                .current_dir(&repo_dir)
-                .args(["prompt", "--no-cache"])
-                .output()
-                .expect("merge-ready failed")
-        });
-    });
-}
-
-criterion_group!(benches, bench_cache_hit, bench_no_cache_direct);
+criterion_group!(benches, bench_cache_hit);
 criterion_main!(benches);

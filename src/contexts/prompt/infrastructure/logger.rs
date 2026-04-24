@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use simplelog::{Config, LevelFilter, WriteLogger};
 
-use crate::contexts::prompt::application::errors::{ErrorCategory, LogRecord};
+use crate::contexts::prompt::domain::error::{ErrorCategory, LogRecord};
 
 pub struct Logger;
 

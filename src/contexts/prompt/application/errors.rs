@@ -1,10 +1,10 @@
-use crate::contexts::prompt::domain::error::RepositoryError;
+use crate::contexts::prompt::domain::error::{ErrorCategory, LogRecord, RepositoryError};
 
 pub trait ErrorLogger {
-    fn log(&self, msg: &str);
+    fn log(&self, record: &LogRecord);
 }
 
-/// エラー時に表示するトークンの意味オブジェクト
+/// エラー時に表示するトークンの意味オブジェクト（検知パス）
 ///
 /// 文字列表現への変換は presentation 層が担う。
 #[derive(Clone, Copy)]
@@ -34,11 +34,17 @@ pub fn handle(
         }
         RepositoryError::NotFound => {}
         RepositoryError::RateLimited => {
-            err_logger.log("rate limit");
+            err_logger.log(&LogRecord {
+                category: ErrorCategory::RateLimit,
+                detail: None,
+            });
             err_presenter.show_error(ErrorToken::RateLimited);
         }
         RepositoryError::Unexpected(msg) => {
-            err_logger.log(&msg);
+            err_logger.log(&LogRecord {
+                category: ErrorCategory::Unknown,
+                detail: Some(msg),
+            });
             err_presenter.show_error(ErrorToken::ApiError);
         }
     }

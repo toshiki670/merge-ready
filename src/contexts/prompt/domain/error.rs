@@ -11,3 +11,19 @@ pub enum RepositoryError {
     /// 上記に当てはまらない予期しないエラー
     Unexpected(String),
 }
+
+/// ログ記録のためのエラーカテゴリ（原因調査パス）
+#[allow(dead_code)]
+pub enum ErrorCategory {
+    Auth,
+    RateLimit,
+    Timeout,
+    Unknown,
+}
+
+/// ログに記録する構造化エントリ（原因調査パス）
+pub struct LogRecord {
+    pub category: ErrorCategory,
+    /// `Unknown` 系のみ raw メッセージを保持する
+    pub detail: Option<String>,
+}

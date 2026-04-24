@@ -1,21 +1,41 @@
-use std::fs::{self, OpenOptions};
-use std::io::Write as _;
+use std::fs::OpenOptions;
+use std::path::PathBuf;
+
+use simplelog::{Config, LevelFilter, WriteLogger};
+
+use crate::contexts::prompt::domain::error::{ErrorCategory, LogRecord};
 
 pub struct Logger;
 
-/// `$HOME/.cache/merge-ready/error.log` にエラーメッセージを追記する。
-///
-/// ディレクトリが存在しない場合は自動的に作成する。
-/// 書き込み失敗は静かに握り潰す（`stderr` には何も出力しない）。
-pub fn append_error(message: &str) {
-    let Some(home) = std::env::var_os("HOME") else {
+/// デーモン起動時に一度だけ呼ぶ。
+/// `$HOME/.cache/merge-ready/error.log` への追記ロガーを初期化する。
+/// 失敗は静かに無視する（ログが書けなくてもデーモンは止まらない）。
+pub fn init() {
+    let Some(path) = log_path() else { return };
+    let Ok(file) = OpenOptions::new().create(true).append(true).open(path) else {
         return;
     };
-    let log_dir = std::path::Path::new(&home).join(".cache/merge-ready");
-    let _ = fs::create_dir_all(&log_dir);
-    let log_path = log_dir.join("error.log");
-    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) else {
-        return;
-    };
-    let _ = writeln!(file, "{message}");
+    let _ = WriteLogger::init(LevelFilter::Error, Config::default(), file);
+}
+
+fn log_path() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    let dir = std::path::Path::new(&home).join(".cache/merge-ready");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join("error.log"))
+}
+
+impl crate::contexts::prompt::application::errors::ErrorLogger for Logger {
+    fn log(&self, record: &LogRecord) {
+        let category = match record.category {
+            ErrorCategory::Auth => "Auth",
+            ErrorCategory::RateLimit => "RateLimit",
+            ErrorCategory::Timeout => "Timeout",
+            ErrorCategory::Unknown => "Unknown",
+        };
+        match &record.detail {
+            Some(detail) => log::error!("[{category}] {detail}"),
+            None => log::error!("[{category}]"),
+        }
+    }
 }

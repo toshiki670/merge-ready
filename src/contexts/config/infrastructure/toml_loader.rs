@@ -4,10 +4,9 @@ use crate::contexts::config::domain::config::Config;
 
 pub struct TomlConfigRepository;
 
+// `&self` is retained so the bin-layer adapter can delegate through an instance.
+#[allow(clippy::unused_self)]
 impl TomlConfigRepository {
-    // `&self` is retained for call-site symmetry with future stateful variants
-    // and for the bin-layer adapter that delegates through an instance.
-    #[allow(clippy::unused_self)]
     pub fn load(&self) -> Config {
         let Some(path) = config_path() else {
             return Config::default();
@@ -20,7 +19,6 @@ impl TomlConfigRepository {
 
     /// # Errors
     /// Returns `io::Error` when the config path is unavailable or write fails.
-    #[allow(clippy::unused_self)]
     pub fn save(&self, config: &Config) -> Result<(), std::io::Error> {
         let path = config_path().ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::NotFound, "config path not found")

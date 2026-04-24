@@ -41,10 +41,6 @@ impl LoadConfigPort for TomlConfigPortAdapter {
 }
 
 impl UpdateConfigPort for TomlConfigPortAdapter {
-    fn load(&self) -> Config {
-        self.0.load()
-    }
-
     fn save(&self, config: &Config) -> Result<(), std::io::Error> {
         self.0.save(config)
     }

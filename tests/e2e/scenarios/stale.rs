@@ -2,6 +2,8 @@
 //!
 //! TTL 超過 → stale 値を返す + 裏でリフレッシュ → 次回は新鮮な値
 
+const PROMPT_BIN: &str = "merge-ready-prompt";
+
 use assert_cmd::Command;
 use predicates::prelude::*;
 
@@ -17,7 +19,7 @@ fn test_daemon_stale_returns_output() {
     let _daemon = DaemonHandle::start_with_env(&env, &[("MERGE_READY_STALE_TTL", "0")]);
 
     // 初回: キャッシュミス → ? loading
-    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
@@ -27,7 +29,7 @@ fn test_daemon_stale_returns_output() {
     DaemonHandle::wait_for_cache(&env, 5000);
 
     // TTL=0 なので stale だが、それでも値を返すこと（`? loading` に戻らない）
-    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout(predicate::str::contains("✓"));
 }

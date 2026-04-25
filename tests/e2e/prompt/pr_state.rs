@@ -3,6 +3,8 @@
 //! `OPEN` 以外の PR 状態、および PR が存在しない場合は何も出力しない。
 //! 実行フローは daemon 経由（`merge-ready prompt`）に統一する。
 
+const PROMPT_BIN: &str = "merge-ready-prompt";
+
 use assert_cmd::Command;
 use rstest::rstest;
 
@@ -15,7 +17,7 @@ fn assert_prompt_empty(env: &TestEnv) {
     let _daemon = DaemonHandle::start(env);
     DaemonHandle::wait_for_cache(env, 5000);
 
-    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout("").stderr("");
 }

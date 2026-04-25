@@ -5,13 +5,15 @@
 //! 各テストは独立した `TestEnv`（`bin_dir` + `home_dir`）を持つため、
 //! 並列実行時に `error.log` が競合しない。
 
+const PROMPT_BIN: &str = "merge-ready-prompt";
+
 use assert_cmd::Command;
 use rstest::rstest;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
 
 fn cmd(env: &TestEnv) -> Command {
-    let mut c = Command::cargo_bin("merge-ready-prompt").unwrap();
+    let mut c = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut c);
     c
 }

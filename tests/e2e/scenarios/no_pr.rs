@@ -3,6 +3,8 @@
 //! #4: PR なしブランチ → loading → キャッシュ確定後に空出力（`? loading` が永続しない）
 //! #5: PR なし + TTL=0 + リフレッシュ遅延 → stale 中も `? loading` に戻らず空出力維持
 
+const PROMPT_BIN: &str = "merge-ready-prompt";
+
 use assert_cmd::Command;
 use predicates::prelude::*;
 
@@ -15,7 +17,7 @@ fn test_daemon_no_pr_shows_nothing_after_refresh() {
     let _daemon = DaemonHandle::start(&env);
 
     // 初回クエリ: キャッシュミス → ? loading
-    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
@@ -25,7 +27,7 @@ fn test_daemon_no_pr_shows_nothing_after_refresh() {
     DaemonHandle::wait_for_cache(&env, 5000);
 
     // キャッシュ確定後は何も出力しない（? loading が永続しないことを確認）
-    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout(predicate::str::is_empty());
 }
@@ -37,7 +39,7 @@ fn test_daemon_no_pr_stale_while_refreshing_keeps_empty_output() {
     let _daemon = DaemonHandle::start_with_env(&env, &[("MERGE_READY_STALE_TTL", "0")]);
 
     // 初回クエリ: キャッシュミス → loading
-    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
@@ -47,13 +49,13 @@ fn test_daemon_no_pr_stale_while_refreshing_keeps_empty_output() {
     DaemonHandle::wait_for_cache(&env, 5000);
 
     // stale 1回目: リフレッシュ開始しつつ空出力
-    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout(predicate::str::is_empty());
 
     // stale 2回目以降（refresh 実行中を狙う）: loading に戻らず空出力を維持
     for _ in 0..5 {
-        let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
+        let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
         env.apply_with_cache(&mut cmd);
         cmd.assert().success().stdout(predicate::str::is_empty());
         std::thread::sleep(std::time::Duration::from_millis(50));

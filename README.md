@@ -114,38 +114,47 @@ label = "merge-ready"
 [conflict]
 symbol = "✗"
 label = "conflict"
+# format = "$symbol $label"
 
 [update_branch]
 symbol = "✗"
 label = "update-branch"
+# format = "$symbol $label"
 
 [sync_unknown]
 symbol = "?"
 label = "sync-unknown"
+# format = "$symbol $label"
 
 [ci_fail]
 symbol = "✗"
 label = "ci-fail"
+# format = "$symbol $label"
 
 [ci_action]
 symbol = "⚠"
 label = "ci-action"
+# format = "$symbol $label"
 
 [review]
 symbol = "⚠"
 label = "review"
+# format = "$symbol $label"
 
 [error.auth_required]
 symbol = "!"
 label = "gh auth login"
+# format = "$symbol $label"
 
 [error.rate_limited]
 symbol = "✗"
 label = "rate-limited"
+# format = "$symbol $label"
 
 [error.api_error]
 symbol = "✗"
 label = "api-error"
+# format = "$symbol $label"
 ```
 
 Each token supports three optional fields:

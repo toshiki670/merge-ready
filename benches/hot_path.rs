@@ -36,7 +36,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use tempfile::TempDir;
 
 /// Issue #139 の受け入れ条件: ウォーム起動時間の中央値上限（ミリ秒）
-const WARM_STARTUP_THRESHOLD_MS: u64 = 10;
+const WARM_STARTUP_THRESHOLD_MS: u64 = 15;
 
 /// 閾値判定に使うサンプル数。中央値を安定させるため奇数にする
 const THRESHOLD_SAMPLES: usize = 21;

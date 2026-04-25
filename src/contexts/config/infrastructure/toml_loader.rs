@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
+use crate::contexts::config::application::port::{LoadConfigPort, UpdateConfigPort};
 use crate::contexts::config::domain::config::Config;
 
 pub struct TomlConfigRepository;
 
-// `&self` is retained so the bin-layer adapter can delegate through an instance.
 #[allow(clippy::unused_self)]
-impl TomlConfigRepository {
-    pub fn load(&self) -> Config {
+impl LoadConfigPort for TomlConfigRepository {
+    fn load(&self) -> Config {
         let Some(path) = config_path() else {
             return Config::default();
         };
@@ -16,10 +16,13 @@ impl TomlConfigRepository {
         };
         toml::from_str(&content).unwrap_or_default()
     }
+}
 
+#[allow(clippy::unused_self)]
+impl UpdateConfigPort for TomlConfigRepository {
     /// # Errors
     /// Returns `io::Error` when the config path is unavailable or write fails.
-    pub fn save(&self, config: &Config) -> Result<(), std::io::Error> {
+    fn save(&self, config: &Config) -> Result<(), std::io::Error> {
         let path = config_path().ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::NotFound, "config path not found")
         })?;

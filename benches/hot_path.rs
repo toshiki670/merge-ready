@@ -17,14 +17,15 @@
 //!   - キャッシュ投入（セットアップ段階で完了させる）
 //!   - `merge-ready` 本体（GH API 呼び出し等）の処理時間
 //!
-//! **合否基準**: 平均 ≤ 10 ms（#139 受け入れ条件）
+//! **合否基準**: [`THRESHOLD_SAMPLES`] サンプルの中央値 ≤ [`WARM_STARTUP_THRESHOLD_MS`] ms（#139 受け入れ条件）
+//!   中央値を使うことで、OS スケジューラや GC による外れ値に左右されない判定を行う。
 //!   CI では `cargo bench --bench hot_path -- --test` を実行して
 //!   コンパイル・動作確認のみ行い、基準値チェックはローカルで行う。
 //!
 //! ## 使用方法
 //!
 //! ```sh
-//! # ベンチマーク計測（ローカル）
+//! # ベンチマーク計測 + 閾値チェック（ローカル）
 //! cargo bench --bench hot_path
 //!
 //! # 動作確認のみ（CI 用）
@@ -38,6 +39,18 @@ use std::process::Command;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use tempfile::TempDir;
+
+/// Issue #139 の受け入れ条件: ウォーム起動時間の中央値上限（ミリ秒）
+///
+/// Linux はプロセス生成コストが低いため厳しい基準を設定する。
+/// macOS は SIP/Gatekeeper によるオーバーヘッドがあるため緩い基準とする。
+#[cfg(target_os = "linux")]
+const WARM_STARTUP_THRESHOLD_MS: u64 = 10;
+#[cfg(not(target_os = "linux"))]
+const WARM_STARTUP_THRESHOLD_MS: u64 = 15;
+
+/// 閾値判定に使うサンプル数。中央値を安定させるため奇数にする
+const THRESHOLD_SAMPLES: usize = 21;
 
 struct BenchEnv {
     bin_dir: TempDir,
@@ -176,7 +189,38 @@ fn setup_bench_env() -> BenchEnv {
     env
 }
 
-/// ウォーム起動時間のベンチマーク（合否基準: 平均 ≤ 10 ms）
+/// [`THRESHOLD_SAMPLES`] サンプルの中央値が [`WARM_STARTUP_THRESHOLD_MS`] ms 以下であることを検証する。
+///
+/// 中央値を使うことで、OS スケジューラや GC による一時的な外れ値が判定を歪めない。
+fn assert_warm_startup_threshold(env: &BenchEnv) {
+    let prompt_bin = binary_path("merge-ready-prompt");
+    let path = path_env(env);
+    let tmpdir = env.tmp_dir.path().to_owned();
+    let repo_dir = env.repo_dir.path().to_owned();
+
+    let mut times: Vec<u128> = (0..THRESHOLD_SAMPLES)
+        .map(|_| {
+            let start = std::time::Instant::now();
+            Command::new(&prompt_bin)
+                .env("PATH", &path)
+                .env("TMPDIR", &tmpdir)
+                .current_dir(&repo_dir)
+                .output()
+                .expect("merge-ready-prompt failed");
+            start.elapsed().as_millis()
+        })
+        .collect();
+
+    times.sort_unstable();
+    let median = times[THRESHOLD_SAMPLES / 2];
+
+    assert!(
+        median <= u128::from(WARM_STARTUP_THRESHOLD_MS),
+        "中央値 {median}ms が閾値 {WARM_STARTUP_THRESHOLD_MS}ms を超えています\nsamples: {times:?}"
+    );
+}
+
+/// ウォーム起動時間のベンチマーク（合否基準: 中央値 ≤ [`WARM_STARTUP_THRESHOLD_MS`] ms）
 ///
 /// daemon 起動済み・キャッシュウォーム状態での `merge-ready-prompt` の
 /// プロセス生成〜stdout 出力完了までを計測する。
@@ -184,6 +228,9 @@ fn setup_bench_env() -> BenchEnv {
 /// 計測ループには `merge-ready-prompt` の実行時間のみが含まれる。
 fn bench_prompt_warm_startup(c: &mut Criterion) {
     let env = setup_bench_env();
+
+    assert_warm_startup_threshold(&env);
+
     let prompt_bin = binary_path("merge-ready-prompt");
     let path = path_env(&env);
     let tmpdir = env.tmp_dir.path().to_owned();

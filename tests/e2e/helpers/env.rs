@@ -284,13 +284,14 @@ impl TestEnv {
         cmd.current_dir(self.repo_dir.path());
     }
 
-    /// `Command` に環境変数を設定し `prompt` サブコマンドを追加する（daemon 経由・キャッシュ有効）。
+    /// `Command` に環境変数を設定する（`merge-ready-prompt` バイナリ用）。
+    ///
+    /// 呼び出し元は `Command::cargo_bin("merge-ready-prompt")` で作成したコマンドを渡す。
     pub fn apply_with_cache(&self, cmd: &mut assert_cmd::Command) {
         cmd.env("PATH", self.path_env());
         cmd.env("HOME", self.home());
         cmd.env("TMPDIR", self.home());
         cmd.current_dir(self.repo_dir.path());
-        cmd.arg("prompt");
     }
 
     /// `~/.config/merge-ready.toml` に TOML 設定を書き込む。

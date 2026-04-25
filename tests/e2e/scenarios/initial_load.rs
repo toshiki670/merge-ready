@@ -8,6 +8,7 @@ use predicates::prelude::*;
 use super::super::helpers::{DaemonHandle, TestEnv};
 
 const BIN: &str = "merge-ready";
+const PROMPT_BIN: &str = "merge-ready-prompt";
 const OPEN_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
 const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
 
@@ -17,7 +18,7 @@ fn test_initial_load_then_shows_result() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
 
     // daemon なし → ? loading（バックグラウンドで daemon が自動起動される）
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
@@ -27,7 +28,7 @@ fn test_initial_load_then_shows_result() {
     DaemonHandle::wait_for_cache(&env, 5000);
 
     // キャッシュヒット → 実際の結果を返す
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
@@ -48,7 +49,7 @@ fn test_daemon_miss_shows_loading() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
     let _daemon = DaemonHandle::start(&env);
 
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()

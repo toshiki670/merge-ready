@@ -5,35 +5,25 @@ use clap::CommandFactory;
 use crate::adapters::ConfigAdapter;
 use crate::cli::{Cli, Command};
 use crate::contexts::daemon::application::cache as daemon_cache_app;
-use crate::contexts::daemon::infrastructure::daemon_client::{self as daemon_client, DaemonClient};
-use crate::contexts::prompt::infrastructure::{gh::GhClient, logger::Logger};
-use crate::contexts::prompt::interface::presentation::Presenter;
-use crate::contexts::prompt::interface::{
-    cli::prompt::{self},
-    presentation::PresentationConfigPort,
-};
+use crate::contexts::daemon::infrastructure::daemon_client::DaemonClient;
+use crate::contexts::evaluation::infrastructure::{gh::GhClient, logger::Logger};
+use crate::contexts::evaluation::interface::presentation::{PresentationConfigPort, Presenter};
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn run(cli: Cli) -> ExitCode {
     match cli.command {
-        Some(Command::Prompt(_args)) => {
-            prompt::cached::run(
-                crate::contexts::prompt::infrastructure::repo_id::get,
-                daemon_client::query_via_daemon,
-            );
-            ExitCode::SUCCESS
-        }
         Some(Command::Config) => {
             let config_path = crate::contexts::config::infrastructure::toml_loader::config_path();
             crate::contexts::config::interface::cli::run(config_path.as_deref())
         }
         Some(Command::Daemon(args)) => {
-            crate::contexts::prompt::infrastructure::logger::init();
+            crate::contexts::evaluation::infrastructure::logger::init();
             let lifecycle =
                 crate::contexts::daemon::infrastructure::daemon_lifecycle::DaemonLifecycle::new(
                     |repo_id: &str, cwd: &std::path::Path| {
                         let repo_id = repo_id.to_owned();
                         let (tokens, error) =
-                            crate::contexts::prompt::application::prompt::fetch_output(
+                            crate::contexts::evaluation::application::prompt::fetch_output(
                                 &GhClient::new_in(cwd.to_path_buf()),
                                 &Logger,
                             );

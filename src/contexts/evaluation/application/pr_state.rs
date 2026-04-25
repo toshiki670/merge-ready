@@ -1,5 +1,5 @@
 use super::errors::{ErrorLogger, ErrorPresenter};
-use crate::contexts::prompt::domain::pr_state::{PrLifecycle, PrStateRepository};
+use crate::contexts::evaluation::domain::pr_state::{PrLifecycle, PrStateRepository};
 
 /// ライフサイクル状態を取得する。失敗時は `None` を返してエラー出力する。
 pub fn fetch(

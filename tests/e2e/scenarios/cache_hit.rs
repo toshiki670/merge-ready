@@ -1,13 +1,13 @@
 //! キャッシュライフサイクル シナリオ #2: キャッシュヒット
 //!
-//! daemon + キャッシュ済み → `prompt` が即座に結果を返す
+//! daemon + キャッシュ済み → `merge-ready-prompt` が即座に結果を返す
 
 use assert_cmd::Command;
 use predicates::prelude::*;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
 
-const BIN: &str = "merge-ready";
+const PROMPT_BIN: &str = "merge-ready-prompt";
 const OPEN_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
 const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
 
@@ -18,7 +18,7 @@ fn test_daemon_fresh_returns_cached_output() {
     let _daemon = DaemonHandle::start(&env);
 
     // 初回: キャッシュミス → daemon が内部でリフレッシュを実行
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
@@ -29,12 +29,11 @@ fn test_daemon_fresh_returns_cached_output() {
 
     // 壊れた gh を使っても daemon キャッシュからヒットすること
     let broken_env = TestEnv::with_error("gh is broken", 1);
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     cmd.env("PATH", broken_env.path_env());
     cmd.env("HOME", env.home());
     cmd.env("TMPDIR", env.home());
     cmd.current_dir(env.repo_dir.path());
-    cmd.arg("prompt");
     cmd.assert()
         .success()
         .stdout(predicate::str::diff("✓ merge-ready"));

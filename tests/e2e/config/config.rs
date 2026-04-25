@@ -15,13 +15,14 @@ const CHECKS_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS"}]"#;
 const CONFLICT_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","reviewDecision":"APPROVED"}"#;
 
 const BIN: &str = "merge-ready";
+const PROMPT_BIN: &str = "merge-ready-prompt";
 
 /// 設定を書いて daemon を起動し、キャッシュが温まった後の `prompt` 出力を検証する。
 fn assert_prompt_with_config(env: &TestEnv, expected: &str) {
     let _daemon = DaemonHandle::start(env);
     DaemonHandle::wait_for_cache(env, 5000);
 
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
@@ -79,33 +80,18 @@ fn test_xdg_config_home_is_used() {
     )
     .expect("write config");
 
-    // daemon を XDG_CONFIG_HOME を上書きして起動する
-    let bin = assert_cmd::cargo::cargo_bin(BIN);
-    let child = std::process::Command::new(&bin)
-        .args(["daemon", "start"])
-        .env("PATH", env.path_env())
-        .env("HOME", env.home())
-        .env("TMPDIR", env.home())
-        .env("XDG_CONFIG_HOME", xdg_dir.path())
-        .current_dir(env.repo_dir.path())
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("daemon spawn");
+    // start_with_env はソケット出現を確認してから返るため、
+    // prompt が spawn_daemon() を呼んで XDG なし daemon を起動する競合が発生しない。
+    let _daemon = DaemonHandle::start_with_env(
+        &env,
+        &[("XDG_CONFIG_HOME", xdg_dir.path().to_str().unwrap())],
+    );
 
     DaemonHandle::wait_for_cache(&env, 5000);
 
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout("★ merge-ready").stderr("");
-
-    // 後始末
-    let _ = std::process::Command::new(&bin)
-        .args(["daemon", "stop"])
-        .env("TMPDIR", env.home())
-        .output();
-    drop(child);
 }
 
 /// #50: `XDG_CONFIG_HOME` と `HOME` 両方ある → `XDG_CONFIG_HOME` が優先される
@@ -125,31 +111,16 @@ fn test_xdg_config_home_takes_precedence_over_home() {
     )
     .expect("write xdg config");
 
-    let bin = assert_cmd::cargo::cargo_bin(BIN);
-    let child = std::process::Command::new(&bin)
-        .args(["daemon", "start"])
-        .env("PATH", env.path_env())
-        .env("HOME", env.home())
-        .env("TMPDIR", env.home())
-        .env("XDG_CONFIG_HOME", xdg_dir.path())
-        .current_dir(env.repo_dir.path())
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("daemon spawn");
+    let _daemon = DaemonHandle::start_with_env(
+        &env,
+        &[("XDG_CONFIG_HOME", xdg_dir.path().to_str().unwrap())],
+    );
 
     DaemonHandle::wait_for_cache(&env, 5000);
 
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout("★ merge-ready").stderr("");
-
-    let _ = std::process::Command::new(&bin)
-        .args(["daemon", "stop"])
-        .env("TMPDIR", env.home())
-        .output();
-    drop(child);
 }
 
 // ── #51–58: config ────────────────────────────────────────────────────────────

@@ -5,14 +5,14 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
-use crate::contexts::prompt::domain::branch_sync::{
+use crate::contexts::evaluation::domain::branch_sync::{
     BranchSync, BranchSyncRepository, BranchSyncStatus,
 };
-use crate::contexts::prompt::domain::ci_checks::{CheckBucket, CiChecks, CiChecksRepository};
-use crate::contexts::prompt::domain::error::RepositoryError;
-use crate::contexts::prompt::domain::merge_ready::{MergeReadiness, MergeReadinessRepository};
-use crate::contexts::prompt::domain::pr_state::{PrLifecycle, PrStateRepository};
-use crate::contexts::prompt::domain::review::{Review, ReviewRepository, ReviewStatus};
+use crate::contexts::evaluation::domain::ci_checks::{CheckBucket, CiChecks, CiChecksRepository};
+use crate::contexts::evaluation::domain::error::RepositoryError;
+use crate::contexts::evaluation::domain::merge_ready::{MergeReadiness, MergeReadinessRepository};
+use crate::contexts::evaluation::domain::pr_state::{PrLifecycle, PrStateRepository};
+use crate::contexts::evaluation::domain::review::{Review, ReviewRepository, ReviewStatus};
 
 // ── gh コマンドの生 JSON 構造（infra 内にのみ存在）──────────────────────────
 

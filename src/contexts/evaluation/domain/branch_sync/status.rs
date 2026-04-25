@@ -1,4 +1,4 @@
-use crate::contexts::prompt::domain::signal::PromptSignal;
+use crate::contexts::evaluation::domain::signal::PromptSignal;
 
 /// ブランチとベースブランチの同期状態
 pub enum BranchSyncStatus {

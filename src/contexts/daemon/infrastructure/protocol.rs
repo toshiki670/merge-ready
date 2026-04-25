@@ -4,8 +4,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Request {
-    Query { repo_id: String, cwd: String },
-    Update { repo_id: String, output: String },
+    /// `merge-ready-prompt` から送られるクエリ。`cwd` から daemon が `repo_id` を導出する。
+    Query {
+        cwd: String,
+        client_version: String,
+    },
+    /// バックグラウンドワーカーがキャッシュを更新するときに送るリクエスト。
+    /// `gh` CLI で取得した PR 評価結果（`output`）を daemon のインメモリキャッシュに書き込む。
+    Update {
+        repo_id: String,
+        output: String,
+    },
     Stop,
     Status,
 }
@@ -14,13 +23,11 @@ pub enum Request {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "tag", rename_all = "snake_case")]
 pub enum Response {
-    Fresh {
+    /// Query に対する応答。Fresh/Stale/Miss をすべて output 文字列に統合する。
+    /// Miss または初回ロード中は "? loading"、PR なしは ""。
+    Output {
         output: String,
     },
-    Stale {
-        output: String,
-    },
-    Miss,
     Ok,
     Status {
         pid: u32,

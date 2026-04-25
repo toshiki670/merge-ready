@@ -3,11 +3,11 @@
 //! 対象条件: `reviewDecision == CHANGES_REQUESTED` → `⚠ review`
 //! 実行フローは daemon 経由（`merge-ready prompt`）に統一する。
 
+const PROMPT_BIN: &str = "merge-ready-prompt";
+
 use assert_cmd::Command;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
-
-const BIN: &str = "merge-ready";
 
 /// #30: `reviewDecision == CHANGES_REQUESTED` → `⚠ review`
 #[test]
@@ -19,7 +19,7 @@ fn test_review_changes_requested() {
     let _daemon = DaemonHandle::start(&env);
     DaemonHandle::wait_for_cache(&env, 5000);
 
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout("⚠ review").stderr("");
 }

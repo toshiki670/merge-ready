@@ -89,19 +89,18 @@ impl MultiRepoEnv {
         panic!("daemon did not start within 2000ms");
     }
 
-    /// `repo_dir` の `prompt` 出力が `"? loading"` でなくなるまで最大 `max_ms` ms 待つ。
+    /// `repo_dir` の prompt 出力が `"? loading"` でなくなるまで最大 `max_ms` ms 待つ。
     pub fn wait_for_cache_in(&self, repo_dir: &TempDir, max_ms: u64) {
-        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
+        let bin = assert_cmd::cargo::cargo_bin("merge-ready-prompt");
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
         loop {
             let out = std::process::Command::new(&bin)
-                .arg("prompt")
                 .env("PATH", self.path_env())
                 .env("HOME", self.home())
                 .env("TMPDIR", self.home())
                 .current_dir(repo_dir.path())
                 .output()
-                .expect("prompt failed");
+                .expect("merge-ready-prompt failed");
             let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
             if stdout != "? loading" {
                 return;
@@ -114,17 +113,16 @@ impl MultiRepoEnv {
         }
     }
 
-    /// `repo_dir` から `prompt` を実行してその出力を返す。
+    /// `repo_dir` から `merge-ready-prompt` を実行してその出力を返す。
     pub fn prompt_output(&self, repo_dir: &TempDir) -> String {
-        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
+        let bin = assert_cmd::cargo::cargo_bin("merge-ready-prompt");
         let out = std::process::Command::new(&bin)
-            .arg("prompt")
             .env("PATH", self.path_env())
             .env("HOME", self.home())
             .env("TMPDIR", self.home())
             .current_dir(repo_dir.path())
             .output()
-            .expect("prompt failed");
+            .expect("merge-ready-prompt failed");
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
 }

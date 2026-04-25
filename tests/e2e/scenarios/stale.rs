@@ -7,7 +7,6 @@ use predicates::prelude::*;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
 
-const BIN: &str = "merge-ready";
 const OPEN_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
 const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
 
@@ -18,7 +17,7 @@ fn test_daemon_stale_returns_output() {
     let _daemon = DaemonHandle::start_with_env(&env, &[("MERGE_READY_STALE_TTL", "0")]);
 
     // 初回: キャッシュミス → ? loading
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
@@ -28,7 +27,7 @@ fn test_daemon_stale_returns_output() {
     DaemonHandle::wait_for_cache(&env, 5000);
 
     // TTL=0 なので stale だが、それでも値を返すこと（`? loading` に戻らない）
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout(predicate::str::contains("✓"));
 }

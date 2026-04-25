@@ -55,6 +55,31 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Check layer dependency rules
         run: bash scripts/check-layer-deps.sh
+      - name: Check protocol.rs has no external deps
+        run: bash scripts/check-protocol-deps.sh
+
+  check-prompt-binary:
+    name: check-prompt-binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: "ci"
+      - name: Build merge-ready-prompt
+        run: cargo build --release --bin merge-ready-prompt
+      - name: Verify merge-ready-prompt has no external crate symbols
+        run: |
+          # Check that external crate symbols (serde, clap, toml, simplelog) are not linked
+          if nm target/release/merge-ready-prompt 2>/dev/null | grep -qiE "serde|clap|simplelog|toml_edit"; then
+            echo "ERROR: merge-ready-prompt links external crate symbols" >&2
+            nm target/release/merge-ready-prompt | grep -iE "serde|clap|simplelog|toml_edit" | head -20 >&2
+            exit 1
+          fi
+          echo "OK: merge-ready-prompt has no external crate symbols"
 
   deny:
     name: deny

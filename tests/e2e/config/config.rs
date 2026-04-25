@@ -21,7 +21,7 @@ fn assert_prompt_with_config(env: &TestEnv, expected: &str) {
     let _daemon = DaemonHandle::start(env);
     DaemonHandle::wait_for_cache(env, 5000);
 
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
@@ -96,7 +96,7 @@ fn test_xdg_config_home_is_used() {
 
     DaemonHandle::wait_for_cache(&env, 5000);
 
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout("★ merge-ready").stderr("");
 
@@ -141,7 +141,7 @@ fn test_xdg_config_home_takes_precedence_over_home() {
 
     DaemonHandle::wait_for_cache(&env, 5000);
 
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout("★ merge-ready").stderr("");
 

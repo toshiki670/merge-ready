@@ -25,6 +25,14 @@ serde_json = "1.0.149"
 simplelog = "0.12"
 toml = "1.1.2"
 
+[[bin]]
+name = "merge-ready"
+path = "src/main.rs"
+
+[[bin]]
+name = "merge-ready-prompt"
+path = "src/bin/prompt.rs"
+
 [[test]]
 name = "e2e"
 path = "tests/e2e/mod.rs"

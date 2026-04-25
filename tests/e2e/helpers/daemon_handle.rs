@@ -65,17 +65,16 @@ impl DaemonHandle {
 
     /// キャッシュに有効な値が入るまで最大 `max_ms` ミリ秒ポーリングする。
     pub fn wait_for_cache(env: &TestEnv, max_ms: u64) {
-        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
+        let bin = assert_cmd::cargo::cargo_bin("merge-ready-prompt");
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
         loop {
             let out = std::process::Command::new(&bin)
-                .arg("prompt")
                 .env("PATH", env.path_env())
                 .env("HOME", env.home())
                 .env("TMPDIR", env.home())
                 .current_dir(env.repo_dir.path())
                 .output()
-                .expect("prompt failed");
+                .expect("merge-ready-prompt failed");
             let stdout = String::from_utf8_lossy(&out.stdout);
             if stdout != "? loading" {
                 return;
@@ -102,7 +101,7 @@ impl Drop for DaemonHandle {
 
 /// version 不一致を再現するための簡易 fake daemon。
 ///
-/// `Status` には指定 version を返し、`Stop` 受信で終了する。
+/// `Status` には指定 version を返し、`Query` の version 不一致時には新 daemon を spawn して終了する。
 pub struct FakeDaemonHandle {
     join: Option<std::thread::JoinHandle<()>>,
     socket_path: std::path::PathBuf,
@@ -120,6 +119,8 @@ impl FakeDaemonHandle {
         let listener = UnixListener::bind(&socket_path).expect("bind fake daemon socket");
         let version = version.to_owned();
         let socket_path_for_thread = socket_path.clone();
+        let tmpdir = env.home().to_path_buf();
+        let path_env = env.path_env();
         let join = std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else {
@@ -142,8 +143,33 @@ impl FakeDaemonHandle {
                 } else if line.contains("\"action\":\"stop\"") {
                     let _ = stream.write_all(b"{\"tag\":\"ok\"}\n");
                     break;
+                } else if line.contains("\"action\":\"query\"") {
+                    // Query に対して "? loading" を返す
+                    let _ = stream.write_all(b"{\"tag\":\"output\",\"output\":\"? loading\"}\n");
+                    drop(stream);
+
+                    // クライアントのバージョンが自身と異なる場合は自己再起動をシミュレート
+                    let client_version =
+                        extract_client_version_from_query(&line).unwrap_or_default();
+                    if client_version != version {
+                        // 新 daemon を起動（実際の daemon の自己再起動をシミュレート）
+                        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
+                        let _ = std::process::Command::new(&bin)
+                            .args(["daemon", "start"])
+                            .env("TMPDIR", &tmpdir)
+                            .env("HOME", &tmpdir)
+                            .env("PATH", &path_env)
+                            .stdin(std::process::Stdio::null())
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .spawn();
+                        // socket を解放して新 daemon が bind できるようにする
+                        let _ = fs::remove_file(&socket_path_for_thread);
+                        return;
+                    }
+                    continue;
                 } else {
-                    let _ = stream.write_all(b"{\"tag\":\"miss\"}\n");
+                    let _ = stream.write_all(b"{\"tag\":\"output\",\"output\":\"? loading\"}\n");
                 }
             }
             let _ = fs::remove_file(&socket_path_for_thread);
@@ -154,6 +180,15 @@ impl FakeDaemonHandle {
             socket_path,
         }
     }
+}
+
+/// JSON 行から client_version フィールドを簡易抽出する。
+fn extract_client_version_from_query(line: &str) -> Option<String> {
+    let key = "\"client_version\":\"";
+    let pos = line.find(key)?;
+    let rest = &line[pos + key.len()..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_owned())
 }
 
 impl Drop for FakeDaemonHandle {

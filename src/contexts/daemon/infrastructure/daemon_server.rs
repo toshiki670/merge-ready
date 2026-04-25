@@ -10,11 +10,18 @@ use std::time::{Duration, Instant};
 use super::paths;
 use super::pid;
 use super::protocol::{Request, Response};
+use super::repo_id;
 
 const DEFAULT_STALE_TTL_SECS: u64 = 5;
 const IDLE_TIMEOUT_SECS: u64 = 30 * 60;
 const DEFAULT_BACKGROUND_REFRESH_SECS: u64 = 180;
 const DEFAULT_REFRESH_LOCK_TIMEOUT_SECS: u64 = 120;
+/// version mismatch 後の自己再起動までの待機時間 (ms)
+const RESTART_GRACE_MS: u64 = 30;
+/// EADDRINUSE 時の bind リトライ間隔
+const BIND_RETRY_INTERVAL_MS: u64 = 100;
+/// bind リトライ最大回数（合計 1 秒）
+const BIND_RETRY_MAX: usize = 10;
 
 struct CacheEntry {
     output: String,
@@ -48,6 +55,8 @@ struct ActionResult {
     refresh_repo_id: Option<String>,
     refresh_cwd: Option<PathBuf>,
     stop: bool,
+    /// レスポンス返却後に自己再起動する（version mismatch 時）
+    restart_after_response: bool,
 }
 
 type RefreshFn = Arc<dyn Fn(&str, &std::path::Path) + Send + Sync + 'static>;
@@ -61,16 +70,10 @@ pub fn run(on_refresh: &RefreshFn) -> ExitCode {
     if let Some(parent) = socket_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    // 前回の残留ソケットを除去してからバインド
-    let _ = std::fs::remove_file(&socket_path);
 
-    let listener = match UnixListener::bind(&socket_path) {
+    let listener = match bind_socket(&socket_path) {
         Ok(l) => l,
-        Err(e) => {
-            log::error!("failed to bind socket: {e}");
-            eprintln!("merge-ready daemon: failed to bind socket: {e}");
-            return ExitCode::FAILURE;
-        }
+        Err(code) => return code,
     };
 
     pid::write(std::process::id());
@@ -158,6 +161,42 @@ pub fn run(on_refresh: &RefreshFn) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn bind_socket(socket_path: &std::path::Path) -> Result<UnixListener, ExitCode> {
+    // PID ファイルを確認し、生きている daemon が居れば起動しない
+    match pid::read() {
+        Some(p) if pid::is_alive(p) => {
+            log::error!("daemon is already running (pid {p})");
+            eprintln!("merge-ready daemon is already running (pid {p})");
+            return Err(ExitCode::FAILURE);
+        }
+        _ => {
+            // stale PID または未起動 → socket を安全に削除
+            let _ = std::fs::remove_file(socket_path);
+        }
+    }
+
+    // EADDRINUSE 時は別プロセスが先に bind した → リトライ (version mismatch 再起動レース対策)
+    let mut retries = 0;
+    loop {
+        match UnixListener::bind(socket_path) {
+            Ok(l) => return Ok(l),
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                if retries >= BIND_RETRY_MAX {
+                    log::error!("socket already in use after retries, giving up");
+                    return Err(ExitCode::SUCCESS);
+                }
+                retries += 1;
+                std::thread::sleep(Duration::from_millis(BIND_RETRY_INTERVAL_MS));
+            }
+            Err(e) => {
+                log::error!("failed to bind socket: {e}");
+                eprintln!("merge-ready daemon: failed to bind socket: {e}");
+                return Err(ExitCode::FAILURE);
+            }
+        }
+    }
+}
+
 fn handle_client(
     mut stream: std::os::unix::net::UnixStream,
     state: &Arc<Mutex<DaemonState>>,
@@ -182,6 +221,7 @@ fn handle_client(
         refresh_repo_id,
         refresh_cwd,
         stop,
+        restart_after_response,
     } = process(&request, state);
 
     if let Ok(json) = serde_json::to_string(&response) {
@@ -193,12 +233,33 @@ fn handle_client(
         spawn_refresh(&repo_id, &cwd, on_refresh);
     }
 
+    if restart_after_response {
+        // レスポンスが届く時間を確保してから自己再起動する
+        std::thread::sleep(Duration::from_millis(RESTART_GRACE_MS));
+        cleanup();
+        spawn_self_as_daemon();
+        let _ = exit_tx.send(ExitCode::SUCCESS);
+        return;
+    }
+
     if stop {
         cleanup();
         // レスポンスの書き込みが完了するまで少し待つ
         std::thread::sleep(Duration::from_millis(50));
         let _ = exit_tx.send(ExitCode::SUCCESS);
     }
+}
+
+fn spawn_self_as_daemon() {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let _ = std::process::Command::new(&exe)
+        .args(["daemon", "start"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
 }
 
 fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
@@ -209,56 +270,28 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
     s.last_activity = Instant::now();
 
     match request {
-        Request::Query { repo_id, cwd } => {
-            let cwd_path = PathBuf::from(cwd);
-            match s.entries.get(repo_id) {
-                Some(entry) if entry.fetched_at.elapsed().as_secs() <= ttl => ActionResult {
-                    response: Response::Fresh {
-                        output: entry.output.clone(),
+        Request::Query {
+            cwd,
+            client_version,
+        } => {
+            let version_mismatch = client_version.as_str() != env!("CARGO_PKG_VERSION");
+
+            // repo_id を daemon 側で導出する
+            let Some(repo_id) = repo_id::repo_id_from_cwd(cwd) else {
+                // git リポジトリ外 → 空文字を返す (PR なし扱い)
+                return ActionResult {
+                    response: Response::Output {
+                        output: String::new(),
                     },
                     refresh_repo_id: None,
                     refresh_cwd: None,
                     stop: false,
-                },
-                Some(entry) => {
-                    let output = entry.output.clone();
-                    let has_fetched = entry.has_fetched;
-                    let stored_cwd = entry.cwd.clone();
-                    let need_refresh = !entry.refreshing;
-                    let refreshing_now = entry.refreshing;
-                    process_stale_query(
-                        repo_id,
-                        output,
-                        has_fetched,
-                        stored_cwd,
-                        need_refresh,
-                        refreshing_now,
-                        &mut s.entries,
-                    )
-                }
-                None => {
-                    let past = Instant::now()
-                        .checked_sub(Duration::from_secs(ttl.saturating_add(1)))
-                        .unwrap_or_else(Instant::now);
-                    s.entries.insert(
-                        repo_id.clone(),
-                        CacheEntry {
-                            output: String::new(),
-                            has_fetched: false,
-                            fetched_at: past,
-                            refreshing: true,
-                            refresh_started_at: Some(Instant::now()),
-                            cwd: cwd_path.clone(),
-                        },
-                    );
-                    ActionResult {
-                        response: Response::Miss,
-                        refresh_repo_id: Some(repo_id.clone()),
-                        refresh_cwd: Some(cwd_path),
-                        stop: false,
-                    }
-                }
-            }
+                    restart_after_response: version_mismatch,
+                };
+            };
+
+            let cwd_path = PathBuf::from(cwd);
+            process_query(&repo_id, cwd_path, ttl, version_mismatch, &mut s.entries)
         }
         Request::Update { repo_id, output } => process_update(repo_id, output, &mut s.entries),
         Request::Stop => ActionResult {
@@ -266,6 +299,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
             refresh_repo_id: None,
             refresh_cwd: None,
             stop: true,
+            restart_after_response: false,
         },
         Request::Status => {
             let uptime_secs = s.started_at.elapsed().as_secs();
@@ -280,6 +314,76 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
                 refresh_repo_id: None,
                 refresh_cwd: None,
                 stop: false,
+                restart_after_response: false,
+            }
+        }
+    }
+}
+
+fn process_query(
+    repo_id: &str,
+    cwd_path: PathBuf,
+    ttl: u64,
+    restart_after_response: bool,
+    entries: &mut HashMap<String, CacheEntry>,
+) -> ActionResult {
+    match entries.get(repo_id) {
+        Some(entry) if entry.fetched_at.elapsed().as_secs() <= ttl => {
+            // Fresh キャッシュ
+            ActionResult {
+                response: Response::Output {
+                    output: entry.output.clone(),
+                },
+                refresh_repo_id: None,
+                refresh_cwd: None,
+                stop: false,
+                restart_after_response,
+            }
+        }
+        Some(entry) => {
+            // Stale または Miss（TTL 超過 or 空出力中）
+            let output = entry.output.clone();
+            let has_fetched = entry.has_fetched;
+            let stored_cwd = entry.cwd.clone();
+            let need_refresh = !entry.refreshing;
+            let refreshing_now = entry.refreshing;
+            process_stale_query(
+                repo_id,
+                StaleQueryParams {
+                    output,
+                    has_fetched,
+                    stored_cwd,
+                    need_refresh,
+                    refreshing_now,
+                    restart_after_response,
+                },
+                entries,
+            )
+        }
+        None => {
+            // 初回 Miss → エントリを作成してリフレッシュ予約
+            let past = Instant::now()
+                .checked_sub(Duration::from_secs(ttl.saturating_add(1)))
+                .unwrap_or_else(Instant::now);
+            entries.insert(
+                repo_id.to_owned(),
+                CacheEntry {
+                    output: String::new(),
+                    has_fetched: false,
+                    fetched_at: past,
+                    refreshing: true,
+                    refresh_started_at: Some(Instant::now()),
+                    cwd: cwd_path.clone(),
+                },
+            );
+            ActionResult {
+                response: Response::Output {
+                    output: "? loading".to_owned(),
+                },
+                refresh_repo_id: Some(repo_id.to_owned()),
+                refresh_cwd: Some(cwd_path),
+                stop: false,
+                restart_after_response,
             }
         }
     }
@@ -323,36 +427,54 @@ fn mark_refreshing(entry: &mut CacheEntry) {
     entry.refresh_started_at = Some(Instant::now());
 }
 
-// no-PR cache is a valid empty output. Keep returning empty output while scheduling background
-// refresh, but still show loading for initial placeholder entries that are currently being refreshed.
-fn process_stale_query(
-    repo_id: &str,
+#[allow(clippy::struct_excessive_bools)]
+struct StaleQueryParams {
     output: String,
     has_fetched: bool,
     stored_cwd: PathBuf,
     need_refresh: bool,
     refreshing_now: bool,
+    restart_after_response: bool,
+}
+
+// no-PR cache is a valid empty output. Keep returning empty output while scheduling background
+// refresh, but still show loading for initial placeholder entries that are currently being refreshed.
+fn process_stale_query(
+    repo_id: &str,
+    params: StaleQueryParams,
     entries: &mut HashMap<String, CacheEntry>,
 ) -> ActionResult {
+    let StaleQueryParams {
+        output,
+        has_fetched,
+        stored_cwd,
+        need_refresh,
+        refreshing_now,
+        restart_after_response,
+    } = params;
     if output.is_empty() {
         if refreshing_now && !has_fetched {
             return ActionResult {
-                response: Response::Miss,
+                response: Response::Output {
+                    output: "? loading".to_owned(),
+                },
                 refresh_repo_id: None,
                 refresh_cwd: None,
                 stop: false,
+                restart_after_response,
             };
         }
         if need_refresh {
             mark_refreshing(entries.get_mut(repo_id).expect("entry exists"));
         }
         return ActionResult {
-            response: Response::Fresh {
+            response: Response::Output {
                 output: String::new(),
             },
             refresh_repo_id: need_refresh.then(|| repo_id.to_owned()),
             refresh_cwd: need_refresh.then_some(stored_cwd),
             stop: false,
+            restart_after_response,
         };
     }
 
@@ -360,16 +482,15 @@ fn process_stale_query(
         mark_refreshing(entries.get_mut(repo_id).expect("entry exists"));
     }
     ActionResult {
-        response: Response::Stale { output },
+        response: Response::Output { output },
         refresh_repo_id: need_refresh.then(|| repo_id.to_owned()),
         refresh_cwd: need_refresh.then_some(stored_cwd),
         stop: false,
+        restart_after_response,
     }
 }
 
 fn is_active_entry(entry: &CacheEntry) -> bool {
-    // no-PR entries are intentionally treated as inactive so they do not keep
-    // the daemon alive forever. They can be re-created on the next prompt.
     !entry.output.is_empty()
 }
 
@@ -408,6 +529,7 @@ fn process_update(
         refresh_repo_id: None,
         refresh_cwd: None,
         stop: false,
+        restart_after_response: false,
     }
 }
 

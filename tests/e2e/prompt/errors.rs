@@ -10,10 +10,8 @@ use rstest::rstest;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
 
-const BIN: &str = "merge-ready";
-
 fn cmd(env: &TestEnv) -> Command {
-    let mut c = Command::cargo_bin(BIN).unwrap();
+    let mut c = Command::cargo_bin("merge-ready-prompt").unwrap();
     env.apply_with_cache(&mut c);
     c
 }

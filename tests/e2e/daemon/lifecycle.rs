@@ -8,6 +8,7 @@ use predicates::prelude::*;
 use super::super::helpers::{DaemonHandle, FakeDaemonHandle, TestEnv};
 
 const BIN: &str = "merge-ready";
+const PROMPT_BIN: &str = "merge-ready-prompt";
 
 const OPEN_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
 const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
@@ -143,11 +144,12 @@ fn test_daemon_status_not_running() {
 
 // ── #14: バージョン不一致 ────────────────────────────────────────────────────
 
-/// #14: バージョン不一致の旧 daemon が存在する状態で `prompt` → 自動再起動後に現バージョンの daemon が応答する
+/// #14: バージョン不一致の旧 daemon が存在する状態で `merge-ready-prompt` を実行すると
+/// 旧 daemon がレスポンス返却後に自己再起動し、最終的に現バージョンの daemon が応答する
 #[test]
 fn test_prompt_restarts_daemon_on_version_mismatch() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
-    let _old = FakeDaemonHandle::start_versioned(&env, "0.0.0");
+    let old = FakeDaemonHandle::start_versioned(&env, "0.0.0");
 
     // 古い daemon が応答することを確認
     let mut before = Command::cargo_bin(BIN).unwrap();
@@ -158,12 +160,38 @@ fn test_prompt_restarts_daemon_on_version_mismatch() {
         .success()
         .stdout(predicate::str::contains("version=0.0.0"));
 
-    // prompt 実行で version mismatch を検知し、自動再起動する
-    let mut prompt = Command::cargo_bin(BIN).unwrap();
+    // merge-ready-prompt を実行すると version mismatch を検知し、
+    // fake daemon が新 daemon を spawn して自己シャットダウンする
+    let mut prompt = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut prompt);
-    prompt.assert().success();
+    prompt.assert().success(); // "? loading" が返る
 
-    // 再起動後は実バージョンが返る
+    // fake daemon がシャットダウンするのを待つ
+    drop(old);
+
+    // 新 daemon が起動するまでポーリング（最大 5 秒）
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(5000);
+    loop {
+        let out = Command::cargo_bin(BIN)
+            .unwrap()
+            .args(["daemon", "status"])
+            .env("PATH", env.path_env())
+            .env("HOME", env.home())
+            .env("TMPDIR", env.home())
+            .output()
+            .expect("status failed");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        if stdout.contains(&format!("version={}", env!("CARGO_PKG_VERSION"))) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "new daemon did not start within 5s: {stdout}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    // 現バージョンの daemon が応答しており、旧バージョンではないこと
     let mut after = Command::cargo_bin(BIN).unwrap();
     env.apply(&mut after);
     after
@@ -175,4 +203,12 @@ fn test_prompt_restarts_daemon_on_version_mismatch() {
             env!("CARGO_PKG_VERSION")
         )))
         .stdout(predicate::str::contains("version=0.0.0").not());
+
+    // クリーンアップ
+    Command::cargo_bin(BIN)
+        .unwrap()
+        .args(["daemon", "stop"])
+        .env("TMPDIR", env.home())
+        .output()
+        .ok();
 }

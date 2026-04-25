@@ -4,7 +4,6 @@
 
 use assert_cmd::Command;
 use predicates::prelude::PredicateBooleanExt;
-use rstest::rstest;
 
 use super::super::helpers::TestEnv;
 
@@ -33,8 +32,8 @@ fn test_default_no_args_shows_help() {
 
 // ── #65–67: トップレベルヘルプ ────────────────────────────────────────────────
 
-/// #65 `help` / #66 `--help` / #67 `-h` → "Usage:" を含む・"Output tokens:" を含まない
-#[rstest]
+/// #65 `help` / #66 `--help` / #67 `-h` → "Usage:" を含み "prompt" サブコマンドを含まない
+#[rstest::rstest]
 #[case::help_subcommand("help")]
 #[case::help_long("--help")]
 #[case::help_short("-h")]
@@ -45,23 +44,8 @@ fn test_top_level_help(#[case] arg: &str) {
         .assert()
         .success()
         .stdout(predicates::str::contains("Usage:"))
-        .stdout(predicates::str::contains("Output tokens:").not());
-}
-
-// ── #68–70: prompt サブコマンドのヘルプ ──────────────────────────────────────
-
-/// #68 `help prompt` / #69 `prompt --help` / #70 `prompt -h` → "Output tokens:" を含む
-#[rstest]
-#[case::help_prompt("help", "prompt")]
-#[case::prompt_help_long("prompt", "--help")]
-#[case::prompt_help_short("prompt", "-h")]
-fn test_prompt_help(#[case] arg1: &str, #[case] arg2: &str) {
-    let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));
-    cmd(&env)
-        .args([arg1, arg2])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("Output tokens:"));
+        // "prompt" サブコマンドが Commands セクションに表示されないことを確認
+        .stdout(predicates::str::contains("  prompt").not());
 }
 
 // ── #71: バージョン ───────────────────────────────────────────────────────────

@@ -9,8 +9,6 @@ use rstest::rstest;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
 
-const BIN: &str = "merge-ready";
-
 const BLOCKED_NO_REVIEW: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":null}"#;
 const BLOCKED_CHANGES_REQUESTED: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"CHANGES_REQUESTED"}"#;
 const APPROVED_CLEAN: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}"#;
@@ -24,7 +22,7 @@ fn assert_prompt(env: &TestEnv, expected: &str) {
     let _daemon = DaemonHandle::start(env);
     DaemonHandle::wait_for_cache(env, 5000);
 
-    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()

@@ -1,6 +1,5 @@
 use clap::{Parser, Subcommand};
 
-use crate::contexts::config::interface::cli::ConfigArgs;
 use crate::contexts::daemon::interface::cli::DaemonArgs;
 use crate::contexts::prompt::interface::cli::prompt::{AFTER_HELP, PromptArgs};
 
@@ -20,8 +19,8 @@ pub enum Command {
     /// Show PR merge status for your shell prompt
     #[command(after_help = AFTER_HELP)]
     Prompt(PromptArgs),
-    /// Manage the configuration file
-    Config(ConfigArgs),
+    /// Open the configuration file in an editor (creates it with defaults if absent)
+    Config,
     /// Manage the background cache daemon
     Daemon(DaemonArgs),
 }

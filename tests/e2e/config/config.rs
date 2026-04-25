@@ -1,9 +1,8 @@
-//! 設定ファイル（`~/.config/merge-ready.toml`）の E2E テスト（シナリオ #42–63）
+//! 設定ファイル（`~/.config/merge-ready.toml`）の E2E テスト（シナリオ #42–58）
 //!
 //! - #42–50: symbol / label / format のカスタマイズ、XDG_CONFIG_HOME の優先度
 //!   → prompt テストは daemon 経由フローで検証する
-//! - #51–58: `config edit` サブコマンド
-//! - #59–63: `config update` サブコマンド
+//! - #51–58: `config` コマンド（エディタ起動）
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -153,7 +152,7 @@ fn test_xdg_config_home_takes_precedence_over_home() {
     drop(child);
 }
 
-// ── #51–58: config edit ───────────────────────────────────────────────────────
+// ── #51–58: config ────────────────────────────────────────────────────────────
 
 /// #51: `$VISUAL` が設定されている場合、`$VISUAL` がファイルパスを引数として呼ばれる
 #[test]
@@ -166,7 +165,7 @@ fn test_config_edit_uses_visual() {
     env.apply(&mut c);
     c.env("VISUAL", &editor_path);
     c.env_remove("EDITOR");
-    c.args(["config", "edit"]);
+    c.args(["config"]);
     c.assert().success().stderr("");
 
     let called_path = std::fs::read_to_string(&log_path).expect("editor was not called");
@@ -187,7 +186,7 @@ fn test_config_edit_uses_editor_when_visual_unset() {
     env.apply(&mut c);
     c.env_remove("VISUAL");
     c.env("EDITOR", &editor_path);
-    c.args(["config", "edit"]);
+    c.args(["config"]);
     c.assert().success().stderr("");
 
     let called_path = std::fs::read_to_string(&log_path).expect("editor was not called");
@@ -208,7 +207,7 @@ fn test_config_edit_falls_back_to_vi() {
     env.apply(&mut c);
     c.env_remove("VISUAL");
     c.env_remove("EDITOR");
-    c.args(["config", "edit"]);
+    c.args(["config"]);
     c.assert().success().stderr("");
 
     let called_path = std::fs::read_to_string(&log_path).expect("vi was not called");
@@ -227,7 +226,7 @@ fn test_config_edit_creates_default_when_absent() {
     let mut c = Command::cargo_bin(BIN).unwrap();
     env.apply(&mut c);
     c.env("VISUAL", &editor_path);
-    c.args(["config", "edit"]);
+    c.args(["config"]);
     c.assert().success().stderr("");
 
     let called_path = std::fs::read_to_string(&log_path).expect("editor was not called");
@@ -256,7 +255,7 @@ fn test_config_edit_creates_dir_and_file_when_both_absent() {
     c.env("XDG_CONFIG_HOME", &xdg_dir);
     c.current_dir(env.repo_dir.path());
     c.env("VISUAL", &editor_path);
-    c.args(["config", "edit"]);
+    c.args(["config"]);
     c.assert().success().stderr("");
 
     let called_path = std::fs::read_to_string(&log_path).expect("editor was not called");
@@ -282,7 +281,7 @@ fn test_config_edit_exits_nonzero_when_editor_fails() {
     let mut c = Command::cargo_bin(BIN).unwrap();
     env.apply(&mut c);
     c.env("VISUAL", &editor_path);
-    c.args(["config", "edit"]);
+    c.args(["config"]);
     c.assert()
         .failure()
         .stderr(predicates::str::contains("failed to edit config"));
@@ -300,7 +299,7 @@ fn test_config_edit_exits_nonzero_without_config_path() {
     c.env_remove("XDG_CONFIG_HOME");
     c.current_dir(env.repo_dir.path());
     c.env("VISUAL", &editor_path);
-    c.args(["config", "edit"]);
+    c.args(["config"]);
     c.assert()
         .failure()
         .stderr(predicates::str::contains("failed to edit config"));
@@ -315,7 +314,7 @@ fn test_config_edit_default_contains_sections() {
     let mut c = Command::cargo_bin(BIN).unwrap();
     env.apply(&mut c);
     c.env("VISUAL", &editor_path);
-    c.args(["config", "edit"]);
+    c.args(["config"]);
     c.assert().success().stderr("");
 
     let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
@@ -327,109 +326,5 @@ fn test_config_edit_default_contains_sections() {
     assert!(
         content.contains("conflict"),
         "config should contain conflict section, got:\n{content}"
-    );
-}
-
-// ── #59–63: config update ─────────────────────────────────────────────────────
-
-/// #59: 設定ファイル不在 → デフォルト設定ファイルが新規作成される
-#[test]
-fn test_config_update_creates_default_when_absent() {
-    let env = TestEnv::without_gh();
-
-    let mut c = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut c);
-    c.args(["config", "update"]);
-    c.assert().success().stderr("");
-
-    let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
-    assert!(config_path.exists(), "config file was not created");
-    let content = std::fs::read_to_string(&config_path).unwrap();
-    assert!(!content.is_empty(), "config file is empty");
-}
-
-/// #60: バージョンが最新と一致 → ファイルが変更されない
-#[test]
-fn test_config_update_no_change_when_latest_version() {
-    let env = TestEnv::without_gh();
-    let original = "version = 1\n\n[merge_ready]\nsymbol = \"★\"\n";
-    env.write_config(original);
-
-    let mut c = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut c);
-    c.args(["config", "update"]);
-    c.assert().success().stderr("");
-
-    let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
-    let content = std::fs::read_to_string(&config_path).unwrap();
-    assert_eq!(content, original, "file should not be modified");
-}
-
-/// #61: 旧バージョン・有効なキーあり → 既存の値が保持される
-#[test]
-fn test_config_update_preserves_valid_keys() {
-    let env = TestEnv::without_gh();
-    env.write_config("[merge_ready]\nsymbol = \"★\"\n");
-
-    let mut c = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut c);
-    c.args(["config", "update"]);
-    c.assert().success().stderr("");
-
-    let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
-    let content = std::fs::read_to_string(&config_path).unwrap();
-    assert!(
-        content.contains("★"),
-        "symbol should be preserved, got:\n{content}"
-    );
-    assert!(
-        content.contains("version = 1"),
-        "version should be updated, got:\n{content}"
-    );
-}
-
-/// #62: 旧バージョン・廃止キーあり → 廃止キーが削除される
-#[test]
-fn test_config_update_removes_obsolete_keys() {
-    let env = TestEnv::without_gh();
-    env.write_config("[merge_ready]\nsymbol = \"★\"\n\n[obsolete_section]\nsome_key = \"value\"\n");
-
-    let mut c = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut c);
-    c.args(["config", "update"]);
-    c.assert().success().stderr("");
-
-    let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
-    let content = std::fs::read_to_string(&config_path).unwrap();
-    assert!(
-        !content.contains("obsolete_section"),
-        "obsolete_section should be removed, got:\n{content}"
-    );
-    assert!(
-        !content.contains("some_key"),
-        "some_key should be removed, got:\n{content}"
-    );
-}
-
-/// #63: 旧バージョン・不足キーあり → デフォルト値で不足キーが追加される
-#[test]
-fn test_config_update_adds_missing_sections_with_defaults() {
-    let env = TestEnv::without_gh();
-    env.write_config("[merge_ready]\nsymbol = \"★\"\n");
-
-    let mut c = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut c);
-    c.args(["config", "update"]);
-    c.assert().success().stderr("");
-
-    let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
-    let content = std::fs::read_to_string(&config_path).unwrap();
-    assert!(
-        content.contains("★"),
-        "symbol should be preserved, got:\n{content}"
-    );
-    assert!(
-        content.contains("conflict"),
-        "conflict section should be added with defaults, got:\n{content}"
     );
 }

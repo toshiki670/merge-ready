@@ -2,12 +2,8 @@ use serde::{Deserialize, Serialize};
 
 const DEFAULT_FORMAT: &str = "$symbol $label";
 
-pub const CURRENT_VERSION: u32 = 1;
-
 #[derive(Deserialize, Serialize, Default)]
 pub struct Config {
-    #[serde(default)]
-    pub version: u32,
     pub merge_ready: Option<TokenConfig>,
     pub conflict: Option<TokenConfig>,
     pub update_branch: Option<TokenConfig>,

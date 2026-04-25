@@ -330,106 +330,14 @@ fn test_config_edit_default_contains_sections() {
     );
 }
 
-// ── #59–63: config update ─────────────────────────────────────────────────────
+// ── #59: config update（廃止済み）────────────────────────────────────────────
 
-/// #59: 設定ファイル不在 → デフォルト設定ファイルが新規作成される
+/// #59: config update は廃止済み → unknown subcommand エラー
 #[test]
-fn test_config_update_creates_default_when_absent() {
+fn test_config_update_is_removed() {
     let env = TestEnv::without_gh();
-
     let mut c = Command::cargo_bin(BIN).unwrap();
     env.apply(&mut c);
     c.args(["config", "update"]);
-    c.assert().success().stderr("");
-
-    let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
-    assert!(config_path.exists(), "config file was not created");
-    let content = std::fs::read_to_string(&config_path).unwrap();
-    assert!(!content.is_empty(), "config file is empty");
-}
-
-/// #60: バージョンが最新と一致 → ファイルが変更されない
-#[test]
-fn test_config_update_no_change_when_latest_version() {
-    let env = TestEnv::without_gh();
-    let original = "version = 1\n\n[merge_ready]\nsymbol = \"★\"\n";
-    env.write_config(original);
-
-    let mut c = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut c);
-    c.args(["config", "update"]);
-    c.assert().success().stderr("");
-
-    let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
-    let content = std::fs::read_to_string(&config_path).unwrap();
-    assert_eq!(content, original, "file should not be modified");
-}
-
-/// #61: 旧バージョン・有効なキーあり → 既存の値が保持される
-#[test]
-fn test_config_update_preserves_valid_keys() {
-    let env = TestEnv::without_gh();
-    env.write_config("[merge_ready]\nsymbol = \"★\"\n");
-
-    let mut c = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut c);
-    c.args(["config", "update"]);
-    c.assert().success().stderr("");
-
-    let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
-    let content = std::fs::read_to_string(&config_path).unwrap();
-    assert!(
-        content.contains("★"),
-        "symbol should be preserved, got:\n{content}"
-    );
-    assert!(
-        content.contains("version = 1"),
-        "version should be updated, got:\n{content}"
-    );
-}
-
-/// #62: 旧バージョン・廃止キーあり → 廃止キーが削除される
-#[test]
-fn test_config_update_removes_obsolete_keys() {
-    let env = TestEnv::without_gh();
-    env.write_config("[merge_ready]\nsymbol = \"★\"\n\n[obsolete_section]\nsome_key = \"value\"\n");
-
-    let mut c = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut c);
-    c.args(["config", "update"]);
-    c.assert().success().stderr("");
-
-    let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
-    let content = std::fs::read_to_string(&config_path).unwrap();
-    assert!(
-        !content.contains("obsolete_section"),
-        "obsolete_section should be removed, got:\n{content}"
-    );
-    assert!(
-        !content.contains("some_key"),
-        "some_key should be removed, got:\n{content}"
-    );
-}
-
-/// #63: 旧バージョン・不足キーあり → デフォルト値で不足キーが追加される
-#[test]
-fn test_config_update_adds_missing_sections_with_defaults() {
-    let env = TestEnv::without_gh();
-    env.write_config("[merge_ready]\nsymbol = \"★\"\n");
-
-    let mut c = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut c);
-    c.args(["config", "update"]);
-    c.assert().success().stderr("");
-
-    let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
-    let content = std::fs::read_to_string(&config_path).unwrap();
-    assert!(
-        content.contains("★"),
-        "symbol should be preserved, got:\n{content}"
-    );
-    assert!(
-        content.contains("conflict"),
-        "conflict section should be added with defaults, got:\n{content}"
-    );
+    c.assert().failure();
 }

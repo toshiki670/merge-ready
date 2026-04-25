@@ -4,7 +4,6 @@ use clap::CommandFactory;
 
 use crate::adapters::ConfigAdapter;
 use crate::cli::{Cli, Command};
-use crate::contexts::config::infrastructure::toml_loader::TomlConfigRepository;
 use crate::contexts::daemon::application::cache as daemon_cache_app;
 use crate::contexts::daemon::infrastructure::daemon_client::{self as daemon_client, DaemonClient};
 use crate::contexts::prompt::infrastructure::{gh::GhClient, logger::Logger};
@@ -25,11 +24,7 @@ pub fn run(cli: Cli) -> ExitCode {
         }
         Some(Command::Config(args)) => {
             let config_path = crate::contexts::config::infrastructure::toml_loader::config_path();
-            crate::contexts::config::interface::cli::run(
-                &args,
-                &TomlConfigRepository,
-                config_path.as_deref(),
-            )
+            crate::contexts::config::interface::cli::run(&args, config_path.as_deref())
         }
         Some(Command::Daemon(args)) => {
             crate::contexts::prompt::infrastructure::logger::init();

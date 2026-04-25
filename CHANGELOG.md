@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-04-25
+### Features
+- [**BREAKING**] Config update サブコマンドと version フィールドの廃止、config edit → config への統合 ([#142](https://github.com/toshiki670/merge-ready/pull/142)) ([`4c8c9be`](https://github.com/toshiki670/merge-ready/commit/4c8c9beaa39c842e37a95aaaa5b20e2191625127))
+- [**BREAKING**] Merge-ready-prompt 軽量バイナリの追加と prompt サブコマンドの削除 ([#147](https://github.com/toshiki670/merge-ready/pull/147)) ([`91d6bf4`](https://github.com/toshiki670/merge-ready/commit/91d6bf47cf76a6bfcb41d7737c1b8522d229b69c))
+
+
 ## [0.3.1] - 2026-04-24
 ### Bug Fixes
 - Migrate app-id to client-id in release-prepare workflow ([#130](https://github.com/toshiki670/merge-ready/pull/130)) ([`c2ad532`](https://github.com/toshiki670/merge-ready/commit/c2ad53239efeab4045f0729bb28e2f24bda8fcb3))

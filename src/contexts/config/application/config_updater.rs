@@ -1,14 +1,14 @@
 use super::super::domain::config::{CURRENT_VERSION, Config};
-use super::port::UpdateConfigPort;
+use super::super::domain::repository::ConfigRepository;
 
-pub fn run(port: &impl UpdateConfigPort) -> Result<(), std::io::Error> {
-    let mut config = port.load();
+pub fn run(repo: &impl ConfigRepository) -> Result<(), std::io::Error> {
+    let mut config = repo.load();
     if config.version == CURRENT_VERSION {
         return Ok(());
     }
     config.version = CURRENT_VERSION;
     config.fill_defaults();
-    port.save(&config)
+    repo.save(&config)
 }
 
 pub fn default_config() -> Config {

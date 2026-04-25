@@ -1,32 +1,18 @@
-use super::super::domain::branch_sync::BranchSync;
-use super::super::domain::ci_checks::CiChecks;
-use super::super::domain::error::RepositoryError;
-use super::super::domain::merge_ready::MergeReadiness;
-use super::super::domain::pr_state::PrLifecycle;
-use super::super::domain::review::Review;
+use super::super::domain::branch_sync::BranchSyncRepository;
+use super::super::domain::ci_checks::CiChecksRepository;
+use super::super::domain::merge_ready::MergeReadinessRepository;
+use super::super::domain::pr_state::PrStateRepository;
+use super::super::domain::review::ReviewRepository;
 
-/// PR の状態を収集するユースケース向け集約ポート。
+/// prompt ユースケースが必要とするドメインリポジトリを束ねた集約トレイト。
 ///
-/// 1 つのユースケース（prompt 出力生成）内で必要な 5 つのフェッチ責務を束ね、
-/// ドメイン内部のリポジトリ trait を外に漏らさない。
-pub trait PromptStatusPort {
-    /// # Errors
-    /// Returns `RepositoryError` if the PR lifecycle cannot be fetched.
-    fn fetch_lifecycle(&self) -> Result<PrLifecycle, RepositoryError>;
+/// 個別リポジトリ trait を実装すれば自動的に満たされる。
+pub trait PromptStatusPort:
+    PrStateRepository + BranchSyncRepository + CiChecksRepository + ReviewRepository + MergeReadinessRepository
+{
+}
 
-    /// # Errors
-    /// Returns `RepositoryError` if the sync status cannot be fetched.
-    fn fetch_sync_status(&self) -> Result<BranchSync, RepositoryError>;
-
-    /// # Errors
-    /// Returns `RepositoryError` if the CI checks cannot be fetched.
-    fn fetch_checks(&self) -> Result<CiChecks, RepositoryError>;
-
-    /// # Errors
-    /// Returns `RepositoryError` if the review state cannot be fetched.
-    fn fetch_review(&self) -> Result<Review, RepositoryError>;
-
-    /// # Errors
-    /// Returns `RepositoryError` if the merge readiness cannot be fetched.
-    fn fetch_readiness(&self) -> Result<MergeReadiness, RepositoryError>;
+impl<T> PromptStatusPort for T where
+    T: PrStateRepository + BranchSyncRepository + CiChecksRepository + ReviewRepository + MergeReadinessRepository
+{
 }

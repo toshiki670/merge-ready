@@ -1,11 +1,11 @@
 use super::super::domain::config::{Config, TokenConfig, render_token};
-use super::port::LoadConfigPort;
+use super::super::domain::repository::ConfigRepository;
 
 pub struct ConfigService(Config);
 
 impl ConfigService {
-    pub fn new(port: &impl LoadConfigPort) -> Self {
-        Self(port.load())
+    pub fn new(repo: &impl ConfigRepository) -> Self {
+        Self(repo.load())
     }
 
     pub fn render_merge_ready(&self) -> String {

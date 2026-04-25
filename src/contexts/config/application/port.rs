@@ -1,11 +1,5 @@
-use super::super::domain::config::Config;
+use super::super::domain::repository::ConfigRepository;
 
-pub trait LoadConfigPort {
-    fn load(&self) -> Config;
-}
-
-pub trait UpdateConfigPort: LoadConfigPort {
-    /// # Errors
-    /// Returns `io::Error` when persisting the configuration fails.
-    fn save(&self, config: &Config) -> Result<(), std::io::Error>;
-}
+/// 設定更新ユースケース向けポート（interface 層が domain 型を直接参照しないための facade）。
+pub trait UpdateConfigPort: ConfigRepository {}
+impl<T: ConfigRepository> UpdateConfigPort for T {}

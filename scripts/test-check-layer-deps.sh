@@ -20,6 +20,14 @@ make_root() {
     echo "$dir"
 }
 
+make_bin_root() {
+    local dir
+    dir=$(mktemp -d)
+    mkdir -p "$dir/src/contexts/prompt/infrastructure"
+    touch "$dir/src/main.rs"
+    echo "$dir"
+}
+
 run_check() {
     local dir="$1"
     ROOT_DIR="$dir" bash "$CHECK_SCRIPT" > /dev/null 2>&1
@@ -90,6 +98,14 @@ cat > "$DIR/src/contexts/prompt/infrastructure/bad.rs" << 'EOF'
 use crate::contexts::prompt::application::config_service::ConfigService;
 EOF
 expect_fail "infrastructure → application::config_service (forbidden)" "$DIR"
+rm -rf "$DIR"
+
+# bin → domain  (ALLOWED: Composition Root can wire domain types)
+DIR=$(make_bin_root)
+cat > "$DIR/src/main.rs" << 'EOF'
+use crate::contexts::prompt::domain::pr_state::PrLifecycle;
+EOF
+expect_pass "bin → domain (allowed)" "$DIR"
 rm -rf "$DIR"
 
 # ── Result ────────────────────────────────────────────────────────────────────

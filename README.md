@@ -14,6 +14,8 @@
 cargo install merge-ready
 ```
 
+This installs two binaries: `merge-ready` (full CLI and daemon) and `merge-ready-prompt` (lightweight prompt binary).
+
 For development builds:
 
 ```bash
@@ -31,7 +33,7 @@ merge-ready --help
 Show merge status tokens for prompt integration:
 
 ```bash
-merge-ready prompt
+merge-ready-prompt
 ```
 
 Example output:
@@ -40,7 +42,7 @@ Example output:
 ⚠ review
 ```
 
-`merge-ready prompt` returns:
+`merge-ready-prompt` returns:
 
 - `0` when mergeable (`✓ merge-ready`)
 - `1` when blocked (`⚠ ...` or `✗ ...`)
@@ -63,7 +65,7 @@ This makes it easy to use from shell scripts and prompt hooks.
 
 `merge-ready` uses a background daemon to cache GitHub API results and serve prompt queries with near-zero latency.
 
-The daemon starts automatically the first time `merge-ready prompt` runs. You can also manage it manually:
+The daemon starts automatically the first time `merge-ready-prompt` runs. You can also manage it manually:
 
 ```bash
 merge-ready daemon start   # start the background daemon (returns immediately)
@@ -81,7 +83,7 @@ Add merge status to your [Starship](https://starship.rs/) prompt by using a cust
 
 ```toml
 [custom.merge_ready]
-command = "merge-ready prompt"
+command = "merge-ready-prompt"
 when = true
 require_repo = true
 shell = ["/bin/zsh"]
@@ -89,7 +91,7 @@ format = "[$output]($style) "
 style = "bold yellow"
 ```
 
-`require_repo = true` limits the module to git repositories without any shell command overhead. `merge-ready prompt` itself returns `? ...` tokens when there is no associated PR, so no additional filtering is needed.
+`require_repo = true` limits the module to git repositories without any shell command overhead. `merge-ready-prompt` itself returns `? ...` tokens when there is no associated PR, so no additional filtering is needed.
 
 If your environment sets `STARSHIP_SHELL` to a slower shell (for example `fish`), custom modules can be noticeably slower due to shell startup cost. Pinning `shell = ["/bin/zsh"]` (or another lightweight shell on your system) keeps prompt latency low.
 

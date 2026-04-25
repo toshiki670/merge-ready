@@ -1,8 +1,8 @@
-//! 設定ファイル（`~/.config/merge-ready.toml`）の E2E テスト（シナリオ #42–59）
+//! 設定ファイル（`~/.config/merge-ready.toml`）の E2E テスト（シナリオ #42–58）
 //!
 //! - #42–50: symbol / label / format のカスタマイズ、XDG_CONFIG_HOME の優先度
 //!   → prompt テストは daemon 経由フローで検証する
-//! - #51–59: `config` サブコマンド（エディタ起動）
+//! - #51–58: `config` コマンド（エディタ起動）
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -327,16 +327,4 @@ fn test_config_edit_default_contains_sections() {
         content.contains("conflict"),
         "config should contain conflict section, got:\n{content}"
     );
-}
-
-// ── #59: config update（廃止済み）────────────────────────────────────────────
-
-/// #59: config update は廃止済み → unknown subcommand エラー
-#[test]
-fn test_config_update_is_removed() {
-    let env = TestEnv::without_gh();
-    let mut c = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut c);
-    c.args(["config", "update"]);
-    c.assert().failure();
 }

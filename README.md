@@ -93,6 +93,78 @@ style = "bold yellow"
 
 If your environment sets `STARSHIP_SHELL` to a slower shell (for example `fish`), custom modules can be noticeably slower due to shell startup cost. Pinning `shell = ["/bin/zsh"]` (or another lightweight shell on your system) keeps prompt latency low.
 
+## Configuration
+
+The configuration file is read from `$XDG_CONFIG_HOME/merge-ready.toml` (or `~/.config/merge-ready.toml` if `XDG_CONFIG_HOME` is not set).
+
+Open the file in your editor:
+
+```bash
+merge-ready config
+```
+
+All fields are optional — omitting any field falls back to the default shown below.
+
+```toml
+[merge_ready]
+symbol = "✓"
+label = "merge-ready"
+# format = "$symbol $label"
+
+[conflict]
+symbol = "✗"
+label = "conflict"
+# format = "$symbol $label"
+
+[update_branch]
+symbol = "✗"
+label = "update-branch"
+# format = "$symbol $label"
+
+[sync_unknown]
+symbol = "?"
+label = "sync-unknown"
+# format = "$symbol $label"
+
+[ci_fail]
+symbol = "✗"
+label = "ci-fail"
+# format = "$symbol $label"
+
+[ci_action]
+symbol = "⚠"
+label = "ci-action"
+# format = "$symbol $label"
+
+[review]
+symbol = "⚠"
+label = "review"
+# format = "$symbol $label"
+
+[error.auth_required]
+symbol = "!"
+label = "gh auth login"
+# format = "$symbol $label"
+
+[error.rate_limited]
+symbol = "✗"
+label = "rate-limited"
+# format = "$symbol $label"
+
+[error.api_error]
+symbol = "✗"
+label = "api-error"
+# format = "$symbol $label"
+```
+
+Each token supports three optional fields:
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| `symbol` | Leading symbol | see above |
+| `label` | Status text | see above |
+| `format` | Output template | `"$symbol $label"` |
+
 ## Requirements
 
 - `gh` CLI installed and authenticated

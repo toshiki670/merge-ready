@@ -103,7 +103,7 @@ Open the file in your editor:
 merge-ready config
 ```
 
-All fields are optional. Below is the full default configuration:
+All fields are optional — omitting any field falls back to the default shown below.
 
 ```toml
 [merge_ready]

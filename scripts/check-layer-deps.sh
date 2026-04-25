@@ -6,16 +6,19 @@
 #   from \ to      domain  application  infrastructure  interface
 #   domain           –        ❌            ❌             ❌
 #   application      ✅        –            ❌             ❌
-#   infrastructure   ✅       ❌            –              ❌
+#   infrastructure   ✅      ❌(†)           –              ❌
 #   interface        ❌       ✅            ❌             –
 #   bin              ❌       ✅            ✅             ✅
+#
+# (†) infrastructure → application::port is allowed (hexagonal port adapter pattern).
+#     infrastructure must not depend on any other application module.
 #
 # Cross-context rule:
 #   Files under src/contexts/A/ must not reference contexts::B:: (bin is exempt)
 
 set -uo pipefail
 
-cd "$(dirname "$0")/.."
+cd "${ROOT_DIR:-$(dirname "$0")/..}"
 
 FAIL=0
 
@@ -104,6 +107,10 @@ while IFS= read -r file; do
     # - use super::domain::...
     # - pub use super::super::domain::...
     hits=$(grep -En "^[[:space:]]*(pub([[:space:]]*\\([^)]*\\))?[[:space:]]+)?use[[:space:]]+[^;]*((crate::)?contexts::[a-z_]+::${to_layer}|(super::)+${to_layer}|self::${to_layer})(::|\\{|;|[[:space:]])" "$file" 2>/dev/null) || true
+    # Exception: infrastructure → application::port is allowed (hexagonal port adapter pattern).
+    if [ "$from_layer" = "infrastructure" ] && [ "$to_layer" = "application" ]; then
+      hits=$(printf '%s\n' "$hits" | grep -Ev "::application::port([^a-zA-Z0-9_]|$)" || true)
+    fi
     if [ -n "$hits" ]; then
       printf '%s\n' "$hits"
       printf 'ERROR: [%s] %s must not depend on [%s] (including re-export)\n\n' "$from_layer" "$file" "$to_layer" >&2

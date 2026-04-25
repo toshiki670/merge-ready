@@ -9,6 +9,8 @@ pub enum Request {
         cwd: String,
         client_version: String,
     },
+    /// バックグラウンドワーカーがキャッシュを更新するときに送るリクエスト。
+    /// `gh` CLI で取得した PR 評価結果（`output`）を daemon のインメモリキャッシュに書き込む。
     Update {
         repo_id: String,
         output: String,

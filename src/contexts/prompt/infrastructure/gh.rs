@@ -104,6 +104,8 @@ impl GhClient {
     }
 }
 
+// ── Domain repository implementations ───────────────────────────────────────
+
 impl PrStateRepository for GhClient {
     fn fetch_lifecycle(&self) -> Result<PrLifecycle, RepositoryError> {
         let raw = self.pr_view_cached()?;

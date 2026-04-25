@@ -1,9 +1,11 @@
 use std::path::PathBuf;
 
-use crate::contexts::config::domain::{config::Config, repository::ConfigRepository};
+use crate::contexts::config::domain::config::Config;
+use crate::contexts::config::domain::repository::ConfigRepository;
 
 pub struct TomlConfigRepository;
 
+#[allow(clippy::unused_self)]
 impl ConfigRepository for TomlConfigRepository {
     fn load(&self) -> Config {
         let Some(path) = config_path() else {
@@ -15,6 +17,8 @@ impl ConfigRepository for TomlConfigRepository {
         toml::from_str(&content).unwrap_or_default()
     }
 
+    /// # Errors
+    /// Returns `io::Error` when the config path is unavailable or write fails.
     fn save(&self, config: &Config) -> Result<(), std::io::Error> {
         let path = config_path().ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::NotFound, "config path not found")

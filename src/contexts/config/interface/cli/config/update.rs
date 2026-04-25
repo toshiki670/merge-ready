@@ -1,5 +1,5 @@
-use crate::contexts::config::application::{self, ConfigRepository};
+use crate::contexts::config::application::{config_updater, port::UpdateConfigPort};
 
-pub fn run(repo: &impl ConfigRepository) -> Result<(), std::io::Error> {
-    application::config_updater::run(repo)
+pub fn run(port: &impl UpdateConfigPort) -> Result<(), std::io::Error> {
+    config_updater::run(port)
 }

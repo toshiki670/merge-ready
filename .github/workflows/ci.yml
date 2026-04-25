@@ -81,25 +81,6 @@ jobs:
           fi
           echo "OK: merge-ready-prompt has no external crate symbols"
 
-  bench:
-    name: bench (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-        with:
-          shared-key: "ci-${{ matrix.os }}"
-      - name: Run bench (threshold check + criterion smoke)
-        # 閾値: Linux ≤ 10ms, macOS ≤ 15ms（WARM_STARTUP_THRESHOLD_MS で定義）
-        # --test: criterion の計測は行わず、閾値アサートと動作確認のみ実行する
-        run: cargo bench --bench hot_path -- --test
-
   deny:
     name: deny
     runs-on: ubuntu-latest

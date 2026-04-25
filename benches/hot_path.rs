@@ -19,17 +19,12 @@
 //!
 //! **合否基準**: [`THRESHOLD_SAMPLES`] サンプルの中央値 ≤ [`WARM_STARTUP_THRESHOLD_MS`] ms（#139 受け入れ条件）
 //!   中央値を使うことで、OS スケジューラや GC による外れ値に左右されない判定を行う。
-//!   CI では `cargo bench --bench hot_path -- --test` を実行して
-//!   コンパイル・動作確認のみ行い、基準値チェックはローカルで行う。
+//!   CI マシンは性能が不定なため、ベンチマークはローカルでのみ実行する。
 //!
 //! ## 使用方法
 //!
 //! ```sh
-//! # ベンチマーク計測 + 閾値チェック（ローカル）
 //! cargo bench --bench hot_path
-//!
-//! # 動作確認のみ（CI 用）
-//! cargo bench --bench hot_path -- --test
 //! ```
 
 use std::fs;
@@ -41,13 +36,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use tempfile::TempDir;
 
 /// Issue #139 の受け入れ条件: ウォーム起動時間の中央値上限（ミリ秒）
-///
-/// Linux はプロセス生成コストが低いため厳しい基準を設定する。
-/// macOS は SIP/Gatekeeper によるオーバーヘッドがあるため緩い基準とする。
-#[cfg(target_os = "linux")]
 const WARM_STARTUP_THRESHOLD_MS: u64 = 10;
-#[cfg(not(target_os = "linux"))]
-const WARM_STARTUP_THRESHOLD_MS: u64 = 15;
 
 /// 閾値判定に使うサンプル数。中央値を安定させるため奇数にする
 const THRESHOLD_SAMPLES: usize = 21;

@@ -1,4 +1,4 @@
-use crate::contexts::prompt::domain::error::{ErrorCategory, LogRecord, RepositoryError};
+use crate::contexts::evaluation::domain::error::{ErrorCategory, LogRecord, RepositoryError};
 
 pub trait ErrorLogger {
     fn log(&self, record: &LogRecord);

@@ -1,4 +1,4 @@
-use crate::contexts::prompt::application::{
+use crate::contexts::evaluation::application::{
     OutputToken,
     errors::{ErrorPresenter, ErrorToken},
 };

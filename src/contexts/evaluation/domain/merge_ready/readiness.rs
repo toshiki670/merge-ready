@@ -1,4 +1,4 @@
-use crate::contexts::prompt::domain::signal::PromptSignal;
+use crate::contexts::evaluation::domain::signal::PromptSignal;
 
 /// マージ可否に必要な状態（外部コマンドの文字列表現に非依存）
 pub struct MergeReadiness {

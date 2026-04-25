@@ -1,5 +1,5 @@
 use super::errors::{ErrorLogger, ErrorPresenter};
-use crate::contexts::prompt::domain::review::{Review, ReviewRepository};
+use crate::contexts::evaluation::domain::review::{Review, ReviewRepository};
 
 /// レビュー状態を取得する。失敗時は `None` を返してエラー出力する。
 pub fn fetch(

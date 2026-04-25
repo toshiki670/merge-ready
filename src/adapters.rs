@@ -1,7 +1,7 @@
 use crate::contexts::config::application::config_service::ConfigService;
 use crate::contexts::config::infrastructure::toml_loader::TomlConfigRepository;
-use crate::contexts::prompt::application::{OutputToken, errors::ErrorToken};
-use crate::contexts::prompt::interface::presentation::PresentationConfigPort;
+use crate::contexts::evaluation::application::{OutputToken, errors::ErrorToken};
+use crate::contexts::evaluation::interface::presentation::PresentationConfigPort;
 
 pub(crate) struct ConfigAdapter(ConfigService);
 

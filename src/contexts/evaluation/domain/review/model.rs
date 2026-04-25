@@ -1,5 +1,5 @@
 use super::ReviewStatus;
-use crate::contexts::prompt::domain::signal::PromptSignal;
+use crate::contexts::evaluation::domain::signal::PromptSignal;
 
 /// レビュー状態のドメインモデル
 pub struct Review {

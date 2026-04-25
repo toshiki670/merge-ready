@@ -7,9 +7,9 @@ mod pr_state;
 pub mod prompt;
 mod review;
 
-use crate::contexts::prompt::domain::policy::{PromptDecisionPolicy, PromptEvaluation};
-use crate::contexts::prompt::domain::pr_state::is_open;
-use crate::contexts::prompt::domain::signal::PromptSignal;
+use crate::contexts::evaluation::domain::policy::{PromptDecisionPolicy, PromptEvaluation};
+use crate::contexts::evaluation::domain::pr_state::is_open;
+use crate::contexts::evaluation::domain::signal::PromptSignal;
 use errors::{ErrorLogger, ErrorPresenter};
 use port::PromptStatusPort;
 

@@ -1,5 +1,5 @@
 use super::{CheckBucket, CiStatus, aggregate::aggregate};
-use crate::contexts::prompt::domain::signal::PromptSignal;
+use crate::contexts::evaluation::domain::signal::PromptSignal;
 
 /// CI チェック集合のドメインモデル
 pub struct CiChecks {

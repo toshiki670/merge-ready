@@ -1,3 +1,3 @@
 pub mod config;
 
-pub use config::{ConfigArgs, run};
+pub use config::run;

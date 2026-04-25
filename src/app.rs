@@ -22,9 +22,9 @@ pub fn run(cli: Cli) -> ExitCode {
             );
             ExitCode::SUCCESS
         }
-        Some(Command::Config(args)) => {
+        Some(Command::Config) => {
             let config_path = crate::contexts::config::infrastructure::toml_loader::config_path();
-            crate::contexts::config::interface::cli::run(&args, config_path.as_deref())
+            crate::contexts::config::interface::cli::run(config_path.as_deref())
         }
         Some(Command::Daemon(args)) => {
             crate::contexts::prompt::infrastructure::logger::init();

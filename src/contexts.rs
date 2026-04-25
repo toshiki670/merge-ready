@@ -9,7 +9,7 @@
 //! # Context relationship
 //!
 //! ```text
-//! CLI (`merge-ready prompt`)
+//! merge-ready-prompt (lightweight bin)
 //!   -> daemon (serve quickly from daemon/cache)
 //!   -> prompt (fetch + evaluate merge readiness)
 //!   -> config (presentation and behavior settings)

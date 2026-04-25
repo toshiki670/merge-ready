@@ -8,11 +8,19 @@ use super::super::domain::review::ReviewRepository;
 ///
 /// 個別リポジトリ trait を実装すれば自動的に満たされる。
 pub trait PromptStatusPort:
-    PrStateRepository + BranchSyncRepository + CiChecksRepository + ReviewRepository + MergeReadinessRepository
+    PrStateRepository
+    + BranchSyncRepository
+    + CiChecksRepository
+    + ReviewRepository
+    + MergeReadinessRepository
 {
 }
 
 impl<T> PromptStatusPort for T where
-    T: PrStateRepository + BranchSyncRepository + CiChecksRepository + ReviewRepository + MergeReadinessRepository
+    T: PrStateRepository
+        + BranchSyncRepository
+        + CiChecksRepository
+        + ReviewRepository
+        + MergeReadinessRepository
 {
 }

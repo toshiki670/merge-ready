@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
-use crate::contexts::prompt::domain::branch_sync::{BranchSync, BranchSyncRepository, BranchSyncStatus};
+use crate::contexts::prompt::domain::branch_sync::{
+    BranchSync, BranchSyncRepository, BranchSyncStatus,
+};
 use crate::contexts::prompt::domain::ci_checks::{CheckBucket, CiChecks, CiChecksRepository};
 use crate::contexts::prompt::domain::error::RepositoryError;
 use crate::contexts::prompt::domain::merge_ready::{MergeReadiness, MergeReadinessRepository};

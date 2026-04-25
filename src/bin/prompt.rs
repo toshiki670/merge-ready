@@ -50,9 +50,10 @@ fn dir_name() -> String {
     std::cfg_select! {
         target_os = "linux" => {
             use std::os::unix::fs::MetadataExt;
-            std::fs::metadata("/proc/self")
-                .map(|m| format!("merge-ready-{}", m.uid()))
-                .unwrap_or_else(|_| "merge-ready".to_owned())
+            std::fs::metadata("/proc/self").map_or_else(
+                |_| "merge-ready".to_owned(),
+                |m| format!("merge-ready-{}", m.uid()),
+            )
         },
         _ => "merge-ready".to_owned(),
     }

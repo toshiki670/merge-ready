@@ -1,4 +1,4 @@
-//! `merge-ready daemon` サブコマンドの操作 E2E テスト（シナリオ #7–14）
+//! `merge-ready daemon` サブコマンドの操作 E2E テスト（シナリオ #7–15）
 //!
 //! daemon の起動・停止・ステータス確認、およびバージョン不一致時の自動再起動を検証する。
 
@@ -203,6 +203,66 @@ fn test_prompt_restarts_daemon_on_version_mismatch() {
             env!("CARGO_PKG_VERSION")
         )))
         .stdout(predicate::str::contains("version=0.0.0").not());
+
+    // クリーンアップ
+    Command::cargo_bin(BIN)
+        .unwrap()
+        .args(["daemon", "stop"])
+        .env("TMPDIR", env.home())
+        .output()
+        .ok();
+}
+
+// ── #15: 同時起動レース ──────────────────────────────────────────────────────
+
+/// #15: 複数の `merge-ready-prompt` が同時に Daemon 起動を試みても、Daemon は 1 プロセスのみ存在する
+///
+/// daemon 未起動の状態で 20 本の `merge-ready-prompt` を並列実行し、
+/// 全て完了後に daemon が 1 プロセスだけ動作していることを確認する。
+#[test]
+fn test_concurrent_prompt_starts_only_one_daemon() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+    let prompt_bin = assert_cmd::cargo::cargo_bin(PROMPT_BIN);
+
+    // 20 本を同時起動
+    let handles: Vec<_> = (0..20)
+        .map(|_| {
+            let bin = prompt_bin.clone();
+            let path = env.path_env();
+            let home = env.home().to_path_buf();
+            let repo = env.repo_dir.path().to_path_buf();
+            std::thread::spawn(move || {
+                std::process::Command::new(&bin)
+                    .env("PATH", &path)
+                    .env("HOME", &home)
+                    .env("TMPDIR", &home)
+                    .current_dir(&repo)
+                    .output()
+            })
+        })
+        .collect();
+
+    // 全スレッド完了を待つ
+    for h in handles {
+        let _ = h.join();
+    }
+
+    // daemon が正確に 1 プロセス起動していることを確認
+    let mut status = Command::cargo_bin(BIN).unwrap();
+    env.apply(&mut status);
+    status
+        .args(["daemon", "status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("running"));
+
+    // PID ファイルが 1 つだけあることを確認（複数 daemon は起動していない）
+    let socket_path = env
+        .home_dir
+        .path()
+        .join(super::super::helpers::daemon_dir_name())
+        .join("daemon.sock");
+    assert!(socket_path.exists(), "daemon socket should exist");
 
     // クリーンアップ
     Command::cargo_bin(BIN)

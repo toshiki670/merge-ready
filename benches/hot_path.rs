@@ -1,16 +1,39 @@
 //! ホットパスのベンチマーク
 //!
-//! daemon + キャッシュウォーム状態での `merge-ready-prompt` 起動時間を計測する。
-//! 目標: warm 起動 10ms 未満
+//! ## 計測方針
 //!
-//! 使用方法:
-//! ```
+//! **対象**: `merge-ready-prompt` の「ウォーム起動時間」
+//!   - daemon が起動済みで、対象リポジトリのキャッシュが温まった状態での
+//!     `merge-ready-prompt` プロセス生成〜stdout 出力完了までの時間。
+//!
+//! **計測範囲に含むもの**:
+//!   - OS プロセス生成（fork/exec）
+//!   - ELF ロードと Rust ランタイム初期化
+//!   - Unix socket 接続・クエリ送信・レスポンス受信
+//!   - stdout への出力
+//!
+//! **計測範囲に含まないもの**:
+//!   - daemon の起動（セットアップ段階で完了させる）
+//!   - キャッシュ投入（セットアップ段階で完了させる）
+//!   - `merge-ready` 本体（GH API 呼び出し等）の処理時間
+//!
+//! **合否基準**: 平均 ≤ 10 ms（#139 受け入れ条件）
+//!   CI では `cargo bench --bench hot_path -- --test` を実行して
+//!   コンパイル・動作確認のみ行い、基準値チェックはローカルで行う。
+//!
+//! ## 使用方法
+//!
+//! ```sh
+//! # ベンチマーク計測（ローカル）
 //! cargo bench --bench hot_path
+//!
+//! # 動作確認のみ（CI 用）
+//! cargo bench --bench hot_path -- --test
 //! ```
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use criterion::{Criterion, criterion_group, criterion_main};
@@ -25,7 +48,6 @@ struct BenchEnv {
 
 impl Drop for BenchEnv {
     fn drop(&mut self) {
-        // daemon を停止する
         let bin = binary_path("merge-ready");
         let _ = Command::new(&bin)
             .args(["daemon", "stop"])
@@ -75,12 +97,13 @@ fn dir_name() -> String {
     "merge-ready".to_owned()
 }
 
+/// daemon 起動 + キャッシュウォームまでを完了させるセットアップ。
+/// `b.iter()` の外で呼ぶことで、ベンチマーク計測に daemon 起動コストを混入させない。
 fn setup_bench_env() -> BenchEnv {
     let bin_dir = TempDir::new().expect("bin_dir");
     let tmp_dir = TempDir::new().expect("tmp_dir");
     let repo_dir = TempDir::new().expect("repo_dir");
 
-    // fake gh（即時応答）
     let gh_script = "#!/bin/sh\ncase \"$*\" in\n  *'pr view'*) printf '%s' '".to_owned()
         + OPEN_MERGE_READY_JSON
         + "' ;;\n  *'pr checks'*) printf '%s' '"
@@ -88,7 +111,6 @@ fn setup_bench_env() -> BenchEnv {
         + "' ;;\n  *'api'*'compare'*) printf '{\"behind_by\":0}' ;;\n  *) exit 0 ;;\nesac\n";
     write_executable(&bin_dir.path().join("gh"), &gh_script);
 
-    // 最小限の git リポジトリ構造
     let git_dir = repo_dir.path().join(".git");
     fs::create_dir_all(&git_dir).expect("create .git");
     fs::write(
@@ -104,7 +126,7 @@ fn setup_bench_env() -> BenchEnv {
         daemon_process: None,
     };
 
-    // daemon を起動する
+    // daemon を起動する（ここはセットアップ; 計測対象外）
     let bin = binary_path("merge-ready");
     let child = Command::new(&bin)
         .args(["daemon", "start"])
@@ -119,7 +141,7 @@ fn setup_bench_env() -> BenchEnv {
         .expect("daemon spawn");
     env.daemon_process = Some(child);
 
-    // socket 出現を待つ
+    // socket 出現を待つ（計測対象外）
     let socket = env.tmp_dir.path().join(dir_name()).join("daemon.sock");
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(3000);
     while std::time::Instant::now() < deadline {
@@ -130,7 +152,7 @@ fn setup_bench_env() -> BenchEnv {
     }
     assert!(socket.exists(), "daemon did not start within 3s");
 
-    // キャッシュが温まるまで待つ
+    // キャッシュが温まるまで待つ（計測対象外）
     let prompt_bin = binary_path("merge-ready-prompt");
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(5000);
     loop {
@@ -154,16 +176,22 @@ fn setup_bench_env() -> BenchEnv {
     env
 }
 
-/// daemon + キャッシュウォーム状態での `merge-ready-prompt` 起動時間（目標: <10ms）
-fn bench_cache_hit(c: &mut Criterion) {
+/// ウォーム起動時間のベンチマーク（合否基準: 平均 ≤ 10 ms）
+///
+/// daemon 起動済み・キャッシュウォーム状態での `merge-ready-prompt` の
+/// プロセス生成〜stdout 出力完了までを計測する。
+/// セットアップ（daemon 起動・キャッシュ投入）は `b.iter()` の外で完了させており、
+/// 計測ループには `merge-ready-prompt` の実行時間のみが含まれる。
+fn bench_prompt_warm_startup(c: &mut Criterion) {
     let env = setup_bench_env();
     let prompt_bin = binary_path("merge-ready-prompt");
     let path = path_env(&env);
     let tmpdir = env.tmp_dir.path().to_owned();
     let repo_dir = env.repo_dir.path().to_owned();
 
-    c.bench_function("merge_ready_prompt_warm", |b| {
+    c.bench_function("merge_ready_prompt_warm_startup", |b| {
         b.iter(|| {
+            // 計測対象: merge-ready-prompt の総実行時間（プロセス生成〜終了）
             Command::new(&prompt_bin)
                 .env("PATH", &path)
                 .env("TMPDIR", &tmpdir)
@@ -174,5 +202,5 @@ fn bench_cache_hit(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_cache_hit);
+criterion_group!(benches, bench_prompt_warm_startup);
 criterion_main!(benches);

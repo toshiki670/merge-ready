@@ -1,8 +1,8 @@
 /// PR がブロックされていないときの評価状態
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnblockedState {
-    /// `is_draft=false` && `is_protected=true`
+    /// マージ可能な状態（`is_draft=false` かつブランチ保護ルールを全て満たしている）
     MergeReady,
-    /// `is_draft=true`（ready-for-review）
+    /// ドラフト PR（`is_draft=true`）
     Draft,
 }

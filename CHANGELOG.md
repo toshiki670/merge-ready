@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2026-04-26
+### Bug Fixes
+- Stale_delay_ms の初回 gh 呼び出しを即時化してフレーキーを解消 ([#152](https://github.com/toshiki670/merge-ready/pull/152)) ([`9bbd609`](https://github.com/toshiki670/merge-ready/commit/9bbd609e6316ded71ee4c61d04523c2c715af309))
+### Features
+- PR が closed/merged になったらリフレッシュを停止する ([#150](https://github.com/toshiki670/merge-ready/pull/150)) ([`192f153`](https://github.com/toshiki670/merge-ready/commit/192f153b767dd51939549b5fab324ef7a9a4b7e8))
+
+
 ## [0.4.0] - 2026-04-25
 ### Features
 - [**BREAKING**] Config update サブコマンドと version フィールドの廃止、config edit → config への統合 ([#142](https://github.com/toshiki670/merge-ready/pull/142)) ([`4c8c9be`](https://github.com/toshiki670/merge-ready/commit/4c8c9beaa39c842e37a95aaaa5b20e2191625127))

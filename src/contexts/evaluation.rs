@@ -8,10 +8,6 @@
 //! ## Main responsibilities
 //!
 //! - PR lifecycle state evaluation (`domain::pr_state`)
-//! - Branch sync state evaluation (`domain::branch_sync`)
-//! - CI check aggregation (`domain::ci_checks`)
-//! - Review status evaluation (`domain::review`)
-//! - Final readiness policy evaluation (`domain::policy`, `domain::merge_ready`)
 //! - Conversion to output tokens (`application`)
 
 pub mod application;

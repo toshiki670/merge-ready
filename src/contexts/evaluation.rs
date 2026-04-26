@@ -7,8 +7,8 @@
 //!
 //! ## Main responsibilities
 //!
-//! - PR lifecycle state evaluation (`domain::pr_state`)
-//! - Conversion to output tokens (`application`)
+//! - PR lifecycle state evaluation ([`domain::pr_state`])
+//! - Conversion to output tokens ([`application`])
 
 pub mod application;
 pub mod domain;

@@ -1,10 +1,11 @@
-use super::super::domain::config::{Config, TokenConfig, render_token};
-use super::super::domain::repository::ConfigRepository;
+use super::super::domain::display_config::{
+    DisplayConfig, DisplayConfigRepository, TokenConfig, render_token,
+};
 
-pub struct ConfigService(Config);
+pub struct ConfigService(DisplayConfig);
 
 impl ConfigService {
-    pub fn new(repo: &impl ConfigRepository) -> Self {
+    pub fn new(repo: &impl DisplayConfigRepository) -> Self {
         Self(repo.load())
     }
 
@@ -99,6 +100,12 @@ impl ConfigService {
             "api-error",
         )
     }
+}
+
+pub fn default_display_config() -> DisplayConfig {
+    let mut config = DisplayConfig::default();
+    config.fill_defaults();
+    config
 }
 
 fn default_token() -> TokenConfig {

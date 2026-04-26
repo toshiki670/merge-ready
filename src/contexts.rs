@@ -15,6 +15,5 @@
 //!   -> config (presentation and behavior settings)
 //! ```
 
-pub mod config;
 pub mod daemon;
 pub mod evaluation;

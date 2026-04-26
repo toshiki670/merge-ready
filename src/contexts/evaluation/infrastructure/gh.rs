@@ -1,10 +1,14 @@
+mod schema;
+
 use std::io::{ErrorKind, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use serde::Deserialize;
+use schema::{
+    CheckBucket, GhCheckItem, GhCompare, GhPrView, GhRepoView, GhRepoViewFull, translate_bucket,
+};
 
 use crate::contexts::evaluation::domain::error::RepositoryError;
 use crate::contexts::evaluation::domain::pr_state::blocked::branch_sync::BranchSyncState;
@@ -13,60 +17,7 @@ use crate::contexts::evaluation::domain::pr_state::blocked::review::ReviewState;
 use crate::contexts::evaluation::domain::pr_state::not_applicable::NotApplicableState;
 use crate::contexts::evaluation::domain::pr_state::unblocked::UnblockedState;
 use crate::contexts::evaluation::domain::pr_state::{PrRepository, PrState, evaluate};
-
-// ── gh コマンドの生 JSON 構造（infra 内にのみ存在）──────────────────────────
-
-#[derive(Deserialize)]
-struct GhPrView {
-    state: String,
-    #[serde(rename = "isDraft")]
-    is_draft: bool,
-    mergeable: String,
-    #[serde(rename = "mergeStateStatus")]
-    merge_state_status: String,
-    #[serde(rename = "reviewDecision")]
-    review_decision: Option<String>,
-    #[serde(rename = "baseRefName", default)]
-    base_ref_name: String,
-    #[serde(rename = "headRefName", default)]
-    head_ref_name: String,
-}
-
-#[derive(Deserialize)]
-struct GhCheckItem {
-    bucket: String,
-}
-
-#[derive(Deserialize)]
-struct GhRepoView {
-    #[serde(rename = "nameWithOwner")]
-    name_with_owner: String,
-}
-
-#[derive(Deserialize)]
-struct GhCompare {
-    behind_by: u64,
-}
-
-#[derive(Deserialize)]
-struct GhDefaultBranchRef {
-    name: String,
-}
-
-#[derive(Deserialize)]
-struct GhRepoViewFull {
-    #[serde(rename = "defaultBranchRef")]
-    default_branch_ref: GhDefaultBranchRef,
-}
-
-// ── infra ローカル中間型（gh 固有の語彙）────────────────────────────────────
-
-enum CheckBucket {
-    Fail,
-    Cancel,
-    ActionRequired,
-    Other,
-}
+use crate::contexts::evaluation::infrastructure::git::{current_branch, is_git_repo};
 
 // ── GhClient ────────────────────────────────────────────────────────────────
 
@@ -128,28 +79,13 @@ impl GhClient {
     }
 
     fn is_default_branch(&self) -> bool {
-        let Some(current) = self.current_branch() else {
+        let Some(current) = current_branch(self.cwd.as_deref()) else {
             return false;
         };
         let Some(default) = self.default_branch() else {
             return false;
         };
         current == default
-    }
-
-    fn current_branch(&self) -> Option<String> {
-        let mut cmd = Command::new("git");
-        cmd.args(["branch", "--show-current"]);
-        cmd.stdout(Stdio::piped()).stderr(Stdio::null());
-        if let Some(dir) = &self.cwd {
-            cmd.current_dir(dir);
-        }
-        let out = cmd.output().ok()?;
-        if out.status.success() {
-            Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
-        } else {
-            None
-        }
     }
 
     fn default_branch(&self) -> Option<String> {
@@ -238,15 +174,6 @@ fn translate_unblocked(is_draft: bool, merge_state_status: &str) -> Option<Unblo
     }
 }
 
-fn translate_bucket(bucket: &str) -> CheckBucket {
-    match bucket {
-        "fail" => CheckBucket::Fail,
-        "cancel" => CheckBucket::Cancel,
-        "action_required" => CheckBucket::ActionRequired,
-        _ => CheckBucket::Other,
-    }
-}
-
 fn aggregate_ci(buckets: &[CheckBucket]) -> Option<CiState> {
     if buckets
         .iter()
@@ -290,42 +217,13 @@ fn fetch_behind_by(base_ref: &str, head_ref: &str, cwd: Option<&Path>) -> Option
     }
 }
 
-// ── git リポジトリ確認 ───────────────────────────────────────────────────────
-
-/// `.git` ディレクトリを辿って git リポジトリ内にいるかを判定する（git コマンドに依存しない）。
-fn is_git_repo(cwd: Option<&Path>) -> bool {
-    let base = match cwd {
-        Some(d) => d.to_path_buf(),
-        None => match std::env::current_dir() {
-            Ok(d) => d,
-            Err(_) => return false,
-        },
-    };
-    let mut current = base.as_path();
-    loop {
-        if current.join(".git").exists() {
-            return true;
-        }
-        match current.parent() {
-            Some(p) => current = p,
-            None => return false,
-        }
-    }
-}
-
 // ── gh コマンド実行・エラー判別 ──────────────────────────────────────────────
 
-/// gh CLI 固有のエラー種別（infra 内にのみ存在）
 enum GhError {
-    /// gh バイナリが見つからない
     NotInstalled,
-    /// 認証エラー（exit 4 / HTTP 401）
     AuthRequired,
-    /// 対象 PR が存在しない
     NoPr,
-    /// API レート制限
     RateLimited,
-    /// その他の CLI エラー
     ApiError(String),
 }
 

@@ -33,6 +33,11 @@ fn render_token(config: &DisplayConfig, token: &OutputToken) -> String {
             "✓",
             "merge-ready",
         ),
+        OutputToken::NoPullRequest => apply_format(
+            config.no_pull_request.as_ref().unwrap_or(&empty()),
+            "+",
+            "create-pr",
+        ),
         OutputToken::Conflict => apply_format(
             config.conflict.as_ref().unwrap_or(&empty()),
             "✗",
@@ -89,5 +94,23 @@ fn empty() -> TokenConfig {
         symbol: None,
         label: None,
         format: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct DefaultRepo;
+    impl DisplayConfigRepository for DefaultRepo {
+        fn load(&self) -> DisplayConfig {
+            default_display_config()
+        }
+    }
+
+    #[test]
+    fn no_pull_request_renders_with_default_config() {
+        let result = render_output(&[OutputToken::NoPullRequest], None, &DefaultRepo);
+        assert_eq!(result, "+ create-pr");
     }
 }

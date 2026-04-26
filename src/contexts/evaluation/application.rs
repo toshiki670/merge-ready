@@ -20,6 +20,7 @@ pub enum OutputToken {
     CiAction,
     ReviewRequested,
     MergeReady,
+    NoPullRequest,
 }
 
 fn map_blocked_to_tokens(blocked: BlockedState) -> Vec<OutputToken> {
@@ -49,11 +50,25 @@ pub(crate) fn map_pr_state_to_tokens(state: PrState) -> Vec<OutputToken> {
     match state {
         PrState::Blocked(blocked) => map_blocked_to_tokens(blocked),
         PrState::Unblocked(UnblockedState::MergeReady) => vec![OutputToken::MergeReady],
-        // Draft (#154)、NoPr (#156) は後続 Issue で実装
+        PrState::NoPr => vec![OutputToken::NoPullRequest],
+        // Draft (#154) は後続 Issue で実装
         // NotApplicable / Unknown は何も表示しない
         PrState::Unblocked(UnblockedState::Draft)
-        | PrState::NoPr
         | PrState::NotApplicable(_)
-        | PrState::Unknown => vec![],
+        | PrState::Unknown => {
+            vec![]
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_pr_maps_to_no_pull_request_token() {
+        let tokens = map_pr_state_to_tokens(PrState::NoPr);
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(tokens[0], OutputToken::NoPullRequest));
     }
 }

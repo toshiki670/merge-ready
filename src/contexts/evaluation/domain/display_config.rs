@@ -5,6 +5,7 @@ const DEFAULT_FORMAT: &str = "$symbol $label";
 #[derive(Deserialize, Serialize, Default)]
 pub struct DisplayConfig {
     pub merge_ready: Option<TokenConfig>,
+    pub no_pull_request: Option<TokenConfig>,
     pub conflict: Option<TokenConfig>,
     pub update_branch: Option<TokenConfig>,
     pub sync_unknown: Option<TokenConfig>,
@@ -23,6 +24,8 @@ impl DisplayConfig {
         };
         self.merge_ready
             .get_or_insert_with(|| tok("✓", "merge-ready"));
+        self.no_pull_request
+            .get_or_insert_with(|| tok("+", "create-pr"));
         self.conflict.get_or_insert_with(|| tok("✗", "conflict"));
         self.update_branch
             .get_or_insert_with(|| tok("✗", "update-branch"));
@@ -75,5 +78,19 @@ impl ErrorConfig {
             rate_limited: None,
             api_error: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fill_defaults_sets_no_pull_request() {
+        let mut config = DisplayConfig::default();
+        config.fill_defaults();
+        let tok = config.no_pull_request.as_ref().unwrap();
+        assert_eq!(tok.symbol.as_deref(), Some("+"));
+        assert_eq!(tok.label.as_deref(), Some("create-pr"));
     }
 }

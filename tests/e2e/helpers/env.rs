@@ -260,14 +260,28 @@ impl TestEnv {
         }
     }
 
-    /// PR なしシナリオ（遅延付き）: stale refresh 中の挙動を再現するため gh を長引かせる。
-    pub fn with_no_pr_delay_ms(delay_ms: u64) -> Self {
+    /// PR なしシナリオ（遅延付き）: stale refresh 中の挙動を再現するため、初回呼び出しは即座に返し、
+    /// 2回目以降（stale refresh）のみ `delay_ms` 遅延させる。
+    ///
+    /// これにより `wait_for_cache` が初回リフレッシュ完了を確実に待てる一方で、
+    /// stale refresh 中の挙動（空出力を維持）を検証できる。
+    pub fn with_no_pr_stale_delay_ms(delay_ms: u64) -> Self {
         let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
         let secs = delay_ms / 1000;
         let millis = delay_ms % 1000;
         let sleep_arg = format!("{secs}.{millis:03}");
-        let script =
-            format!("#!/bin/sh\nsleep {sleep_arg}\nprintf 'no pull requests found' >&2\nexit 1\n");
+        let count_path = home_dir.path().join(".gh_call_count").display().to_string();
+        let script = format!(
+            "#!/bin/sh\n\
+             count=$(cat \"{count_path}\" 2>/dev/null || printf '0')\n\
+             count=$((count + 1))\n\
+             printf '%d' \"$count\" > \"{count_path}\"\n\
+             if [ \"$count\" -gt 1 ]; then\n\
+                 sleep {sleep_arg}\n\
+             fi\n\
+             printf 'no pull requests found' >&2\n\
+             exit 1\n"
+        );
         write_executable(bin_dir.path().join("gh"), &script);
         Self {
             bin_dir,

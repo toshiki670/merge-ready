@@ -1,7 +1,7 @@
 //! キャッシュライフサイクル シナリオ #4, #5: PR なし
 //!
-//! #4: PR なしブランチ → loading → キャッシュ確定後に空出力（`? loading` が永続しない）
-//! #5: PR なし + TTL=0 + リフレッシュ遅延 → stale 中も `? loading` に戻らず空出力維持
+//! #4: PR なしブランチ → loading → キャッシュ確定後に `+ create-pr`（`? loading` が永続しない）
+//! #5: PR なし + TTL=0 + リフレッシュ遅延 → stale 中も `? loading` に戻らず `+ create-pr` 維持
 
 const PROMPT_BIN: &str = "merge-ready-prompt";
 
@@ -10,7 +10,7 @@ use predicates::prelude::*;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
 
-/// #4: PR なしブランチで daemon 経由: リフレッシュ完了後に `? loading` が消える
+/// #4: PR なしブランチで daemon 経由: リフレッシュ完了後に `+ create-pr` が表示される
 #[test]
 fn test_daemon_no_pr_shows_nothing_after_refresh() {
     let env = TestEnv::with_no_pr();
@@ -26,10 +26,12 @@ fn test_daemon_no_pr_shows_nothing_after_refresh() {
     // daemon リフレッシュ完了を待つ
     DaemonHandle::wait_for_cache(&env, 5000);
 
-    // キャッシュ確定後は何も出力しない（? loading が永続しないことを確認）
+    // キャッシュ確定後は + create-pr を出力する（? loading が永続しないことを確認）
     let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
-    cmd.assert().success().stdout(predicate::str::is_empty());
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::diff("+ create-pr"));
 }
 
 /// #5: no-PR の stale リフレッシュ中でも `? loading` に戻らず空出力を維持する
@@ -45,19 +47,23 @@ fn test_daemon_no_pr_stale_while_refreshing_keeps_empty_output() {
         .success()
         .stdout(predicate::str::diff("? loading"));
 
-    // 初回リフレッシュ完了で空キャッシュ確定
+    // 初回リフレッシュ完了で + create-pr キャッシュ確定
     DaemonHandle::wait_for_cache(&env, 5000);
 
-    // stale 1回目: リフレッシュ開始しつつ空出力
+    // stale 1回目: リフレッシュ開始しつつ + create-pr 出力
     let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
-    cmd.assert().success().stdout(predicate::str::is_empty());
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::diff("+ create-pr"));
 
-    // stale 2回目以降（refresh 実行中を狙う）: loading に戻らず空出力を維持
+    // stale 2回目以降（refresh 実行中を狙う）: loading に戻らず + create-pr を維持
     for _ in 0..5 {
         let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
         env.apply_with_cache(&mut cmd);
-        cmd.assert().success().stdout(predicate::str::is_empty());
+        cmd.assert()
+            .success()
+            .stdout(predicate::str::diff("+ create-pr"));
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }

@@ -7,14 +7,12 @@ pub mod prompt;
 mod review;
 mod unblocked;
 
-use crate::contexts::evaluation::domain::branch_sync::BranchSyncState;
-use crate::contexts::evaluation::domain::ci_checks::CiState;
-use crate::contexts::evaluation::domain::policy::{
-    BlockedState, PrState, PromptDecisionPolicy, PromptEvaluation,
-};
-use crate::contexts::evaluation::domain::pr_state::is_open;
-use crate::contexts::evaluation::domain::review::ReviewState;
-use crate::contexts::evaluation::domain::unblocked::UnblockedState;
+use crate::contexts::evaluation::domain::pr_state::blocked::BlockedState;
+use crate::contexts::evaluation::domain::pr_state::blocked::branch_sync::BranchSyncState;
+use crate::contexts::evaluation::domain::pr_state::blocked::ci::CiState;
+use crate::contexts::evaluation::domain::pr_state::blocked::review::ReviewState;
+use crate::contexts::evaluation::domain::pr_state::unblocked::UnblockedState;
+use crate::contexts::evaluation::domain::pr_state::{EvaluationInput, PrState, evaluate, is_open};
 use errors::{ErrorLogger, ErrorPresenter};
 use port::PromptStatusPort;
 
@@ -116,7 +114,7 @@ where
         return vec![];
     };
 
-    let pr_state = PromptDecisionPolicy::evaluate(&PromptEvaluation {
+    let pr_state = evaluate(&EvaluationInput {
         branch_sync: &sync_status,
         ci_checks: &buckets,
         review: &review_status,

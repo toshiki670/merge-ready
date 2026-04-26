@@ -5,14 +5,20 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
-use crate::contexts::evaluation::domain::branch_sync::{
+use crate::contexts::evaluation::domain::error::RepositoryError;
+use crate::contexts::evaluation::domain::pr_state::blocked::branch_sync::{
     BranchSync, BranchSyncRepository, BranchSyncStatus,
 };
-use crate::contexts::evaluation::domain::ci_checks::{CheckBucket, CiChecks, CiChecksRepository};
-use crate::contexts::evaluation::domain::error::RepositoryError;
-use crate::contexts::evaluation::domain::merge_ready::{MergeReadiness, MergeReadinessRepository};
+use crate::contexts::evaluation::domain::pr_state::blocked::ci::{
+    CheckBucket, CiChecks, CiChecksRepository,
+};
+use crate::contexts::evaluation::domain::pr_state::blocked::review::{
+    Review, ReviewRepository, ReviewStatus,
+};
+use crate::contexts::evaluation::domain::pr_state::unblocked::{
+    MergeReadiness, UnblockedRepository,
+};
 use crate::contexts::evaluation::domain::pr_state::{PrLifecycle, PrStateRepository};
-use crate::contexts::evaluation::domain::review::{Review, ReviewRepository, ReviewStatus};
 
 // ── gh コマンドの生 JSON 構造（infra 内にのみ存在）──────────────────────────
 
@@ -149,7 +155,7 @@ impl ReviewRepository for GhClient {
     }
 }
 
-impl MergeReadinessRepository for GhClient {
+impl UnblockedRepository for GhClient {
     fn fetch_readiness(&self) -> Result<MergeReadiness, RepositoryError> {
         let raw = self.pr_view_cached()?;
         Ok(translate_merge_readiness(

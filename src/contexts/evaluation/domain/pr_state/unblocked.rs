@@ -1,3 +1,5 @@
+use crate::contexts::evaluation::domain::error::RepositoryError;
+
 /// マージ可否に必要な状態（外部コマンドの文字列表現に非依存）
 pub struct MergeReadiness {
     pub is_draft: bool,
@@ -25,4 +27,10 @@ impl MergeReadiness {
             None
         }
     }
+}
+
+pub trait UnblockedRepository {
+    /// # Errors
+    /// Returns `RepositoryError` if the merge readiness cannot be fetched.
+    fn fetch_readiness(&self) -> Result<MergeReadiness, RepositoryError>;
 }

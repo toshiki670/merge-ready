@@ -1,8 +1,8 @@
-use super::super::domain::branch_sync::BranchSyncRepository;
-use super::super::domain::ci_checks::CiChecksRepository;
 use super::super::domain::pr_state::PrStateRepository;
-use super::super::domain::review::ReviewRepository;
-use super::super::domain::unblocked::UnblockedRepository;
+use super::super::domain::pr_state::blocked::branch_sync::BranchSyncRepository;
+use super::super::domain::pr_state::blocked::ci::CiChecksRepository;
+use super::super::domain::pr_state::blocked::review::ReviewRepository;
+use super::super::domain::pr_state::unblocked::UnblockedRepository;
 
 /// prompt ユースケースが必要とするドメインリポジトリを束ねた集約トレイト。
 ///

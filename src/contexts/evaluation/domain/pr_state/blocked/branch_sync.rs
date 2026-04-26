@@ -1,3 +1,5 @@
+use crate::contexts::evaluation::domain::error::RepositoryError;
+
 /// ブランチとベースブランチの同期状態（インフラから取得した生の値）
 pub enum BranchSyncStatus {
     Clean,
@@ -35,4 +37,10 @@ impl BranchSync {
             BranchSyncStatus::Clean => None,
         }
     }
+}
+
+pub trait BranchSyncRepository {
+    /// # Errors
+    /// Returns `RepositoryError` if the branch sync status cannot be fetched.
+    fn fetch_sync_status(&self) -> Result<BranchSync, RepositoryError>;
 }

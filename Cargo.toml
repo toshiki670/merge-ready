@@ -31,7 +31,7 @@ path = "src/main.rs"
 
 [[bin]]
 name = "merge-ready-prompt"
-path = "src/bin/prompt.rs"
+path = "src_prompt/main.rs"
 
 [[test]]
 name = "e2e"

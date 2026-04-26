@@ -39,6 +39,18 @@ cargo clippy --workspace -- -D warnings  # lints (must pass)
 cargo fmt --check --all              # formatting check
 cargo deny check                     # dependency audit
 bash scripts/check-layer-deps.sh     # DDD layer dependency rules
+bash scripts/check-no-mod-rs.sh      # forbid mod.rs (use Rust 2018+ style)
+```
+
+## File Naming
+
+Use Rust 2018+ module naming: `foo.rs` instead of `foo/mod.rs`.
+CI will reject new `mod.rs` files (exception: `tests/e2e/` is allowed).
+
+To fix a violation:
+
+```
+foo/bar/mod.rs  →  rename to foo/bar.rs  (keep the content as-is)
 ```
 
 ## Commit Convention

@@ -17,6 +17,14 @@ impl<C: PresentationConfigPort> Presenter<C> {
         Self { config_port }
     }
 
+    pub fn render_output(&self, tokens: &[OutputToken], error: Option<ErrorToken>) -> String {
+        if let Some(err) = error {
+            self.config_port.render_error_token(err)
+        } else {
+            self.render_to_string(tokens)
+        }
+    }
+
     pub fn render_to_string(&self, tokens: &[OutputToken]) -> String {
         tokens
             .iter()

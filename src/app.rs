@@ -8,7 +8,7 @@ use crate::contexts::daemon::application::cache as daemon_cache_app;
 use crate::contexts::daemon::infrastructure::daemon_client::DaemonClient;
 use crate::contexts::evaluation::domain::pr_state::PrStateRepository;
 use crate::contexts::evaluation::infrastructure::{gh::GhClient, logger::Logger};
-use crate::contexts::evaluation::interface::presentation::{PresentationConfigPort, Presenter};
+use crate::contexts::evaluation::interface::presentation::Presenter;
 
 #[allow(clippy::needless_pass_by_value)]
 pub fn run(cli: Cli) -> ExitCode {
@@ -28,12 +28,8 @@ pub fn run(cli: Cli) -> ExitCode {
                             crate::contexts::evaluation::application::prompt::fetch_output(
                                 &client, &Logger,
                             );
-                        let config = ConfigAdapter::load();
-                        let output = if let Some(err) = error {
-                            config.render_error_token(err)
-                        } else {
-                            Presenter::new(config).render_to_string(&tokens)
-                        };
+                        let output =
+                            Presenter::new(ConfigAdapter::load()).render_output(&tokens, error);
                         // エラー時は is_terminal = false（再試行が必要なため）
                         // OnceLock キャッシュ済みの fetch_lifecycle を呼び出すため追加 API 呼び出しなし
                         let is_terminal = error.is_none()

@@ -5,10 +5,9 @@ use clap::CommandFactory;
 use crate::cli::{Cli, Command};
 use crate::contexts::daemon::application::cache as daemon_cache_app;
 use crate::contexts::daemon::infrastructure::daemon_client::DaemonClient;
-use crate::contexts::evaluation::application::config_service::ConfigService;
+use crate::contexts::evaluation::application::config_service;
 use crate::contexts::evaluation::infrastructure::toml_loader::TomlConfigRepository;
 use crate::contexts::evaluation::infrastructure::{gh::GhClient, logger::Logger};
-use crate::contexts::evaluation::interface::presentation::Presenter;
 
 #[allow(clippy::needless_pass_by_value)]
 pub fn run(cli: Cli) -> ExitCode {
@@ -29,8 +28,8 @@ pub fn run(cli: Cli) -> ExitCode {
                             crate::contexts::evaluation::application::prompt::fetch_output(
                                 &client, &Logger,
                             );
-                        let output = Presenter::new(ConfigService::new(&TomlConfigRepository))
-                            .render_output(&tokens, error);
+                        let output =
+                            config_service::render_output(&tokens, error, &TomlConfigRepository);
                         daemon_cache_app::update(&DaemonClient, &repo_id, &output, is_terminal);
                     },
                 );

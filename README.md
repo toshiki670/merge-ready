@@ -53,6 +53,7 @@ This makes it easy to use from shell scripts and prompt hooks.
 ## Output Tokens
 
 - `✓ merge-ready` - ready to merge
+- `+ create-pr` - branch exists but no pull request has been created yet
 - `⚠ review` - changes were requested in review
 - `⚠ ci-action` - CI checks are still in progress
 - `✗ ci-fail` - CI checks failed
@@ -91,7 +92,7 @@ format = "[$output]($style) "
 style = "bold yellow"
 ```
 
-`require_repo = true` limits the module to git repositories without any shell command overhead. `merge-ready-prompt` itself returns `? ...` tokens when there is no associated PR, so no additional filtering is needed.
+`require_repo = true` limits the module to git repositories without any shell command overhead. `merge-ready-prompt` itself returns `+ create-pr` when no pull request exists for the branch, so no additional filtering is needed.
 
 If your environment sets `STARSHIP_SHELL` to a slower shell (for example `fish`), custom modules can be noticeably slower due to shell startup cost. Pinning `shell = ["/bin/zsh"]` (or another lightweight shell on your system) keeps prompt latency low.
 
@@ -111,6 +112,11 @@ All fields are optional — omitting any field falls back to the default shown b
 [merge_ready]
 symbol = "✓"
 label = "merge-ready"
+# format = "$symbol $label"
+
+[no_pull_request]
+symbol = "+"
+label = "create-pr"
 # format = "$symbol $label"
 
 [conflict]

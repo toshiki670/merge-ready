@@ -1,5 +1,4 @@
-use super::ReviewStatus;
-use crate::contexts::evaluation::domain::signal::PromptSignal;
+use super::{ReviewState, ReviewStatus};
 
 /// レビュー状態のドメインモデル
 pub struct Review {
@@ -13,9 +12,9 @@ impl Review {
     }
 
     #[must_use]
-    pub fn signal(&self) -> Option<PromptSignal> {
+    pub fn state(&self) -> Option<ReviewState> {
         match self.status {
-            ReviewStatus::ChangesRequested => Some(PromptSignal::ReviewRequested),
+            ReviewStatus::ChangesRequested => Some(ReviewState::ChangesRequested),
             ReviewStatus::Approved | ReviewStatus::ReviewRequired | ReviewStatus::NoDecision => {
                 None
             }

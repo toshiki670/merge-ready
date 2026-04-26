@@ -1,8 +1,8 @@
 use super::super::domain::branch_sync::BranchSyncRepository;
 use super::super::domain::ci_checks::CiChecksRepository;
-use super::super::domain::merge_ready::MergeReadinessRepository;
 use super::super::domain::pr_state::PrStateRepository;
 use super::super::domain::review::ReviewRepository;
+use super::super::domain::unblocked::UnblockedRepository;
 
 /// prompt ユースケースが必要とするドメインリポジトリを束ねた集約トレイト。
 ///
@@ -12,7 +12,7 @@ pub trait PromptStatusPort:
     + BranchSyncRepository
     + CiChecksRepository
     + ReviewRepository
-    + MergeReadinessRepository
+    + UnblockedRepository
 {
 }
 
@@ -21,6 +21,6 @@ impl<T> PromptStatusPort for T where
         + BranchSyncRepository
         + CiChecksRepository
         + ReviewRepository
-        + MergeReadinessRepository
+        + UnblockedRepository
 {
 }

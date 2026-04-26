@@ -4,4 +4,4 @@ mod status;
 
 pub use model::Review;
 pub use repository::ReviewRepository;
-pub use status::ReviewStatus;
+pub use status::{ReviewState, ReviewStatus};

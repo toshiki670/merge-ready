@@ -1,12 +1,18 @@
-use crate::contexts::evaluation::domain::signal::PromptSignal;
-
-/// ブランチとベースブランチの同期状態
+/// ブランチとベースブランチの同期状態（インフラから取得した生の値）
 pub enum BranchSyncStatus {
     Clean,
     Conflicting,
     Behind,
     /// 同期状態を判定できない（取得手段が利用不可）
     Unknown,
+}
+
+/// ブランチ同期のブロッカー評価状態
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BranchSyncState {
+    Conflict,
+    UpdateBranch,
+    SyncUnknown,
 }
 
 /// ブランチ同期状態のドメインモデル
@@ -21,11 +27,11 @@ impl BranchSync {
     }
 
     #[must_use]
-    pub fn signal(&self) -> Option<PromptSignal> {
+    pub fn state(&self) -> Option<BranchSyncState> {
         match self.status {
-            BranchSyncStatus::Conflicting => Some(PromptSignal::Conflict),
-            BranchSyncStatus::Behind => Some(PromptSignal::UpdateBranch),
-            BranchSyncStatus::Unknown => Some(PromptSignal::SyncUnknown),
+            BranchSyncStatus::Conflicting => Some(BranchSyncState::Conflict),
+            BranchSyncStatus::Behind => Some(BranchSyncState::UpdateBranch),
+            BranchSyncStatus::Unknown => Some(BranchSyncState::SyncUnknown),
             BranchSyncStatus::Clean => None,
         }
     }

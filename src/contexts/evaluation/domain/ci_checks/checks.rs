@@ -1,5 +1,5 @@
+use super::status::CiState;
 use super::{CheckBucket, CiStatus, aggregate::aggregate};
-use crate::contexts::evaluation::domain::signal::PromptSignal;
 
 /// CI チェック集合のドメインモデル
 pub struct CiChecks {
@@ -13,10 +13,10 @@ impl CiChecks {
     }
 
     #[must_use]
-    pub fn signal(&self) -> Option<PromptSignal> {
+    pub fn state(&self) -> Option<CiState> {
         match aggregate(&self.buckets) {
-            CiStatus::Fail => Some(PromptSignal::CiFail),
-            CiStatus::ActionRequired => Some(PromptSignal::CiAction),
+            CiStatus::Fail => Some(CiState::Fail),
+            CiStatus::ActionRequired => Some(CiState::ActionRequired),
             CiStatus::Pass => None,
         }
     }

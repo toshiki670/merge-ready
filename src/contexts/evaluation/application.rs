@@ -1,15 +1,20 @@
 mod branch_sync;
 mod ci_checks;
 pub mod errors;
-mod merge_ready;
 pub mod port;
 mod pr_state;
 pub mod prompt;
 mod review;
+mod unblocked;
 
-use crate::contexts::evaluation::domain::policy::{PromptDecisionPolicy, PromptEvaluation};
+use crate::contexts::evaluation::domain::branch_sync::BranchSyncState;
+use crate::contexts::evaluation::domain::ci_checks::CiState;
+use crate::contexts::evaluation::domain::policy::{
+    BlockedState, PrState, PromptDecisionPolicy, PromptEvaluation,
+};
 use crate::contexts::evaluation::domain::pr_state::is_open;
-use crate::contexts::evaluation::domain::signal::PromptSignal;
+use crate::contexts::evaluation::domain::review::ReviewState;
+use crate::contexts::evaluation::domain::unblocked::UnblockedState;
 use errors::{ErrorLogger, ErrorPresenter};
 use port::PromptStatusPort;
 
@@ -26,15 +31,38 @@ pub enum OutputToken {
     MergeReady,
 }
 
-fn map_signal_to_output_token(signal: PromptSignal) -> OutputToken {
-    match signal {
-        PromptSignal::Conflict => OutputToken::Conflict,
-        PromptSignal::UpdateBranch => OutputToken::UpdateBranch,
-        PromptSignal::SyncUnknown => OutputToken::SyncUnknown,
-        PromptSignal::CiFail => OutputToken::CiFail,
-        PromptSignal::CiAction => OutputToken::CiAction,
-        PromptSignal::ReviewRequested => OutputToken::ReviewRequested,
-        PromptSignal::MergeReady => OutputToken::MergeReady,
+fn map_blocked_to_tokens(blocked: BlockedState) -> Vec<OutputToken> {
+    let mut tokens = Vec::new();
+    if let Some(s) = blocked.branch_sync {
+        tokens.push(match s {
+            BranchSyncState::Conflict => OutputToken::Conflict,
+            BranchSyncState::UpdateBranch => OutputToken::UpdateBranch,
+            BranchSyncState::SyncUnknown => OutputToken::SyncUnknown,
+        });
+    }
+    if let Some(c) = blocked.ci {
+        tokens.push(match c {
+            CiState::Fail => OutputToken::CiFail,
+            CiState::ActionRequired => OutputToken::CiAction,
+        });
+    }
+    if let Some(r) = blocked.review {
+        tokens.push(match r {
+            ReviewState::ChangesRequested => OutputToken::ReviewRequested,
+        });
+    }
+    tokens
+}
+
+fn map_pr_state_to_tokens(state: PrState) -> Vec<OutputToken> {
+    match state {
+        PrState::Blocked(blocked) => map_blocked_to_tokens(blocked),
+        PrState::Unblocked(UnblockedState::MergeReady) => vec![OutputToken::MergeReady],
+        // Draft (#154)、NoPr (#156) は後続 Issue で実装
+        PrState::Unblocked(UnblockedState::Draft)
+        | PrState::NoPr
+        | PrState::NotApplicable
+        | PrState::Unknown => vec![],
     }
 }
 
@@ -62,7 +90,7 @@ where
     }
 
     // branch_sync と ci_checks は独立した gh 呼び出しを必要とするため並列フェッチ
-    // review と merge_ready はキャッシュ済みの pr_view データを使用するため追加呼び出しなし
+    // review と unblocked はキャッシュ済みの pr_view データを使用するため追加呼び出しなし
     let (sync_result, ci_result) = std::thread::scope(|s| {
         let sync_handle = s.spawn(|| branch_sync::fetch(client));
         let ci_handle = s.spawn(|| ci_checks::fetch(client));
@@ -84,17 +112,16 @@ where
     let Some(review_status) = review::fetch(client, err_logger, err_presenter) else {
         return vec![];
     };
-    let Some(readiness) = merge_ready::fetch(client, err_logger, err_presenter) else {
+    let Some(readiness) = unblocked::fetch(client, err_logger, err_presenter) else {
         return vec![];
     };
 
-    PromptDecisionPolicy::evaluate(&PromptEvaluation {
+    let pr_state = PromptDecisionPolicy::evaluate(&PromptEvaluation {
         branch_sync: &sync_status,
         ci_checks: &buckets,
         review: &review_status,
         readiness: &readiness,
-    })
-    .into_iter()
-    .map(map_signal_to_output_token)
-    .collect()
+    });
+
+    map_pr_state_to_tokens(pr_state)
 }

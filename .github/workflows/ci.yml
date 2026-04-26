@@ -56,6 +56,14 @@ jobs:
       - name: Check layer dependency rules
         run: bash scripts/check-layer-deps.sh
 
+  no-mod-rs:
+    name: no-mod-rs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Check no mod.rs files
+        run: bash scripts/check-no-mod-rs.sh
+
   deny:
     name: deny
     runs-on: ubuntu-latest

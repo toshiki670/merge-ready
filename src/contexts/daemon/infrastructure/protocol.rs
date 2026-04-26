@@ -14,6 +14,9 @@ pub enum Request {
     Update {
         repo_id: String,
         output: String,
+        /// PR が closed / merged 状態かどうか。旧バイナリ互換のためデフォルト false。
+        #[serde(default)]
+        is_terminal: bool,
     },
     Stop,
     Status,

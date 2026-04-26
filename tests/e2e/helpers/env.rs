@@ -214,6 +214,40 @@ impl TestEnv {
         }
     }
 
+    /// terminal PR シナリオ（呼び出しカウンタ付き）
+    ///
+    /// `gh pr view` が closed / merged JSON を返す。カウンタログファイルのパスを返す。
+    pub fn with_terminal_pr_call_log(state: &str) -> (Self, std::path::PathBuf) {
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
+        let log_path = home_dir.path().join("gh_calls.log");
+        let log = log_path.display().to_string();
+        let pr_view_json = format!(
+            r#"{{"state":"{state}","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null}}"#
+        );
+        let script = format!(
+            "#!/bin/sh\n\
+             printf '1' >> \"{log}\"\n\
+             case \"$*\" in\n\
+               *'pr view'*)\n\
+                 printf '%s' '{pr_view_json}'\n\
+                 ;;\n\
+               *)\n\
+                 printf 'unexpected gh call: %s' \"$*\" >&2\n\
+                 exit 127\n\
+                 ;;\n\
+             esac\n"
+        );
+        write_executable(bin_dir.path().join("gh"), &script);
+        (
+            Self {
+                bin_dir,
+                home_dir,
+                repo_dir,
+            },
+            log_path,
+        )
+    }
+
     /// PR なしシナリオ: `gh pr view` が "no pull requests found" で exit 1 を返す。
     pub fn with_no_pr() -> Self {
         let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();

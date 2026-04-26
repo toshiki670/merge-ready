@@ -17,3 +17,31 @@ pub enum PrLifecycle {
 pub fn is_open(lifecycle: &PrLifecycle) -> bool {
     matches!(lifecycle, PrLifecycle::Open)
 }
+
+impl PrLifecycle {
+    /// クローズ / マージ済みで追跡不要な状態かどうかを返す。
+    #[must_use]
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, PrLifecycle::Merged | PrLifecycle::Closed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_is_not_terminal() {
+        assert!(!PrLifecycle::Open.is_terminal());
+    }
+
+    #[test]
+    fn merged_is_terminal() {
+        assert!(PrLifecycle::Merged.is_terminal());
+    }
+
+    #[test]
+    fn closed_is_terminal() {
+        assert!(PrLifecycle::Closed.is_terminal());
+    }
+}

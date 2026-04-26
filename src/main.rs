@@ -1,4 +1,3 @@
-mod adapters;
 mod app;
 mod cli;
 mod contexts;

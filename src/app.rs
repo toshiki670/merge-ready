@@ -2,19 +2,20 @@ use std::process::ExitCode;
 
 use clap::CommandFactory;
 
-use crate::adapters::ConfigAdapter;
 use crate::cli::{Cli, Command};
 use crate::contexts::daemon::application::cache as daemon_cache_app;
 use crate::contexts::daemon::infrastructure::daemon_client::DaemonClient;
+use crate::contexts::evaluation::application::config_service;
+use crate::contexts::evaluation::infrastructure::toml_loader::TomlConfigRepository;
 use crate::contexts::evaluation::infrastructure::{gh::GhClient, logger::Logger};
-use crate::contexts::evaluation::interface::presentation::Presenter;
 
 #[allow(clippy::needless_pass_by_value)]
 pub fn run(cli: Cli) -> ExitCode {
     match cli.command {
         Some(Command::Config) => {
-            let config_path = crate::contexts::config::infrastructure::toml_loader::config_path();
-            crate::contexts::config::interface::cli::run(config_path.as_deref())
+            let config_path =
+                crate::contexts::evaluation::infrastructure::toml_loader::config_path();
+            crate::contexts::evaluation::interface::cli::config::run(config_path.as_deref())
         }
         Some(Command::Daemon(args)) => {
             crate::contexts::evaluation::infrastructure::logger::init();
@@ -28,7 +29,7 @@ pub fn run(cli: Cli) -> ExitCode {
                                 &client, &Logger,
                             );
                         let output =
-                            Presenter::new(ConfigAdapter::load()).render_output(&tokens, error);
+                            config_service::render_output(&tokens, error, &TomlConfigRepository);
                         daemon_cache_app::update(&DaemonClient, &repo_id, &output, is_terminal);
                     },
                 );

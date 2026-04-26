@@ -29,7 +29,7 @@ fn ensure_config_file(path: &Path) -> Result<(), std::io::Error> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let config = crate::contexts::config::application::config_updater::default_config();
+    let config = crate::contexts::evaluation::application::config_service::default_display_config();
     let content = toml::to_string_pretty(&config)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     std::fs::write(path, content.as_bytes())

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 const DEFAULT_FORMAT: &str = "$symbol $label";
 
 #[derive(Deserialize, Serialize, Default)]
-pub struct Config {
+pub struct DisplayConfig {
     pub merge_ready: Option<TokenConfig>,
     pub conflict: Option<TokenConfig>,
     pub update_branch: Option<TokenConfig>,
@@ -14,7 +14,7 @@ pub struct Config {
     pub error: Option<ErrorConfig>,
 }
 
-impl Config {
+impl DisplayConfig {
     pub fn fill_defaults(&mut self) {
         let tok = |symbol: &str, label: &str| TokenConfig {
             symbol: Some(symbol.to_owned()),
@@ -40,6 +40,10 @@ impl Config {
             .get_or_insert_with(|| tok("✗", "rate-limited"));
         error.api_error.get_or_insert_with(|| tok("✗", "api-error"));
     }
+}
+
+pub trait DisplayConfigRepository {
+    fn load(&self) -> DisplayConfig;
 }
 
 #[derive(Deserialize, Serialize)]

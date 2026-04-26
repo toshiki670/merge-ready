@@ -1,18 +1,17 @@
 use std::path::PathBuf;
 
-use crate::contexts::config::domain::config::Config;
-use crate::contexts::config::domain::repository::ConfigRepository;
+use crate::contexts::evaluation::domain::display_config::{DisplayConfig, DisplayConfigRepository};
 
 pub struct TomlConfigRepository;
 
 #[allow(clippy::unused_self)]
-impl ConfigRepository for TomlConfigRepository {
-    fn load(&self) -> Config {
+impl DisplayConfigRepository for TomlConfigRepository {
+    fn load(&self) -> DisplayConfig {
         let Some(path) = config_path() else {
-            return Config::default();
+            return DisplayConfig::default();
         };
         let Ok(content) = std::fs::read_to_string(path) else {
-            return Config::default();
+            return DisplayConfig::default();
         };
         toml::from_str(&content).unwrap_or_default()
     }

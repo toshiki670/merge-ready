@@ -30,6 +30,8 @@ struct CacheEntry {
     refreshing: bool,
     refresh_started_at: Option<Instant>,
     cwd: PathBuf,
+    /// PR が closed / merged 確認済みかどうか。true の場合バックグラウンドリフレッシュを停止する。
+    is_terminal: bool,
 }
 
 struct DaemonState {
@@ -293,7 +295,11 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
             let cwd_path = PathBuf::from(cwd);
             process_query(&repo_id, cwd_path, ttl, version_mismatch, &mut s.entries)
         }
-        Request::Update { repo_id, output } => process_update(repo_id, output, &mut s.entries),
+        Request::Update {
+            repo_id,
+            output,
+            is_terminal,
+        } => process_update(repo_id, output, *is_terminal, &mut s.entries),
         Request::Stop => ActionResult {
             response: Response::Ok,
             refresh_repo_id: None,
@@ -320,6 +326,14 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
     }
 }
 
+fn effective_ttl(entry: &CacheEntry, base_ttl: u64) -> u64 {
+    if entry.is_terminal {
+        background_refresh_secs()
+    } else {
+        base_ttl
+    }
+}
+
 fn process_query(
     repo_id: &str,
     cwd_path: PathBuf,
@@ -328,8 +342,8 @@ fn process_query(
     entries: &mut HashMap<String, CacheEntry>,
 ) -> ActionResult {
     match entries.get(repo_id) {
-        Some(entry) if entry.fetched_at.elapsed().as_secs() <= ttl => {
-            // Fresh キャッシュ
+        Some(entry) if entry.fetched_at.elapsed().as_secs() <= effective_ttl(entry, ttl) => {
+            // Fresh キャッシュ（terminal エントリは background_refresh_secs を TTL として使用）
             ActionResult {
                 response: Response::Output {
                     output: entry.output.clone(),
@@ -347,6 +361,7 @@ fn process_query(
             let stored_cwd = entry.cwd.clone();
             let need_refresh = !entry.refreshing;
             let refreshing_now = entry.refreshing;
+            let is_terminal = entry.is_terminal;
             process_stale_query(
                 repo_id,
                 StaleQueryParams {
@@ -356,6 +371,7 @@ fn process_query(
                     need_refresh,
                     refreshing_now,
                     restart_after_response,
+                    is_terminal,
                 },
                 entries,
             )
@@ -374,6 +390,7 @@ fn process_query(
                     refreshing: true,
                     refresh_started_at: Some(Instant::now()),
                     cwd: cwd_path.clone(),
+                    is_terminal: false,
                 },
             );
             ActionResult {
@@ -435,6 +452,7 @@ struct StaleQueryParams {
     need_refresh: bool,
     refreshing_now: bool,
     restart_after_response: bool,
+    is_terminal: bool,
 }
 
 // no-PR cache is a valid empty output. Keep returning empty output while scheduling background
@@ -451,7 +469,18 @@ fn process_stale_query(
         need_refresh,
         refreshing_now,
         restart_after_response,
+        is_terminal,
     } = params;
+
+    // terminal エントリが stale になったら is_terminal をリセットして再アクティブ化する。
+    // 再取得後に依然 closed / merged なら process_update が is_terminal = true を再設定する。
+    if let Some(entry) = entries.get_mut(repo_id)
+        && is_terminal
+        && need_refresh
+    {
+        entry.is_terminal = false;
+    }
+
     if output.is_empty() {
         if refreshing_now && !has_fetched {
             return ActionResult {
@@ -491,7 +520,9 @@ fn process_stale_query(
 }
 
 fn is_active_entry(entry: &CacheEntry) -> bool {
-    !entry.output.is_empty()
+    // no-PR entries and terminal (closed/merged) entries are treated as inactive so they do not
+    // keep the daemon alive forever. They can be re-created on the next prompt.
+    !entry.output.is_empty() && !entry.is_terminal
 }
 
 fn refresh_lock_expired(entry: &CacheEntry) -> bool {
@@ -503,6 +534,7 @@ fn refresh_lock_expired(entry: &CacheEntry) -> bool {
 fn process_update(
     repo_id: &str,
     output: &str,
+    is_terminal: bool,
     entries: &mut HashMap<String, CacheEntry>,
 ) -> ActionResult {
     if let Some(entry) = entries.get_mut(repo_id) {
@@ -511,6 +543,7 @@ fn process_update(
         entry.fetched_at = Instant::now();
         entry.refreshing = false;
         entry.refresh_started_at = None;
+        entry.is_terminal = is_terminal;
     } else {
         entries.insert(
             repo_id.to_owned(),
@@ -521,6 +554,7 @@ fn process_update(
                 refreshing: false,
                 refresh_started_at: None,
                 cwd: PathBuf::new(),
+                is_terminal,
             },
         );
     }
@@ -565,4 +599,143 @@ fn collect_background_refresh_targets(
         s.last_activity = Instant::now();
     }
     targets
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_entry(output: &str, is_terminal: bool) -> CacheEntry {
+        CacheEntry {
+            output: output.to_owned(),
+            has_fetched: true,
+            fetched_at: Instant::now(),
+            refreshing: false,
+            refresh_started_at: None,
+            cwd: PathBuf::new(),
+            is_terminal,
+        }
+    }
+
+    // ── is_active_entry ────────────────────────────────────────────────────────
+
+    #[test]
+    fn active_when_non_empty_output_and_not_terminal() {
+        assert!(is_active_entry(&make_entry("✓ merge-ready", false)));
+    }
+
+    #[test]
+    fn inactive_when_empty_output() {
+        assert!(!is_active_entry(&make_entry("", false)));
+    }
+
+    #[test]
+    fn inactive_when_terminal_with_empty_output() {
+        assert!(!is_active_entry(&make_entry("", true)));
+    }
+
+    #[test]
+    fn inactive_when_terminal_even_with_non_empty_output() {
+        assert!(!is_active_entry(&make_entry("✓ merge-ready", true)));
+    }
+
+    // ── process_update ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn process_update_sets_is_terminal_true() {
+        let mut entries = HashMap::new();
+        entries.insert("repo".to_owned(), make_entry("✓ merge-ready", false));
+        process_update("repo", "", true, &mut entries);
+        assert!(entries["repo"].is_terminal);
+    }
+
+    #[test]
+    fn process_update_clears_is_terminal_when_pr_reopens() {
+        let mut entries = HashMap::new();
+        entries.insert("repo".to_owned(), make_entry("", true));
+        process_update("repo", "✓ merge-ready", false, &mut entries);
+        assert!(!entries["repo"].is_terminal);
+    }
+
+    // ── collect_background_refresh_targets ─────────────────────────────────────
+
+    #[test]
+    fn background_refresh_skips_terminal_entry() {
+        let state = Arc::new(Mutex::new(DaemonState::new()));
+        {
+            let mut s = state.lock().unwrap();
+            // terminal エントリ（stale）
+            let mut entry = make_entry("✓ merge-ready", true);
+            entry.fetched_at = Instant::now()
+                .checked_sub(Duration::from_secs(9999))
+                .unwrap();
+            s.entries.insert("repo".to_owned(), entry);
+        }
+        let targets = collect_background_refresh_targets(&state, 1);
+        assert!(
+            targets.is_empty(),
+            "terminal エントリはバックグラウンドリフレッシュ対象外のはず"
+        );
+    }
+
+    #[test]
+    fn background_refresh_includes_active_entry() {
+        let state = Arc::new(Mutex::new(DaemonState::new()));
+        {
+            let mut s = state.lock().unwrap();
+            let mut entry = make_entry("✓ merge-ready", false);
+            entry.fetched_at = Instant::now()
+                .checked_sub(Duration::from_secs(9999))
+                .unwrap();
+            entry.cwd = PathBuf::from("/some/repo");
+            s.entries.insert("repo".to_owned(), entry);
+        }
+        let targets = collect_background_refresh_targets(&state, 1);
+        assert_eq!(targets.len(), 1);
+    }
+
+    // ── effective_ttl ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn terminal_entry_uses_background_refresh_secs_as_ttl() {
+        let entry = make_entry("", true);
+        assert_eq!(effective_ttl(&entry, 5), background_refresh_secs());
+    }
+
+    #[test]
+    fn non_terminal_entry_uses_base_ttl() {
+        let entry = make_entry("✓ merge-ready", false);
+        assert_eq!(effective_ttl(&entry, 5), 5);
+    }
+
+    // ── process_stale_query: 再アクティブ化 ────────────────────────────────────
+
+    #[test]
+    fn stale_terminal_entry_resets_is_terminal_on_reactivation() {
+        let mut entries = HashMap::new();
+        let mut entry = make_entry("", true);
+        entry.fetched_at = Instant::now()
+            .checked_sub(Duration::from_secs(9999))
+            .unwrap();
+        entries.insert("repo".to_owned(), entry);
+
+        process_stale_query(
+            "repo",
+            StaleQueryParams {
+                output: String::new(),
+                has_fetched: true,
+                stored_cwd: PathBuf::new(),
+                need_refresh: true,
+                refreshing_now: false,
+                restart_after_response: false,
+                is_terminal: true,
+            },
+            &mut entries,
+        );
+
+        assert!(
+            !entries["repo"].is_terminal,
+            "stale terminal エントリは is_terminal がリセットされるはず"
+        );
+    }
 }

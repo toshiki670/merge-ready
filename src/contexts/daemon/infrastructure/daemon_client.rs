@@ -12,10 +12,11 @@ const READ_TIMEOUT_MS: u64 = 500;
 pub struct DaemonClient;
 
 impl CachePort for DaemonClient {
-    fn update(&self, repo_id: &str, output: &str) {
+    fn update(&self, repo_id: &str, output: &str, is_terminal: bool) {
         let _ = Self::send(&Request::Update {
             repo_id: repo_id.to_owned(),
             output: output.to_owned(),
+            is_terminal,
         });
     }
 }

@@ -621,7 +621,7 @@ mod tests {
 
     #[test]
     fn active_when_non_empty_output_and_not_terminal() {
-        assert!(is_active_entry(&make_entry("✓ merge-ready", false)));
+        assert!(is_active_entry(&make_entry("✓ Ready for merge", false)));
     }
 
     #[test]
@@ -636,7 +636,7 @@ mod tests {
 
     #[test]
     fn inactive_when_terminal_even_with_non_empty_output() {
-        assert!(!is_active_entry(&make_entry("✓ merge-ready", true)));
+        assert!(!is_active_entry(&make_entry("✓ Ready for merge", true)));
     }
 
     // ── process_update ─────────────────────────────────────────────────────────
@@ -644,7 +644,7 @@ mod tests {
     #[test]
     fn process_update_sets_is_terminal_true() {
         let mut entries = HashMap::new();
-        entries.insert("repo".to_owned(), make_entry("✓ merge-ready", false));
+        entries.insert("repo".to_owned(), make_entry("✓ Ready for merge", false));
         process_update("repo", "", true, &mut entries);
         assert!(entries["repo"].is_terminal);
     }
@@ -653,7 +653,7 @@ mod tests {
     fn process_update_clears_is_terminal_when_pr_reopens() {
         let mut entries = HashMap::new();
         entries.insert("repo".to_owned(), make_entry("", true));
-        process_update("repo", "✓ merge-ready", false, &mut entries);
+        process_update("repo", "✓ Ready for merge", false, &mut entries);
         assert!(!entries["repo"].is_terminal);
     }
 
@@ -665,7 +665,7 @@ mod tests {
         {
             let mut s = state.lock().unwrap();
             // terminal エントリ（stale）
-            let mut entry = make_entry("✓ merge-ready", true);
+            let mut entry = make_entry("✓ Ready for merge", true);
             entry.fetched_at = Instant::now()
                 .checked_sub(Duration::from_secs(9999))
                 .unwrap();
@@ -683,7 +683,7 @@ mod tests {
         let state = Arc::new(Mutex::new(DaemonState::new()));
         {
             let mut s = state.lock().unwrap();
-            let mut entry = make_entry("✓ merge-ready", false);
+            let mut entry = make_entry("✓ Ready for merge", false);
             entry.fetched_at = Instant::now()
                 .checked_sub(Duration::from_secs(9999))
                 .unwrap();
@@ -704,7 +704,7 @@ mod tests {
 
     #[test]
     fn non_terminal_entry_uses_base_ttl() {
-        let entry = make_entry("✓ merge-ready", false);
+        let entry = make_entry("✓ Ready for merge", false);
         assert_eq!(effective_ttl(&entry, 5), 5);
     }
 

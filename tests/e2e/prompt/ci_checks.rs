@@ -1,6 +1,6 @@
 //! CI チェックの E2E テスト（シナリオ #23–29）
 //!
-//! 対象条件: `ci-fail` / `ci-action`（`gh pr checks --json bucket,state` の結果）
+//! 対象条件: `ci_fail` / `ci_action`（`gh pr checks --json bucket,state` の結果）
 //! 実行フローは daemon 経由（`merge-ready prompt`）に統一する。
 
 use assert_cmd::Command;
@@ -32,16 +32,20 @@ fn assert_prompt(env: &TestEnv, expected: &str) {
 
 // ── #23–26, #29: checks bucket ────────────────────────────────────────────────
 
-/// #23 `fail` / #24 `cancel` → `✗ ci-fail`
-/// #25 `action_required` → `⚠ ci-action`
-/// #26 `fail` + `action_required` 混在 → `✗ ci-fail`（`ci-action` は抑制）
-/// #29 `ci-fail` + `review` → 両方をスペース区切りで出力
+/// #23 `fail` / #24 `cancel` → `✗ Fix CI failure`
+/// #25 `action_required` → `⚠ Run CI action`
+/// #26 `fail` + `action_required` 混在 → `✗ Fix CI failure`（`Run CI action` は抑制）
+/// #29 `Fix CI failure` + `Resolve review` → 両方をスペース区切りで出力
 #[rstest]
-#[case::ci_fail_failure(BLOCKED_NO_REVIEW, FAIL_JSON, "✗ ci-fail")]
-#[case::ci_fail_cancelled(BLOCKED_NO_REVIEW, CANCEL_JSON, "✗ ci-fail")]
-#[case::ci_action(BLOCKED_NO_REVIEW, ACTION_REQUIRED_JSON, "⚠ ci-action")]
-#[case::ci_fail_wins_over_ci_action(BLOCKED_NO_REVIEW, FAIL_AND_ACTION_JSON, "✗ ci-fail")]
-#[case::ci_fail_and_review(BLOCKED_CHANGES_REQUESTED, FAIL_JSON, "✗ ci-fail ⚠ review")]
+#[case::ci_fail_failure(BLOCKED_NO_REVIEW, FAIL_JSON, "✗ Fix CI failure")]
+#[case::ci_fail_cancelled(BLOCKED_NO_REVIEW, CANCEL_JSON, "✗ Fix CI failure")]
+#[case::ci_action(BLOCKED_NO_REVIEW, ACTION_REQUIRED_JSON, "⚠ Run CI action")]
+#[case::ci_fail_wins_over_ci_action(BLOCKED_NO_REVIEW, FAIL_AND_ACTION_JSON, "✗ Fix CI failure")]
+#[case::ci_fail_and_review(
+    BLOCKED_CHANGES_REQUESTED,
+    FAIL_JSON,
+    "✗ Fix CI failure ⚠ Resolve review"
+)]
 fn test_ci_check_prompt(#[case] pr_json: &str, #[case] checks_json: &str, #[case] expected: &str) {
     let env = TestEnv::new(pr_json, Some(checks_json));
     assert_prompt(&env, expected);
@@ -49,11 +53,11 @@ fn test_ci_check_prompt(#[case] pr_json: &str, #[case] checks_json: &str, #[case
 
 // ── #27–28: CI 未設定 ─────────────────────────────────────────────────────────
 
-/// #27 `no checks reported` + review なし → `✓ merge-ready`
-/// #28 `no checks reported` + review あり → `⚠ review`
+/// #27 `no checks reported` + review なし → `✓ Ready for merge`
+/// #28 `no checks reported` + review あり → `⚠ Resolve review`
 #[rstest]
-#[case::merge_ready(APPROVED_CLEAN, "✓ merge-ready")]
-#[case::review(BLOCKED_CHANGES_REQUESTED, "⚠ review")]
+#[case::merge_ready(APPROVED_CLEAN, "✓ Ready for merge")]
+#[case::review(BLOCKED_CHANGES_REQUESTED, "⚠ Resolve review")]
 fn test_no_ci_checks_prompt(#[case] pr_json: &str, #[case] expected: &str) {
     let env = TestEnv::with_no_ci_checks(pr_json);
     assert_prompt(&env, expected);

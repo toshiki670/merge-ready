@@ -32,7 +32,7 @@ fn test_initial_load_then_shows_result() {
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
-        .stdout(predicate::str::diff("✓ merge-ready"));
+        .stdout(predicate::str::diff("✓ Ready for merge"));
 
     // 自動起動された daemon を後始末
     let bin = assert_cmd::cargo::cargo_bin(BIN);

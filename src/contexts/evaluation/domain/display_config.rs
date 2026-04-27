@@ -12,7 +12,7 @@ pub struct DisplayConfig {
     pub ci_fail: Option<TokenConfig>,
     pub ci_action: Option<TokenConfig>,
     pub ci_pending: Option<TokenConfig>,
-    pub review: Option<TokenConfig>,
+    pub changes_requested: Option<TokenConfig>,
     pub review_required: Option<TokenConfig>,
     pub draft: Option<TokenConfig>,
     pub status_calculating: Option<TokenConfig>,
@@ -27,25 +27,29 @@ impl DisplayConfig {
             format: None,
         };
         self.merge_ready
-            .get_or_insert_with(|| tok("✓", "merge-ready"));
+            .get_or_insert_with(|| tok("✓", "Ready for merge"));
         self.no_pull_request
-            .get_or_insert_with(|| tok("+", "create-pr"));
-        self.conflict.get_or_insert_with(|| tok("✗", "conflict"));
+            .get_or_insert_with(|| tok("+", "Create PR"));
+        self.conflict
+            .get_or_insert_with(|| tok("✗", "Resolve conflict"));
         self.update_branch
-            .get_or_insert_with(|| tok("✗", "update-branch"));
+            .get_or_insert_with(|| tok("✗", "Update branch"));
         self.sync_unknown
-            .get_or_insert_with(|| tok("?", "sync-unknown"));
-        self.ci_fail.get_or_insert_with(|| tok("✗", "ci-fail"));
-        self.ci_action.get_or_insert_with(|| tok("⚠", "ci-action"));
+            .get_or_insert_with(|| tok("?", "Check branch sync"));
+        self.ci_fail
+            .get_or_insert_with(|| tok("✗", "Fix CI failure"));
+        self.ci_action
+            .get_or_insert_with(|| tok("⚠", "Run CI action"));
         self.ci_pending
-            .get_or_insert_with(|| tok("⧖", "wait-for-ci"));
-        self.review.get_or_insert_with(|| tok("⚠", "review"));
+            .get_or_insert_with(|| tok("⧖", "Wait for CI"));
+        self.changes_requested
+            .get_or_insert_with(|| tok("⚠", "Resolve review"));
         self.review_required
-            .get_or_insert_with(|| tok("@", "assign-reviewer"));
+            .get_or_insert_with(|| tok("@", "Assign reviewer"));
         self.draft
-            .get_or_insert_with(|| tok("✎", "ready-for-review"));
+            .get_or_insert_with(|| tok("✎", "Ready for review"));
         self.status_calculating
-            .get_or_insert_with(|| tok("⧖", "wait-for-status"));
+            .get_or_insert_with(|| tok("⧖", "Wait for status"));
         let error = self.error.get_or_insert_with(ErrorConfig::empty);
         error
             .auth_required
@@ -103,7 +107,7 @@ mod tests {
         config.fill_defaults();
         let tok = config.no_pull_request.as_ref().unwrap();
         assert_eq!(tok.symbol.as_deref(), Some("+"));
-        assert_eq!(tok.label.as_deref(), Some("create-pr"));
+        assert_eq!(tok.label.as_deref(), Some("Create PR"));
     }
 
     #[test]
@@ -112,7 +116,7 @@ mod tests {
         config.fill_defaults();
         let tok = config.draft.as_ref().unwrap();
         assert_eq!(tok.symbol.as_deref(), Some("✎"));
-        assert_eq!(tok.label.as_deref(), Some("ready-for-review"));
+        assert_eq!(tok.label.as_deref(), Some("Ready for review"));
     }
 
     #[test]
@@ -121,7 +125,7 @@ mod tests {
         config.fill_defaults();
         let tok = config.review_required.as_ref().unwrap();
         assert_eq!(tok.symbol.as_deref(), Some("@"));
-        assert_eq!(tok.label.as_deref(), Some("assign-reviewer"));
+        assert_eq!(tok.label.as_deref(), Some("Assign reviewer"));
     }
 
     #[test]
@@ -130,7 +134,7 @@ mod tests {
         config.fill_defaults();
         let tok = config.ci_pending.as_ref().unwrap();
         assert_eq!(tok.symbol.as_deref(), Some("⧖"));
-        assert_eq!(tok.label.as_deref(), Some("wait-for-ci"));
+        assert_eq!(tok.label.as_deref(), Some("Wait for CI"));
     }
 
     #[test]
@@ -139,6 +143,6 @@ mod tests {
         config.fill_defaults();
         let tok = config.status_calculating.as_ref().unwrap();
         assert_eq!(tok.symbol.as_deref(), Some("⧖"));
-        assert_eq!(tok.label.as_deref(), Some("wait-for-status"));
+        assert_eq!(tok.label.as_deref(), Some("Wait for status"));
     }
 }

@@ -1,8 +1,8 @@
 //! レビュー状態の E2E テスト（シナリオ #30, #31）
 //!
 //! 対象条件:
-//!   #30: `reviewDecision == CHANGES_REQUESTED` → `⚠ review`
-//!   #31: `reviewDecision == REVIEW_REQUIRED`   → `@ assign-reviewer`
+//!   #30: `reviewDecision == CHANGES_REQUESTED` → `⚠ Resolve review`
+//!   #31: `reviewDecision == REVIEW_REQUIRED`   → `@ Assign reviewer`
 //! 実行フローは daemon 経由（`merge-ready prompt`）に統一する。
 
 const PROMPT_BIN: &str = "merge-ready-prompt";
@@ -11,7 +11,7 @@ use assert_cmd::Command;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
 
-/// #30: `reviewDecision == CHANGES_REQUESTED` → `⚠ review`
+/// #30: `reviewDecision == CHANGES_REQUESTED` → `⚠ Resolve review`
 #[test]
 fn test_review_changes_requested() {
     let env = TestEnv::new(
@@ -23,10 +23,10 @@ fn test_review_changes_requested() {
 
     let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
-    cmd.assert().success().stdout("⚠ review").stderr("");
+    cmd.assert().success().stdout("⚠ Resolve review").stderr("");
 }
 
-/// #31: `reviewDecision == REVIEW_REQUIRED` → `@ assign-reviewer`
+/// #31: `reviewDecision == REVIEW_REQUIRED` → `@ Assign reviewer`
 #[test]
 fn test_review_required() {
     let env = TestEnv::new(
@@ -40,6 +40,6 @@ fn test_review_required() {
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
-        .stdout("@ assign-reviewer")
+        .stdout("@ Assign reviewer")
         .stderr("");
 }

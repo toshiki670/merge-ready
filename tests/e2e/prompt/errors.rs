@@ -20,7 +20,7 @@ fn cmd(env: &TestEnv) -> Command {
 
 // ── #34: gh が PATH に存在しない ──────────────────────────────────────────────
 
-/// #34: `gh` バイナリが `PATH` に存在しない → `! gh auth login`
+/// #34: `gh` バイナリが `PATH` に存在しない → `✗ authentication required`
 #[test]
 fn test_gh_not_installed() {
     let env = TestEnv::without_gh();
@@ -30,36 +30,40 @@ fn test_gh_not_installed() {
     cmd(&env)
         .assert()
         .success()
-        .stdout("! gh auth login")
+        .stdout("✗ authentication required")
         .stderr("");
 }
 
 // ── #35–39: with_error() 系 ───────────────────────────────────────────────────
 
-/// #35 `exit 4`（未ログイン）/ #36 `HTTP 401`（認証エラー）→ `! gh auth login`
-/// #37 `HTTP 500` / #38 `connection refused` → `✗ api-error`
-/// #39 `HTTP 403`（レート制限）→ `✗ rate-limited`
+/// #35 `exit 4`（未ログイン）/ #36 `HTTP 401`（認証エラー）→ `✗ authentication required`
+/// #37 `HTTP 500` / #38 `connection refused` → `✗ <error message>`
+/// #39 `HTTP 403`（レート制限）→ `✗ rate limited`
 #[rstest]
 #[case::not_logged_in(
     "To get started with GitHub CLI, please run:  gh auth login",
     4,
-    "! gh auth login"
+    "✗ authentication required"
 )]
 #[case::bad_credentials(
     "HTTP 401: Bad credentials (https://api.github.com/graphql)",
     1,
-    "! gh auth login"
+    "✗ authentication required"
 )]
-#[case::api_error("HTTP 500: Internal Server Error", 1, "✗ api-error")]
+#[case::api_error(
+    "HTTP 500: Internal Server Error",
+    1,
+    "✗ HTTP 500: Internal Server Error"
+)]
 #[case::no_network(
     r#"Post "https://api.github.com/graphql": dial tcp: connection refused"#,
     1,
-    "✗ api-error"
+    r#"✗ Post "https://api.github.com/graphql": dial tcp: connection refused"#
 )]
 #[case::rate_limited(
     "HTTP 403: API rate limit exceeded (https://api.github.com/graphql)",
     1,
-    "✗ rate-limited"
+    "✗ rate limited"
 )]
 fn test_error_output(#[case] msg: &str, #[case] code: u8, #[case] expected: &str) {
     let env = TestEnv::with_error(msg, code);
@@ -75,14 +79,17 @@ fn test_error_output(#[case] msg: &str, #[case] code: u8, #[case] expected: &str
 
 // ── #40: タイムアウト ─────────────────────────────────────────────────────────
 
-/// #40: `gh` がハングした場合、タイムアウト後に `✗ api-error` を返すこと。
+/// #40: `gh` がハングした場合、タイムアウト後に `✗ gh command timed out` を返すこと。
 #[test]
 fn test_gh_timeout() {
     let env = TestEnv::with_hanging_gh();
     let _daemon = DaemonHandle::start_with_env(&env, &[("MERGE_READY_GH_TIMEOUT_SECS", "2")]);
     DaemonHandle::wait_for_cache(&env, 10000);
 
-    cmd(&env).assert().success().stdout("✗ api-error");
+    cmd(&env)
+        .assert()
+        .success()
+        .stdout("✗ gh command timed out");
 }
 
 // ── #41: エラーログ ───────────────────────────────────────────────────────────

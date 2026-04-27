@@ -173,20 +173,9 @@ symbol = "⧖"
 label = "Wait for status"
 # format = "$symbol $label"
 
-[error.auth_required]
-symbol = "!"
-label = "gh auth login"
-# format = "$symbol $label"
-
-[error.rate_limited]
+[error]
 symbol = "✗"
-label = "rate-limited"
-# format = "$symbol $label"
-
-[error.api_error]
-symbol = "✗"
-label = "api-error"
-# format = "$symbol $label"
+# format = "$symbol $message"
 ```
 
 Each token supports three optional fields:
@@ -196,6 +185,13 @@ Each token supports three optional fields:
 | `symbol` | Leading symbol | see above |
 | `label` | Status text | see above |
 | `format` | Output template | `"$symbol $label"` |
+
+The `[error]` section uses `$message` instead of `$label`. The message is set automatically from the error that occurred (e.g. `authentication required`, `rate limited`, or the raw API error message).
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| `symbol` | Leading symbol | `"✗"` |
+| `format` | Output template | `"$symbol $message"` |
 
 ## Requirements
 

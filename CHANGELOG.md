@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.2] - 2026-04-27
+### Features
+- PR 未作成時に  を表示する ([#167](https://github.com/toshiki670/merge-ready/pull/167)) ([`c65a91e`](https://github.com/toshiki670/merge-ready/commit/c65a91e491d4c505ee0f9295af890e099747f364))
+
+
 ## [0.4.1] - 2026-04-26
 ### Bug Fixes
 - Stale_delay_ms の初回 gh 呼び出しを即時化してフレーキーを解消 ([#152](https://github.com/toshiki670/merge-ready/pull/152)) ([`9bbd609`](https://github.com/toshiki670/merge-ready/commit/9bbd609e6316ded71ee4c61d04523c2c715af309))

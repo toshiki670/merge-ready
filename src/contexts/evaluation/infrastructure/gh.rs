@@ -160,6 +160,7 @@ fn translate_sync(mergeable: &str, behind_by: Option<u64>) -> Option<BranchSyncS
 fn translate_review(decision: Option<&str>) -> Option<ReviewState> {
     match decision {
         Some("CHANGES_REQUESTED") => Some(ReviewState::ChangesRequested),
+        Some("REVIEW_REQUIRED") => Some(ReviewState::ReviewRequired),
         _ => None,
     }
 }

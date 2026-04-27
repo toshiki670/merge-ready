@@ -21,6 +21,7 @@ pub enum OutputToken {
     ReviewRequested,
     MergeReady,
     NoPullRequest,
+    Draft,
 }
 
 fn map_blocked_to_tokens(blocked: BlockedState) -> Vec<OutputToken> {
@@ -50,14 +51,10 @@ pub(crate) fn map_pr_state_to_tokens(state: PrState) -> Vec<OutputToken> {
     match state {
         PrState::Blocked(blocked) => map_blocked_to_tokens(blocked),
         PrState::Unblocked(UnblockedState::MergeReady) => vec![OutputToken::MergeReady],
+        PrState::Unblocked(UnblockedState::Draft) => vec![OutputToken::Draft],
         PrState::NoPr => vec![OutputToken::NoPullRequest],
-        // Draft (#154) は後続 Issue で実装
         // NotApplicable / Unknown は何も表示しない
-        PrState::Unblocked(UnblockedState::Draft)
-        | PrState::NotApplicable(_)
-        | PrState::Unknown => {
-            vec![]
-        }
+        PrState::NotApplicable(_) | PrState::Unknown => vec![],
     }
 }
 
@@ -70,5 +67,12 @@ mod tests {
         let tokens = map_pr_state_to_tokens(PrState::NoPr);
         assert_eq!(tokens.len(), 1);
         assert!(matches!(tokens[0], OutputToken::NoPullRequest));
+    }
+
+    #[test]
+    fn draft_pr_maps_to_draft_token() {
+        let tokens = map_pr_state_to_tokens(PrState::Unblocked(UnblockedState::Draft));
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(tokens[0], OutputToken::Draft));
     }
 }

@@ -64,6 +64,11 @@ fn render_token(config: &DisplayConfig, token: &OutputToken) -> String {
         OutputToken::ReviewRequested => {
             apply_format(config.review.as_ref().unwrap_or(&empty()), "⚠", "review")
         }
+        OutputToken::Draft => apply_format(
+            config.draft.as_ref().unwrap_or(&empty()),
+            "✎",
+            "ready-for-review",
+        ),
     }
 }
 
@@ -112,5 +117,11 @@ mod tests {
     fn no_pull_request_renders_with_default_config() {
         let result = render_output(&[OutputToken::NoPullRequest], None, &DefaultRepo);
         assert_eq!(result, "+ create-pr");
+    }
+
+    #[test]
+    fn draft_renders_with_default_config() {
+        let result = render_output(&[OutputToken::Draft], None, &DefaultRepo);
+        assert_eq!(result, "✎ ready-for-review");
     }
 }

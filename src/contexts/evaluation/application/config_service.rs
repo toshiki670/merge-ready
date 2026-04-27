@@ -1,9 +1,11 @@
-use super::super::domain::display_config::{DisplayConfig, DisplayConfigRepository, render_token};
+use super::super::domain::display_config::{
+    DisplayConfig, DisplayConfigRepository, render_error_token, render_token,
+};
 use super::{OutputToken, errors::ErrorToken};
 
 pub fn render_output(
     tokens: &[OutputToken],
-    error: Option<ErrorToken>,
+    error: Option<&ErrorToken>,
     repo: &impl DisplayConfigRepository,
 ) -> String {
     let config = repo.load();
@@ -39,12 +41,8 @@ fn render_token_output(config: &DisplayConfig, token: &OutputToken) -> String {
     }
 }
 
-fn render_error(config: &DisplayConfig, token: ErrorToken) -> String {
-    match token {
-        ErrorToken::AuthRequired => render_token(&config.error.auth_required),
-        ErrorToken::RateLimited => render_token(&config.error.rate_limited),
-        ErrorToken::ApiError => render_token(&config.error.api_error),
-    }
+fn render_error(config: &DisplayConfig, token: &ErrorToken) -> String {
+    render_error_token(&config.error, &token.message)
 }
 
 #[cfg(test)]
@@ -86,5 +84,23 @@ mod tests {
     fn status_calculating_renders_with_default_config() {
         let result = render_output(&[OutputToken::StatusCalculating], None, &DefaultRepo);
         assert_eq!(result, "⧖ Wait for status");
+    }
+
+    #[test]
+    fn error_renders_with_message() {
+        let token = ErrorToken {
+            message: "authentication required".to_owned(),
+        };
+        let result = render_output(&[], Some(&token), &DefaultRepo);
+        assert_eq!(result, "✗ authentication required");
+    }
+
+    #[test]
+    fn error_renders_rate_limited_message() {
+        let token = ErrorToken {
+            message: "rate limited".to_owned(),
+        };
+        let result = render_output(&[], Some(&token), &DefaultRepo);
+        assert_eq!(result, "✗ rate limited");
     }
 }

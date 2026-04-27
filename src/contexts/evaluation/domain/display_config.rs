@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 const DEFAULT_FORMAT: &str = "$symbol $label";
+const DEFAULT_ERROR_FORMAT: &str = "$symbol $message";
 
 #[derive(Serialize)]
 pub struct DisplayConfig {
@@ -65,24 +66,25 @@ pub fn render_token(token: &TokenConfig) -> String {
 
 #[derive(Serialize)]
 pub struct ErrorConfig {
-    pub auth_required: TokenConfig,
-    pub rate_limited: TokenConfig,
-    pub api_error: TokenConfig,
+    pub symbol: String,
+    pub format: String,
 }
 
 impl Default for ErrorConfig {
     fn default() -> Self {
-        let tok = |symbol: &str, label: &str| TokenConfig {
-            symbol: symbol.to_owned(),
-            label: label.to_owned(),
-            format: DEFAULT_FORMAT.to_owned(),
-        };
         Self {
-            auth_required: tok("!", "gh auth login"),
-            rate_limited: tok("✗", "rate-limited"),
-            api_error: tok("✗", "api-error"),
+            symbol: "✗".to_owned(),
+            format: DEFAULT_ERROR_FORMAT.to_owned(),
         }
     }
+}
+
+#[must_use]
+pub fn render_error_token(config: &ErrorConfig, message: &str) -> String {
+    config
+        .format
+        .replace("$symbol", &config.symbol)
+        .replace("$message", message)
 }
 
 #[cfg(test)]
@@ -122,5 +124,33 @@ mod tests {
         let config = DisplayConfig::default();
         assert_eq!(config.status_calculating.symbol, "⧖");
         assert_eq!(config.status_calculating.label, "Wait for status");
+    }
+
+    #[test]
+    fn default_error_config_sets_symbol_and_format() {
+        let config = DisplayConfig::default();
+        assert_eq!(config.error.symbol, "✗");
+        assert_eq!(config.error.format, "$symbol $message");
+    }
+
+    #[test]
+    fn render_error_token_substitutes_symbol_and_message() {
+        let config = ErrorConfig::default();
+        assert_eq!(
+            render_error_token(&config, "rate limited"),
+            "✗ rate limited"
+        );
+    }
+
+    #[test]
+    fn render_error_token_respects_custom_format() {
+        let config = ErrorConfig {
+            symbol: "!".to_owned(),
+            format: "[$symbol] $message".to_owned(),
+        };
+        assert_eq!(
+            render_error_token(&config, "authentication required"),
+            "[!] authentication required"
+        );
     }
 }

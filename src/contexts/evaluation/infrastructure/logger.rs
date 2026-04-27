@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use simplelog::{Config, LevelFilter, WriteLogger};
 
-use crate::contexts::evaluation::domain::error::{ErrorCategory, LogRecord};
+use crate::contexts::evaluation::application::port::{ErrorCategory, ErrorLogger, LogRecord};
 
 pub struct Logger;
 
@@ -25,7 +25,7 @@ fn log_path() -> Option<PathBuf> {
     Some(dir.join("error.log"))
 }
 
-impl crate::contexts::evaluation::application::errors::ErrorLogger for Logger {
+impl ErrorLogger for Logger {
     fn log(&self, record: &LogRecord) {
         let category = match record.category {
             ErrorCategory::Auth => "Auth",

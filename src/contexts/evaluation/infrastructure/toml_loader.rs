@@ -56,9 +56,8 @@ fn merge_error(raw: Option<RawErrorConfig>, default: ErrorConfig) -> ErrorConfig
         return default;
     };
     ErrorConfig {
-        auth_required: merge_token(raw.auth_required, default.auth_required),
-        rate_limited: merge_token(raw.rate_limited, default.rate_limited),
-        api_error: merge_token(raw.api_error, default.api_error),
+        symbol: raw.symbol.unwrap_or(default.symbol),
+        format: raw.format.unwrap_or(default.format),
     }
 }
 
@@ -97,7 +96,6 @@ struct RawTokenConfig {
 
 #[derive(Deserialize)]
 struct RawErrorConfig {
-    auth_required: Option<RawTokenConfig>,
-    rate_limited: Option<RawTokenConfig>,
-    api_error: Option<RawTokenConfig>,
+    symbol: Option<String>,
+    format: Option<String>,
 }

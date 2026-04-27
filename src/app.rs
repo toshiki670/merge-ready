@@ -28,8 +28,11 @@ pub fn run(cli: Cli) -> ExitCode {
                             crate::contexts::evaluation::application::prompt::fetch_output(
                                 &client, &Logger,
                             );
-                        let output =
-                            config_service::render_output(&tokens, error, &TomlConfigRepository);
+                        let output = config_service::render_output(
+                            &tokens,
+                            error.as_ref(),
+                            &TomlConfigRepository,
+                        );
                         daemon_cache_app::update(&DaemonClient, &repo_id, &output, is_terminal);
                     },
                 );

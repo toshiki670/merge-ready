@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.3] - 2026-04-27
+### Features
+- Draft PR のとき ✎ ready-for-review を表示する ([#173](https://github.com/toshiki670/merge-ready/pull/173)) ([`c639ecf`](https://github.com/toshiki670/merge-ready/commit/c639ecfa0f0a1dd73f62f1d677c5105f977c827a))
+
+
 ## [0.4.2] - 2026-04-27
 ### Features
 - PR 未作成時に  を表示する ([#167](https://github.com/toshiki670/merge-ready/pull/167)) ([`c65a91e`](https://github.com/toshiki670/merge-ready/commit/c65a91e491d4c505ee0f9295af890e099747f364))

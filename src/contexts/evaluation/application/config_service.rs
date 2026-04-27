@@ -1,6 +1,4 @@
-use super::super::domain::display_config::{
-    DisplayConfig, DisplayConfigRepository, TokenConfig, render_token as apply_format,
-};
+use super::super::domain::display_config::{DisplayConfig, DisplayConfigRepository, render_token};
 use super::{OutputToken, errors::ErrorToken};
 
 pub fn render_output(
@@ -14,110 +12,38 @@ pub fn render_output(
     } else {
         tokens
             .iter()
-            .map(|t| render_token(&config, t))
+            .map(|t| render_token_output(&config, t))
             .collect::<Vec<_>>()
             .join(" ")
     }
 }
 
 pub fn default_display_config() -> DisplayConfig {
-    let mut config = DisplayConfig::default();
-    config.fill_defaults();
-    config
+    DisplayConfig::default()
 }
 
-fn render_token(config: &DisplayConfig, token: &OutputToken) -> String {
+fn render_token_output(config: &DisplayConfig, token: &OutputToken) -> String {
     match token {
-        OutputToken::MergeReady => apply_format(
-            config.merge_ready.as_ref().unwrap_or(&empty()),
-            "✓",
-            "Ready for merge",
-        ),
-        OutputToken::NoPullRequest => apply_format(
-            config.no_pull_request.as_ref().unwrap_or(&empty()),
-            "+",
-            "Create PR",
-        ),
-        OutputToken::Conflict => apply_format(
-            config.conflict.as_ref().unwrap_or(&empty()),
-            "✗",
-            "Resolve conflict",
-        ),
-        OutputToken::UpdateBranch => apply_format(
-            config.update_branch.as_ref().unwrap_or(&empty()),
-            "✗",
-            "Update branch",
-        ),
-        OutputToken::SyncUnknown => apply_format(
-            config.sync_unknown.as_ref().unwrap_or(&empty()),
-            "?",
-            "Check branch sync",
-        ),
-        OutputToken::CiFail => apply_format(
-            config.ci_fail.as_ref().unwrap_or(&empty()),
-            "✗",
-            "Fix CI failure",
-        ),
-        OutputToken::CiAction => apply_format(
-            config.ci_action.as_ref().unwrap_or(&empty()),
-            "⚠",
-            "Run CI action",
-        ),
-        OutputToken::CiPending => apply_format(
-            config.ci_pending.as_ref().unwrap_or(&empty()),
-            "⧖",
-            "Wait for CI",
-        ),
-        OutputToken::ReviewRequested => apply_format(
-            config.changes_requested.as_ref().unwrap_or(&empty()),
-            "⚠",
-            "Resolve review",
-        ),
-        OutputToken::ReviewRequired => apply_format(
-            config.review_required.as_ref().unwrap_or(&empty()),
-            "@",
-            "Assign reviewer",
-        ),
-        OutputToken::Draft => apply_format(
-            config.draft.as_ref().unwrap_or(&empty()),
-            "✎",
-            "Ready for review",
-        ),
-        OutputToken::StatusCalculating => apply_format(
-            config.status_calculating.as_ref().unwrap_or(&empty()),
-            "⧖",
-            "Wait for status",
-        ),
+        OutputToken::MergeReady => render_token(&config.merge_ready),
+        OutputToken::NoPullRequest => render_token(&config.no_pull_request),
+        OutputToken::Conflict => render_token(&config.conflict),
+        OutputToken::UpdateBranch => render_token(&config.update_branch),
+        OutputToken::SyncUnknown => render_token(&config.sync_unknown),
+        OutputToken::CiFail => render_token(&config.ci_fail),
+        OutputToken::CiAction => render_token(&config.ci_action),
+        OutputToken::CiPending => render_token(&config.ci_pending),
+        OutputToken::ReviewRequested => render_token(&config.changes_requested),
+        OutputToken::ReviewRequired => render_token(&config.review_required),
+        OutputToken::Draft => render_token(&config.draft),
+        OutputToken::StatusCalculating => render_token(&config.status_calculating),
     }
 }
 
 fn render_error(config: &DisplayConfig, token: ErrorToken) -> String {
-    let ec = config.error.as_ref();
     match token {
-        ErrorToken::AuthRequired => apply_format(
-            ec.and_then(|e| e.auth_required.as_ref())
-                .unwrap_or(&empty()),
-            "!",
-            "gh auth login",
-        ),
-        ErrorToken::RateLimited => apply_format(
-            ec.and_then(|e| e.rate_limited.as_ref()).unwrap_or(&empty()),
-            "✗",
-            "rate-limited",
-        ),
-        ErrorToken::ApiError => apply_format(
-            ec.and_then(|e| e.api_error.as_ref()).unwrap_or(&empty()),
-            "✗",
-            "api-error",
-        ),
-    }
-}
-
-fn empty() -> TokenConfig {
-    TokenConfig {
-        symbol: None,
-        label: None,
-        format: None,
+        ErrorToken::AuthRequired => render_token(&config.error.auth_required),
+        ErrorToken::RateLimited => render_token(&config.error.rate_limited),
+        ErrorToken::ApiError => render_token(&config.error.api_error),
     }
 }
 
@@ -128,7 +54,7 @@ mod tests {
     struct DefaultRepo;
     impl DisplayConfigRepository for DefaultRepo {
         fn load(&self) -> DisplayConfig {
-            default_display_config()
+            DisplayConfig::default()
         }
     }
 

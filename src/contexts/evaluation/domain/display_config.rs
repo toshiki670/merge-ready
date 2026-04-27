@@ -1,63 +1,46 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 const DEFAULT_FORMAT: &str = "$symbol $label";
 
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Serialize)]
 pub struct DisplayConfig {
-    pub merge_ready: Option<TokenConfig>,
-    pub no_pull_request: Option<TokenConfig>,
-    pub conflict: Option<TokenConfig>,
-    pub update_branch: Option<TokenConfig>,
-    pub sync_unknown: Option<TokenConfig>,
-    pub ci_fail: Option<TokenConfig>,
-    pub ci_action: Option<TokenConfig>,
-    pub ci_pending: Option<TokenConfig>,
-    pub changes_requested: Option<TokenConfig>,
-    pub review_required: Option<TokenConfig>,
-    pub draft: Option<TokenConfig>,
-    pub status_calculating: Option<TokenConfig>,
-    pub error: Option<ErrorConfig>,
+    pub merge_ready: TokenConfig,
+    pub no_pull_request: TokenConfig,
+    pub conflict: TokenConfig,
+    pub update_branch: TokenConfig,
+    pub sync_unknown: TokenConfig,
+    pub ci_fail: TokenConfig,
+    pub ci_action: TokenConfig,
+    pub ci_pending: TokenConfig,
+    pub changes_requested: TokenConfig,
+    pub review_required: TokenConfig,
+    pub draft: TokenConfig,
+    pub status_calculating: TokenConfig,
+    pub error: ErrorConfig,
 }
 
-impl DisplayConfig {
-    pub fn fill_defaults(&mut self) {
+impl Default for DisplayConfig {
+    fn default() -> Self {
         let tok = |symbol: &str, label: &str| TokenConfig {
-            symbol: Some(symbol.to_owned()),
-            label: Some(label.to_owned()),
-            format: None,
+            symbol: symbol.to_owned(),
+            label: label.to_owned(),
+            format: DEFAULT_FORMAT.to_owned(),
         };
-        self.merge_ready
-            .get_or_insert_with(|| tok("✓", "Ready for merge"));
-        self.no_pull_request
-            .get_or_insert_with(|| tok("+", "Create PR"));
-        self.conflict
-            .get_or_insert_with(|| tok("✗", "Resolve conflict"));
-        self.update_branch
-            .get_or_insert_with(|| tok("✗", "Update branch"));
-        self.sync_unknown
-            .get_or_insert_with(|| tok("?", "Check branch sync"));
-        self.ci_fail
-            .get_or_insert_with(|| tok("✗", "Fix CI failure"));
-        self.ci_action
-            .get_or_insert_with(|| tok("⚠", "Run CI action"));
-        self.ci_pending
-            .get_or_insert_with(|| tok("⧖", "Wait for CI"));
-        self.changes_requested
-            .get_or_insert_with(|| tok("⚠", "Resolve review"));
-        self.review_required
-            .get_or_insert_with(|| tok("@", "Assign reviewer"));
-        self.draft
-            .get_or_insert_with(|| tok("✎", "Ready for review"));
-        self.status_calculating
-            .get_or_insert_with(|| tok("⧖", "Wait for status"));
-        let error = self.error.get_or_insert_with(ErrorConfig::empty);
-        error
-            .auth_required
-            .get_or_insert_with(|| tok("!", "gh auth login"));
-        error
-            .rate_limited
-            .get_or_insert_with(|| tok("✗", "rate-limited"));
-        error.api_error.get_or_insert_with(|| tok("✗", "api-error"));
+        Self {
+            merge_ready: tok("✓", "Ready for merge"),
+            no_pull_request: tok("+", "Create PR"),
+            conflict: tok("✗", "Resolve conflict"),
+            update_branch: tok("✗", "Update branch"),
+            sync_unknown: tok("?", "Check branch sync"),
+            ci_fail: tok("✗", "Fix CI failure"),
+            ci_action: tok("⚠", "Run CI action"),
+            ci_pending: tok("⧖", "Wait for CI"),
+            changes_requested: tok("⚠", "Resolve review"),
+            review_required: tok("@", "Assign reviewer"),
+            draft: tok("✎", "Ready for review"),
+            status_calculating: tok("⧖", "Wait for status"),
+            error: ErrorConfig::default(),
+        }
     }
 }
 
@@ -65,34 +48,39 @@ pub trait DisplayConfigRepository {
     fn load(&self) -> DisplayConfig;
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Serialize)]
 pub struct TokenConfig {
-    pub symbol: Option<String>,
-    pub label: Option<String>,
-    pub format: Option<String>,
+    pub symbol: String,
+    pub label: String,
+    pub format: String,
 }
 
 #[must_use]
-pub fn render_token(token: &TokenConfig, default_symbol: &str, default_label: &str) -> String {
-    let symbol = token.symbol.as_deref().unwrap_or(default_symbol);
-    let label = token.label.as_deref().unwrap_or(default_label);
-    let fmt = token.format.as_deref().unwrap_or(DEFAULT_FORMAT);
-    fmt.replace("$symbol", symbol).replace("$label", label)
+pub fn render_token(token: &TokenConfig) -> String {
+    token
+        .format
+        .replace("$symbol", &token.symbol)
+        .replace("$label", &token.label)
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Serialize)]
 pub struct ErrorConfig {
-    pub auth_required: Option<TokenConfig>,
-    pub rate_limited: Option<TokenConfig>,
-    pub api_error: Option<TokenConfig>,
+    pub auth_required: TokenConfig,
+    pub rate_limited: TokenConfig,
+    pub api_error: TokenConfig,
 }
 
-impl ErrorConfig {
-    fn empty() -> Self {
+impl Default for ErrorConfig {
+    fn default() -> Self {
+        let tok = |symbol: &str, label: &str| TokenConfig {
+            symbol: symbol.to_owned(),
+            label: label.to_owned(),
+            format: DEFAULT_FORMAT.to_owned(),
+        };
         Self {
-            auth_required: None,
-            rate_limited: None,
-            api_error: None,
+            auth_required: tok("!", "gh auth login"),
+            rate_limited: tok("✗", "rate-limited"),
+            api_error: tok("✗", "api-error"),
         }
     }
 }
@@ -102,47 +90,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fill_defaults_sets_no_pull_request() {
-        let mut config = DisplayConfig::default();
-        config.fill_defaults();
-        let tok = config.no_pull_request.as_ref().unwrap();
-        assert_eq!(tok.symbol.as_deref(), Some("+"));
-        assert_eq!(tok.label.as_deref(), Some("Create PR"));
+    fn default_sets_no_pull_request() {
+        let config = DisplayConfig::default();
+        assert_eq!(config.no_pull_request.symbol, "+");
+        assert_eq!(config.no_pull_request.label, "Create PR");
     }
 
     #[test]
-    fn fill_defaults_sets_draft() {
-        let mut config = DisplayConfig::default();
-        config.fill_defaults();
-        let tok = config.draft.as_ref().unwrap();
-        assert_eq!(tok.symbol.as_deref(), Some("✎"));
-        assert_eq!(tok.label.as_deref(), Some("Ready for review"));
+    fn default_sets_draft() {
+        let config = DisplayConfig::default();
+        assert_eq!(config.draft.symbol, "✎");
+        assert_eq!(config.draft.label, "Ready for review");
     }
 
     #[test]
-    fn fill_defaults_sets_review_required() {
-        let mut config = DisplayConfig::default();
-        config.fill_defaults();
-        let tok = config.review_required.as_ref().unwrap();
-        assert_eq!(tok.symbol.as_deref(), Some("@"));
-        assert_eq!(tok.label.as_deref(), Some("Assign reviewer"));
+    fn default_sets_review_required() {
+        let config = DisplayConfig::default();
+        assert_eq!(config.review_required.symbol, "@");
+        assert_eq!(config.review_required.label, "Assign reviewer");
     }
 
     #[test]
-    fn fill_defaults_sets_ci_pending() {
-        let mut config = DisplayConfig::default();
-        config.fill_defaults();
-        let tok = config.ci_pending.as_ref().unwrap();
-        assert_eq!(tok.symbol.as_deref(), Some("⧖"));
-        assert_eq!(tok.label.as_deref(), Some("Wait for CI"));
+    fn default_sets_ci_pending() {
+        let config = DisplayConfig::default();
+        assert_eq!(config.ci_pending.symbol, "⧖");
+        assert_eq!(config.ci_pending.label, "Wait for CI");
     }
 
     #[test]
-    fn fill_defaults_sets_status_calculating() {
-        let mut config = DisplayConfig::default();
-        config.fill_defaults();
-        let tok = config.status_calculating.as_ref().unwrap();
-        assert_eq!(tok.symbol.as_deref(), Some("⧖"));
-        assert_eq!(tok.label.as_deref(), Some("Wait for status"));
+    fn default_sets_status_calculating() {
+        let config = DisplayConfig::default();
+        assert_eq!(config.status_calculating.symbol, "⧖");
+        assert_eq!(config.status_calculating.label, "Wait for status");
     }
 }

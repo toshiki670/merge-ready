@@ -53,6 +53,7 @@ This makes it easy to use from shell scripts and prompt hooks.
 ## Output Tokens
 
 - `✓ merge-ready` - ready to merge
+- `✎ ready-for-review` - pull request is in draft state
 - `+ create-pr` - branch exists but no pull request has been created yet
 - `⚠ review` - changes were requested in review
 - `⚠ ci-action` - CI checks are still in progress
@@ -147,6 +148,11 @@ label = "ci-action"
 [review]
 symbol = "⚠"
 label = "review"
+# format = "$symbol $label"
+
+[draft]
+symbol = "✎"
+label = "ready-for-review"
 # format = "$symbol $label"
 
 [error.auth_required]

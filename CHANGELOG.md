@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-04-27
+### Features
+- ReviewDecision == "REVIEW_REQUIRED" のとき @ assign-reviewer を表示する ([#180](https://github.com/toshiki670/merge-ready/pull/180)) ([`8ea56db`](https://github.com/toshiki670/merge-ready/commit/8ea56dbe0190d62fb8607473903e5b3373115446))
+- CI チェック実行中（pending）のとき ⧖ wait-for-ci を表示する ([#181](https://github.com/toshiki670/merge-ready/pull/181)) ([`85a084a`](https://github.com/toshiki670/merge-ready/commit/85a084ae413f8676277097e7f8ebe3f03d321a5b))
+- MergeStateStatus が UNKNOWN のとき ⧖ wait-for-status を表示する ([#182](https://github.com/toshiki670/merge-ready/pull/182)) ([`96b6ae8`](https://github.com/toshiki670/merge-ready/commit/96b6ae831c21a586bef62ca2a83cfdcab3caca98))
+- [**BREAKING**] ラベルをセンテンスケースのアクション表現に統一し、review キーを changes_requested に改名 ([#185](https://github.com/toshiki670/merge-ready/pull/185)) ([`e2e5746`](https://github.com/toshiki670/merge-ready/commit/e2e5746108945dfd60f48fd2e22b06dd4e631f38))
+- [**BREAKING**] [error] を単一セクションに統一し、静的 label をエラーメッセージで置換する ([#189](https://github.com/toshiki670/merge-ready/pull/189)) ([`4503387`](https://github.com/toshiki670/merge-ready/commit/4503387f02d3385c961aae7fff53f7ebe95bc3f5))
+
+
 ## [0.4.3] - 2026-04-27
 ### Features
 - Draft PR のとき ✎ ready-for-review を表示する ([#173](https://github.com/toshiki670/merge-ready/pull/173)) ([`c639ecf`](https://github.com/toshiki670/merge-ready/commit/c639ecfa0f0a1dd73f62f1d677c5105f977c827a))

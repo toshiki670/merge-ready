@@ -125,4 +125,10 @@ mod tests {
         );
         assert!(matches!(state, PrState::Blocked(_)));
     }
+
+    #[test]
+    fn calculating_is_not_terminal() {
+        let state = PrState::NotApplicable(NotApplicableState::Calculating);
+        assert!(!state.is_terminal());
+    }
 }

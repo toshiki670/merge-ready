@@ -79,6 +79,11 @@ fn render_token(config: &DisplayConfig, token: &OutputToken) -> String {
             "✎",
             "ready-for-review",
         ),
+        OutputToken::StatusCalculating => apply_format(
+            config.status_calculating.as_ref().unwrap_or(&empty()),
+            "⧖",
+            "wait-for-status",
+        ),
     }
 }
 
@@ -145,5 +150,11 @@ mod tests {
     fn ci_pending_renders_with_default_config() {
         let result = render_output(&[OutputToken::CiPending], None, &DefaultRepo);
         assert_eq!(result, "⧖ wait-for-ci");
+    }
+
+    #[test]
+    fn status_calculating_renders_with_default_config() {
+        let result = render_output(&[OutputToken::StatusCalculating], None, &DefaultRepo);
+        assert_eq!(result, "⧖ wait-for-status");
     }
 }

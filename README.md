@@ -56,11 +56,14 @@ This makes it easy to use from shell scripts and prompt hooks.
 - `✎ ready-for-review` - pull request is in draft state
 - `+ create-pr` - branch exists but no pull request has been created yet
 - `⚠ review` - changes were requested in review
-- `⚠ ci-action` - CI checks are still in progress
+- `@ assign-reviewer` - no reviewer assigned yet
+- `⚠ ci-action` - CI checks require manual action
+- `⧖ wait-for-ci` - CI checks are pending
 - `✗ ci-fail` - CI checks failed
 - `✗ conflict` - merge conflicts exist
 - `✗ update-branch` - branch is behind base branch
 - `? sync-unknown` - branch sync status is unknown
+- `⧖ wait-for-status` - GitHub is calculating merge status
 - `? loading` - cache miss; daemon is fetching in the background
 
 ## Background Daemon
@@ -145,14 +148,29 @@ symbol = "⚠"
 label = "ci-action"
 # format = "$symbol $label"
 
+[ci_pending]
+symbol = "⧖"
+label = "wait-for-ci"
+# format = "$symbol $label"
+
 [review]
 symbol = "⚠"
 label = "review"
 # format = "$symbol $label"
 
+[review_required]
+symbol = "@"
+label = "assign-reviewer"
+# format = "$symbol $label"
+
 [draft]
 symbol = "✎"
 label = "ready-for-review"
+# format = "$symbol $label"
+
+[status_calculating]
+symbol = "⧖"
+label = "wait-for-status"
 # format = "$symbol $label"
 
 [error.auth_required]

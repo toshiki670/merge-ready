@@ -36,7 +36,8 @@ impl DisplayConfig {
             .get_or_insert_with(|| tok("?", "sync-unknown"));
         self.ci_fail.get_or_insert_with(|| tok("✗", "ci-fail"));
         self.ci_action.get_or_insert_with(|| tok("⚠", "ci-action"));
-        self.ci_pending.get_or_insert_with(|| tok("⧖", "wait-for-ci"));
+        self.ci_pending
+            .get_or_insert_with(|| tok("⧖", "wait-for-ci"));
         self.review.get_or_insert_with(|| tok("⚠", "review"));
         self.review_required
             .get_or_insert_with(|| tok("@", "assign-reviewer"));

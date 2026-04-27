@@ -142,7 +142,16 @@ impl PrRepository for GhClient {
         let review = translate_review(pr_view.review_decision.as_deref());
         let unblocked = translate_unblocked(pr_view.is_draft, &pr_view.merge_state_status);
 
-        Ok(evaluate(branch_sync, ci, review, unblocked))
+        let state = evaluate(branch_sync, ci, review, unblocked);
+        if matches!(state, PrState::Unknown)
+            && matches!(
+                pr_view.merge_state_status.as_str(),
+                "MERGE_STATE_UNKNOWN" | "UNKNOWN"
+            )
+        {
+            return Ok(PrState::NotApplicable(NotApplicableState::Calculating));
+        }
+        Ok(state)
     }
 }
 
@@ -214,6 +223,16 @@ mod tests {
     fn aggregate_ci_no_pending_returns_none() {
         let buckets = vec![CheckBucket::Other];
         assert_eq!(aggregate_ci(&buckets), None);
+    }
+
+    #[test]
+    fn translate_unblocked_merge_state_unknown_returns_none() {
+        assert_eq!(translate_unblocked(false, "MERGE_STATE_UNKNOWN"), None);
+    }
+
+    #[test]
+    fn translate_unblocked_unknown_returns_none() {
+        assert_eq!(translate_unblocked(false, "UNKNOWN"), None);
     }
 }
 

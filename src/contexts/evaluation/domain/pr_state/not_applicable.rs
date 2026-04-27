@@ -9,4 +9,6 @@ pub enum NotApplicableState {
     DefaultBranch,
     /// Git リポジトリ外での実行
     NoRepository,
+    /// GitHub がマージ状態を計算中（過渡的な状態）
+    Calculating,
 }

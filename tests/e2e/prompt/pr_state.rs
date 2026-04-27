@@ -14,6 +14,8 @@ use super::super::helpers::{DaemonHandle, TestEnv};
 const CLOSED_PR: &str = r#"{"state":"CLOSED","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null}"#;
 const MERGED_PR: &str = r#"{"state":"MERGED","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null}"#;
 const DRAFT_PR: &str = r#"{"state":"OPEN","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
+const MERGE_STATE_UNKNOWN_PR: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"MERGE_STATE_UNKNOWN","reviewDecision":null,"baseRefName":"","headRefName":""}"#;
+const UNKNOWN_STATUS_PR: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null,"baseRefName":"","headRefName":""}"#;
 
 fn assert_prompt(env: &TestEnv, expected: &str) {
     let _daemon = DaemonHandle::start(env);
@@ -76,4 +78,20 @@ fn test_draft_pr_shows_ready_for_review() {
 fn test_non_open_pr_shows_nothing(#[case] pr_json: &str) {
     let env = TestEnv::new(pr_json, None);
     assert_prompt_empty(&env);
+}
+
+// ── #179: MERGE_STATE_UNKNOWN / UNKNOWN ──────────────────────────────────────
+
+/// #179: `mergeStateStatus == "MERGE_STATE_UNKNOWN"` → `⧖ wait-for-status`
+#[test]
+fn test_merge_state_unknown_shows_wait_for_status() {
+    let env = TestEnv::new(MERGE_STATE_UNKNOWN_PR, Some(r#"[]"#));
+    assert_prompt(&env, "⧖ wait-for-status");
+}
+
+/// #179: `mergeStateStatus == "UNKNOWN"` → `⧖ wait-for-status`
+#[test]
+fn test_unknown_merge_state_status_shows_wait_for_status() {
+    let env = TestEnv::new(UNKNOWN_STATUS_PR, Some(r#"[]"#));
+    assert_prompt(&env, "⧖ wait-for-status");
 }

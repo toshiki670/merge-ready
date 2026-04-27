@@ -2,6 +2,7 @@ pub mod config_service;
 pub mod errors;
 pub mod prompt;
 
+use crate::contexts::evaluation::domain::pr_state::NotApplicableState;
 use crate::contexts::evaluation::domain::pr_state::PrState;
 use crate::contexts::evaluation::domain::pr_state::blocked::BlockedState;
 use crate::contexts::evaluation::domain::pr_state::blocked::branch_sync::BranchSyncState;
@@ -24,6 +25,7 @@ pub enum OutputToken {
     MergeReady,
     NoPullRequest,
     Draft,
+    StatusCalculating,
 }
 
 fn map_blocked_to_tokens(blocked: BlockedState) -> Vec<OutputToken> {
@@ -57,7 +59,10 @@ pub(crate) fn map_pr_state_to_tokens(state: PrState) -> Vec<OutputToken> {
         PrState::Unblocked(UnblockedState::MergeReady) => vec![OutputToken::MergeReady],
         PrState::Unblocked(UnblockedState::Draft) => vec![OutputToken::Draft],
         PrState::NoPr => vec![OutputToken::NoPullRequest],
-        // NotApplicable / Unknown は何も表示しない
+        PrState::NotApplicable(NotApplicableState::Calculating) => {
+            vec![OutputToken::StatusCalculating]
+        }
+        // NotApplicable（Calculating 以外）/ Unknown は何も表示しない
         PrState::NotApplicable(_) | PrState::Unknown => vec![],
     }
 }
@@ -104,5 +109,13 @@ mod tests {
         let tokens = map_pr_state_to_tokens(PrState::Blocked(blocked));
         assert_eq!(tokens.len(), 1);
         assert!(matches!(tokens[0], OutputToken::CiPending));
+    }
+
+    #[test]
+    fn calculating_maps_to_status_calculating_token() {
+        let tokens =
+            map_pr_state_to_tokens(PrState::NotApplicable(NotApplicableState::Calculating));
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(tokens[0], OutputToken::StatusCalculating));
     }
 }

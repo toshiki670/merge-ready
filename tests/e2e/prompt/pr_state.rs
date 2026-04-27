@@ -13,6 +13,19 @@ use super::super::helpers::{DaemonHandle, TestEnv};
 
 const CLOSED_PR: &str = r#"{"state":"CLOSED","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null}"#;
 const MERGED_PR: &str = r#"{"state":"MERGED","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null}"#;
+const DRAFT_PR: &str = r#"{"state":"OPEN","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
+
+fn assert_prompt(env: &TestEnv, expected: &str) {
+    let _daemon = DaemonHandle::start(env);
+    DaemonHandle::wait_for_cache(env, 5000);
+
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::diff(expected.to_owned()))
+        .stderr("");
+}
 
 fn assert_prompt_empty(env: &TestEnv) {
     let _daemon = DaemonHandle::start(env);
@@ -41,6 +54,17 @@ fn test_no_pr() {
         .success()
         .stdout(predicate::str::diff("+ create-pr"))
         .stderr("");
+}
+
+// ── #32–33: CLOSED / MERGED ───────────────────────────────────────────────────
+
+// ── #34: Draft PR ────────────────────────────────────────────────────────────
+
+/// #34: Draft PR → `✎ ready-for-review`
+#[test]
+fn test_draft_pr_shows_ready_for_review() {
+    let env = TestEnv::new(DRAFT_PR, Some(r#"[]"#));
+    assert_prompt(&env, "✎ ready-for-review");
 }
 
 // ── #32–33: CLOSED / MERGED ───────────────────────────────────────────────────

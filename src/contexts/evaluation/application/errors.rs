@@ -1,8 +1,7 @@
-use crate::contexts::evaluation::domain::error::{ErrorCategory, LogRecord, RepositoryError};
+use crate::contexts::evaluation::domain::error::RepositoryError;
 
-pub trait ErrorLogger {
-    fn log(&self, record: &LogRecord);
-}
+pub use super::port::ErrorLogger;
+use super::port::{ErrorCategory, LogRecord};
 
 /// エラー時に表示するトークン。メッセージはエラー発生箇所で定義される。
 #[derive(Clone)]

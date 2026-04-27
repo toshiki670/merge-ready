@@ -47,6 +47,7 @@ pub(super) enum CheckBucket {
     Fail,
     Cancel,
     ActionRequired,
+    Pending,
     Other,
 }
 
@@ -55,6 +56,17 @@ pub(super) fn translate_bucket(bucket: &str) -> CheckBucket {
         "fail" => CheckBucket::Fail,
         "cancel" => CheckBucket::Cancel,
         "action_required" => CheckBucket::ActionRequired,
+        "pending" => CheckBucket::Pending,
         _ => CheckBucket::Other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn translate_bucket_pending() {
+        assert!(matches!(translate_bucket("pending"), CheckBucket::Pending));
     }
 }

@@ -3,4 +3,6 @@
 pub enum ReviewState {
     /// レビュアーが変更を要求している
     ChangesRequested,
+    /// レビュアーがまだアサインされていない
+    ReviewRequired,
 }

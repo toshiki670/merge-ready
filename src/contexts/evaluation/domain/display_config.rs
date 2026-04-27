@@ -12,6 +12,7 @@ pub struct DisplayConfig {
     pub ci_fail: Option<TokenConfig>,
     pub ci_action: Option<TokenConfig>,
     pub review: Option<TokenConfig>,
+    pub review_required: Option<TokenConfig>,
     pub draft: Option<TokenConfig>,
     pub error: Option<ErrorConfig>,
 }
@@ -35,6 +36,8 @@ impl DisplayConfig {
         self.ci_fail.get_or_insert_with(|| tok("✗", "ci-fail"));
         self.ci_action.get_or_insert_with(|| tok("⚠", "ci-action"));
         self.review.get_or_insert_with(|| tok("⚠", "review"));
+        self.review_required
+            .get_or_insert_with(|| tok("@", "assign-reviewer"));
         self.draft
             .get_or_insert_with(|| tok("✎", "ready-for-review"));
         let error = self.error.get_or_insert_with(ErrorConfig::empty);
@@ -104,5 +107,14 @@ mod tests {
         let tok = config.draft.as_ref().unwrap();
         assert_eq!(tok.symbol.as_deref(), Some("✎"));
         assert_eq!(tok.label.as_deref(), Some("ready-for-review"));
+    }
+
+    #[test]
+    fn fill_defaults_sets_review_required() {
+        let mut config = DisplayConfig::default();
+        config.fill_defaults();
+        let tok = config.review_required.as_ref().unwrap();
+        assert_eq!(tok.symbol.as_deref(), Some("@"));
+        assert_eq!(tok.label.as_deref(), Some("assign-reviewer"));
     }
 }

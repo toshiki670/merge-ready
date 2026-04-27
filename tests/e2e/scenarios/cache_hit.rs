@@ -36,5 +36,5 @@ fn test_daemon_fresh_returns_cached_output() {
     cmd.current_dir(env.repo_dir.path());
     cmd.assert()
         .success()
-        .stdout(predicate::str::diff("✓ merge-ready"));
+        .stdout(predicate::str::diff("✓ Ready for merge"));
 }

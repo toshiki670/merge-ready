@@ -52,18 +52,18 @@ This makes it easy to use from shell scripts and prompt hooks.
 
 ## Output Tokens
 
-- `✓ merge-ready` - ready to merge
-- `✎ ready-for-review` - pull request is in draft state
-- `+ create-pr` - branch exists but no pull request has been created yet
-- `⚠ review` - changes were requested in review
-- `@ assign-reviewer` - no reviewer assigned yet
-- `⚠ ci-action` - CI checks require manual action
-- `⧖ wait-for-ci` - CI checks are pending
-- `✗ ci-fail` - CI checks failed
-- `✗ conflict` - merge conflicts exist
-- `✗ update-branch` - branch is behind base branch
-- `? sync-unknown` - branch sync status is unknown
-- `⧖ wait-for-status` - GitHub is calculating merge status
+- `✓ Ready for merge` - ready to merge
+- `✎ Ready for review` - pull request is in draft state
+- `+ Create PR` - branch exists but no pull request has been created yet
+- `⚠ Resolve review` - changes were requested in review
+- `@ Assign reviewer` - no reviewer assigned yet
+- `⚠ Run CI action` - CI checks require manual action
+- `⧖ Wait for CI` - CI checks are pending
+- `✗ Fix CI failure` - CI checks failed
+- `✗ Resolve conflict` - merge conflicts exist
+- `✗ Update branch` - branch is behind base branch
+- `? Check branch sync` - branch sync status is unknown
+- `⧖ Wait for status` - GitHub is calculating merge status
 - `? loading` - cache miss; daemon is fetching in the background
 
 ## Background Daemon
@@ -96,7 +96,7 @@ format = "[$output]($style) "
 style = "bold yellow"
 ```
 
-`require_repo = true` limits the module to git repositories without any shell command overhead. `merge-ready-prompt` itself returns `+ create-pr` when no pull request exists for the branch, so no additional filtering is needed.
+`require_repo = true` limits the module to git repositories without any shell command overhead. `merge-ready-prompt` itself returns `+ Create PR` when no pull request exists for the branch, so no additional filtering is needed.
 
 If your environment sets `STARSHIP_SHELL` to a slower shell (for example `fish`), custom modules can be noticeably slower due to shell startup cost. Pinning `shell = ["/bin/zsh"]` (or another lightweight shell on your system) keeps prompt latency low.
 
@@ -115,62 +115,62 @@ All fields are optional — omitting any field falls back to the default shown b
 ```toml
 [merge_ready]
 symbol = "✓"
-label = "merge-ready"
+label = "Ready for merge"
 # format = "$symbol $label"
 
 [no_pull_request]
 symbol = "+"
-label = "create-pr"
+label = "Create PR"
 # format = "$symbol $label"
 
 [conflict]
 symbol = "✗"
-label = "conflict"
+label = "Resolve conflict"
 # format = "$symbol $label"
 
 [update_branch]
 symbol = "✗"
-label = "update-branch"
+label = "Update branch"
 # format = "$symbol $label"
 
 [sync_unknown]
 symbol = "?"
-label = "sync-unknown"
+label = "Check branch sync"
 # format = "$symbol $label"
 
 [ci_fail]
 symbol = "✗"
-label = "ci-fail"
+label = "Fix CI failure"
 # format = "$symbol $label"
 
 [ci_action]
 symbol = "⚠"
-label = "ci-action"
+label = "Run CI action"
 # format = "$symbol $label"
 
 [ci_pending]
 symbol = "⧖"
-label = "wait-for-ci"
+label = "Wait for CI"
 # format = "$symbol $label"
 
-[review]
+[changes_requested]
 symbol = "⚠"
-label = "review"
+label = "Resolve review"
 # format = "$symbol $label"
 
 [review_required]
 symbol = "@"
-label = "assign-reviewer"
+label = "Assign reviewer"
 # format = "$symbol $label"
 
 [draft]
 symbol = "✎"
-label = "ready-for-review"
+label = "Ready for review"
 # format = "$symbol $label"
 
 [status_calculating]
 symbol = "⧖"
-label = "wait-for-status"
+label = "Wait for status"
 # format = "$symbol $label"
 
 [error.auth_required]

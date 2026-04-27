@@ -31,58 +31,62 @@ fn render_token(config: &DisplayConfig, token: &OutputToken) -> String {
         OutputToken::MergeReady => apply_format(
             config.merge_ready.as_ref().unwrap_or(&empty()),
             "✓",
-            "merge-ready",
+            "Ready for merge",
         ),
         OutputToken::NoPullRequest => apply_format(
             config.no_pull_request.as_ref().unwrap_or(&empty()),
             "+",
-            "create-pr",
+            "Create PR",
         ),
         OutputToken::Conflict => apply_format(
             config.conflict.as_ref().unwrap_or(&empty()),
             "✗",
-            "conflict",
+            "Resolve conflict",
         ),
         OutputToken::UpdateBranch => apply_format(
             config.update_branch.as_ref().unwrap_or(&empty()),
             "✗",
-            "update-branch",
+            "Update branch",
         ),
         OutputToken::SyncUnknown => apply_format(
             config.sync_unknown.as_ref().unwrap_or(&empty()),
             "?",
-            "sync-unknown",
+            "Check branch sync",
         ),
-        OutputToken::CiFail => {
-            apply_format(config.ci_fail.as_ref().unwrap_or(&empty()), "✗", "ci-fail")
-        }
+        OutputToken::CiFail => apply_format(
+            config.ci_fail.as_ref().unwrap_or(&empty()),
+            "✗",
+            "Fix CI failure",
+        ),
         OutputToken::CiAction => apply_format(
             config.ci_action.as_ref().unwrap_or(&empty()),
             "⚠",
-            "ci-action",
+            "Run CI action",
         ),
         OutputToken::CiPending => apply_format(
             config.ci_pending.as_ref().unwrap_or(&empty()),
             "⧖",
-            "wait-for-ci",
+            "Wait for CI",
         ),
-        OutputToken::ReviewRequested => {
-            apply_format(config.review.as_ref().unwrap_or(&empty()), "⚠", "review")
-        }
+        OutputToken::ReviewRequested => apply_format(
+            config.changes_requested.as_ref().unwrap_or(&empty()),
+            "⚠",
+            "Resolve review",
+        ),
         OutputToken::ReviewRequired => apply_format(
             config.review_required.as_ref().unwrap_or(&empty()),
             "@",
-            "assign-reviewer",
+            "Assign reviewer",
         ),
         OutputToken::Draft => apply_format(
             config.draft.as_ref().unwrap_or(&empty()),
             "✎",
-            "ready-for-review",
+            "Ready for review",
         ),
         OutputToken::StatusCalculating => apply_format(
             config.status_calculating.as_ref().unwrap_or(&empty()),
             "⧖",
-            "wait-for-status",
+            "Wait for status",
         ),
     }
 }
@@ -131,30 +135,30 @@ mod tests {
     #[test]
     fn no_pull_request_renders_with_default_config() {
         let result = render_output(&[OutputToken::NoPullRequest], None, &DefaultRepo);
-        assert_eq!(result, "+ create-pr");
+        assert_eq!(result, "+ Create PR");
     }
 
     #[test]
     fn draft_renders_with_default_config() {
         let result = render_output(&[OutputToken::Draft], None, &DefaultRepo);
-        assert_eq!(result, "✎ ready-for-review");
+        assert_eq!(result, "✎ Ready for review");
     }
 
     #[test]
     fn review_required_renders_with_default_config() {
         let result = render_output(&[OutputToken::ReviewRequired], None, &DefaultRepo);
-        assert_eq!(result, "@ assign-reviewer");
+        assert_eq!(result, "@ Assign reviewer");
     }
 
     #[test]
     fn ci_pending_renders_with_default_config() {
         let result = render_output(&[OutputToken::CiPending], None, &DefaultRepo);
-        assert_eq!(result, "⧖ wait-for-ci");
+        assert_eq!(result, "⧖ Wait for CI");
     }
 
     #[test]
     fn status_calculating_renders_with_default_config() {
         let result = render_output(&[OutputToken::StatusCalculating], None, &DefaultRepo);
-        assert_eq!(result, "⧖ wait-for-status");
+        assert_eq!(result, "⧖ Wait for status");
     }
 }

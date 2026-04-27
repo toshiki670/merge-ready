@@ -1,7 +1,7 @@
 //! `merge-ready` 判定の E2E テスト（シナリオ #15–16）
 //!
-//! `✓ merge-ready` が表示される条件と、全ブロッカーが同時成立したときに
-//! `merge-ready` が表示されないことを検証する。
+//! `✓ Ready for merge` が表示される条件と、全ブロッカーが同時成立したときに
+//! `Ready for merge` が表示されないことを検証する。
 //! 実行フローは daemon 経由（`merge-ready prompt`）に統一する。
 
 const PROMPT_BIN: &str = "merge-ready-prompt";
@@ -26,24 +26,24 @@ fn assert_prompt(env: &TestEnv, expected: &str) {
 
 // ── #15: マージ可能 ──────────────────────────────────────────────────────────
 
-/// #15: mergeable=MERGEABLE + CI pass + reviewDecision=APPROVED → `✓ merge-ready`
+/// #15: mergeable=MERGEABLE + CI pass + reviewDecision=APPROVED → `✓ Ready for merge`
 #[test]
 fn test_merge_ready() {
     let env = TestEnv::new(
         r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}"#,
         Some(r#"[{"bucket":"pass","state":"SUCCESS"}]"#),
     );
-    assert_prompt(&env, "✓ merge-ready");
+    assert_prompt(&env, "✓ Ready for merge");
 }
 
 // ── #16: 全ブロッカーが成立 ──────────────────────────────────────────────────
 
-/// #16: conflict + ci-fail + review が全部成立 → `✓ merge-ready` は表示されない
+/// #16: conflict + ci_fail + changes_requested が全部成立 → `✓ Ready for merge` は表示されない
 #[test]
 fn test_all_conditions_block_merge_ready() {
     let env = TestEnv::new(
         r#"{"state":"OPEN","isDraft":false,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","reviewDecision":"CHANGES_REQUESTED"}"#,
         Some(r#"[{"bucket":"fail","state":"FAILURE"}]"#),
     );
-    assert_prompt(&env, "✗ conflict ✗ ci-fail ⚠ review");
+    assert_prompt(&env, "✗ Resolve conflict ✗ Fix CI failure ⚠ Resolve review");
 }

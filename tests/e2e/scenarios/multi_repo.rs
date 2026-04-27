@@ -1,6 +1,6 @@
 //! キャッシュライフサイクル シナリオ #6: 複数リポジトリの分離
 //!
-//! repo_a（merge-ready）と repo_b（conflict）が同一 daemon を共有し、
+//! repo_a（Ready for merge）と repo_b（Resolve conflict）が同一 daemon を共有し、
 //! キャッシュを汚染しない
 
 use super::super::helpers::MultiRepoEnv;
@@ -22,10 +22,10 @@ fn test_daemon_multi_repo_isolation() {
     let out_a = env.prompt_output(&env.repo_a);
     let out_b = env.prompt_output(&env.repo_b);
 
-    assert_eq!(out_a, "✓ merge-ready", "repo_a should be merge-ready");
+    assert_eq!(out_a, "✓ Ready for merge", "repo_a should be ready for merge");
     assert!(
-        out_b.contains("conflict"),
-        "repo_b should show conflict, got: {out_b}"
+        out_b.contains("Resolve conflict"),
+        "repo_b should show Resolve conflict, got: {out_b}"
     );
     assert_ne!(out_a, out_b, "repos must not share cached output");
 }

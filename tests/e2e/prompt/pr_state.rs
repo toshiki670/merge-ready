@@ -1,6 +1,6 @@
 //! PR ライフサイクル状態の E2E テスト（シナリオ #31–33）
 //!
-//! `OPEN` 以外の PR 状態は何も出力しない。PR が存在しない場合は `+ create-pr` を出力する。
+//! `OPEN` 以外の PR 状態は何も出力しない。PR が存在しない場合は `+ Create PR` を出力する。
 //! 実行フローは daemon 経由（`merge-ready prompt`）に統一する。
 
 const PROMPT_BIN: &str = "merge-ready-prompt";
@@ -40,7 +40,7 @@ fn assert_prompt_empty(env: &TestEnv) {
 
 // ── #31: PR なし ──────────────────────────────────────────────────────────────
 
-/// #31: ブランチに PR が存在しない → `+ create-pr`（`exit 0`）
+/// #31: ブランチに PR が存在しない → `+ Create PR`（`exit 0`）
 #[test]
 fn test_no_pr() {
     let env = TestEnv::with_error(
@@ -54,7 +54,7 @@ fn test_no_pr() {
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
-        .stdout(predicate::str::diff("+ create-pr"))
+        .stdout(predicate::str::diff("+ Create PR"))
         .stderr("");
 }
 
@@ -62,11 +62,11 @@ fn test_no_pr() {
 
 // ── #34: Draft PR ────────────────────────────────────────────────────────────
 
-/// #34: Draft PR → `✎ ready-for-review`
+/// #34: Draft PR → `✎ Ready for review`
 #[test]
 fn test_draft_pr_shows_ready_for_review() {
     let env = TestEnv::new(DRAFT_PR, Some(r#"[]"#));
-    assert_prompt(&env, "✎ ready-for-review");
+    assert_prompt(&env, "✎ Ready for review");
 }
 
 // ── #32–33: CLOSED / MERGED ───────────────────────────────────────────────────
@@ -82,16 +82,16 @@ fn test_non_open_pr_shows_nothing(#[case] pr_json: &str) {
 
 // ── #179: MERGE_STATE_UNKNOWN / UNKNOWN ──────────────────────────────────────
 
-/// #179: `mergeStateStatus == "MERGE_STATE_UNKNOWN"` → `⧖ wait-for-status`
+/// #179: `mergeStateStatus == "MERGE_STATE_UNKNOWN"` → `⧖ Wait for status`
 #[test]
 fn test_merge_state_unknown_shows_wait_for_status() {
     let env = TestEnv::new(MERGE_STATE_UNKNOWN_PR, Some(r#"[]"#));
-    assert_prompt(&env, "⧖ wait-for-status");
+    assert_prompt(&env, "⧖ Wait for status");
 }
 
-/// #179: `mergeStateStatus == "UNKNOWN"` → `⧖ wait-for-status`
+/// #179: `mergeStateStatus == "UNKNOWN"` → `⧖ Wait for status`
 #[test]
 fn test_unknown_merge_state_status_shows_wait_for_status() {
     let env = TestEnv::new(UNKNOWN_STATUS_PR, Some(r#"[]"#));
-    assert_prompt(&env, "⧖ wait-for-status");
+    assert_prompt(&env, "⧖ Wait for status");
 }

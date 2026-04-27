@@ -39,7 +39,11 @@ fn assert_prompt(env: &TestEnv, expected: &str) {
 #[case::conflict(CONFLICTING_DIRTY, PASS_JSON, "✗ Resolve conflict")]
 #[case::conflict_wins_over_update_branch(CONFLICTING_BEHIND, PASS_JSON, "✗ Resolve conflict")]
 #[case::conflict_and_ci_fail(CONFLICTING_DIRTY, FAIL_JSON, "✗ Resolve conflict ✗ Fix CI failure")]
-#[case::conflict_and_review(CONFLICTING_DIRTY_CHANGES, PASS_JSON, "✗ Resolve conflict ⚠ Resolve review")]
+#[case::conflict_and_review(
+    CONFLICTING_DIRTY_CHANGES,
+    PASS_JSON,
+    "✗ Resolve conflict ⚠ Resolve review"
+)]
 fn test_conflict_prompt(#[case] pr_json: &str, #[case] checks_json: &str, #[case] expected: &str) {
     let env = TestEnv::new(pr_json, Some(checks_json));
     assert_prompt(&env, expected);

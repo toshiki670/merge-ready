@@ -41,7 +41,11 @@ fn assert_prompt(env: &TestEnv, expected: &str) {
 #[case::ci_fail_cancelled(BLOCKED_NO_REVIEW, CANCEL_JSON, "✗ Fix CI failure")]
 #[case::ci_action(BLOCKED_NO_REVIEW, ACTION_REQUIRED_JSON, "⚠ Run CI action")]
 #[case::ci_fail_wins_over_ci_action(BLOCKED_NO_REVIEW, FAIL_AND_ACTION_JSON, "✗ Fix CI failure")]
-#[case::ci_fail_and_review(BLOCKED_CHANGES_REQUESTED, FAIL_JSON, "✗ Fix CI failure ⚠ Resolve review")]
+#[case::ci_fail_and_review(
+    BLOCKED_CHANGES_REQUESTED,
+    FAIL_JSON,
+    "✗ Fix CI failure ⚠ Resolve review"
+)]
 fn test_ci_check_prompt(#[case] pr_json: &str, #[case] checks_json: &str, #[case] expected: &str) {
     let env = TestEnv::new(pr_json, Some(checks_json));
     assert_prompt(&env, expected);

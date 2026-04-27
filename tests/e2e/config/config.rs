@@ -91,7 +91,10 @@ fn test_xdg_config_home_is_used() {
 
     let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
-    cmd.assert().success().stdout("★ Ready for merge").stderr("");
+    cmd.assert()
+        .success()
+        .stdout("★ Ready for merge")
+        .stderr("");
 }
 
 /// #50: `XDG_CONFIG_HOME` と `HOME` 両方ある → `XDG_CONFIG_HOME` が優先される
@@ -120,7 +123,10 @@ fn test_xdg_config_home_takes_precedence_over_home() {
 
     let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
-    cmd.assert().success().stdout("★ Ready for merge").stderr("");
+    cmd.assert()
+        .success()
+        .stdout("★ Ready for merge")
+        .stderr("");
 }
 
 // ── #51–58: config ────────────────────────────────────────────────────────────

@@ -5,4 +5,6 @@ pub enum CiState {
     Fail,
     /// 手動アクションが必要なチェックが存在する
     ActionRequired,
+    /// チェックが実行中
+    Pending,
 }

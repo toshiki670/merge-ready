@@ -61,6 +61,11 @@ fn render_token(config: &DisplayConfig, token: &OutputToken) -> String {
             "⚠",
             "ci-action",
         ),
+        OutputToken::CiPending => apply_format(
+            config.ci_pending.as_ref().unwrap_or(&empty()),
+            "⧖",
+            "wait-for-ci",
+        ),
         OutputToken::ReviewRequested => {
             apply_format(config.review.as_ref().unwrap_or(&empty()), "⚠", "review")
         }
@@ -134,5 +139,11 @@ mod tests {
     fn review_required_renders_with_default_config() {
         let result = render_output(&[OutputToken::ReviewRequired], None, &DefaultRepo);
         assert_eq!(result, "@ assign-reviewer");
+    }
+
+    #[test]
+    fn ci_pending_renders_with_default_config() {
+        let result = render_output(&[OutputToken::CiPending], None, &DefaultRepo);
+        assert_eq!(result, "⧖ wait-for-ci");
     }
 }

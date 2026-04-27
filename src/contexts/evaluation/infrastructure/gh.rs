@@ -186,8 +186,34 @@ fn aggregate_ci(buckets: &[CheckBucket]) -> Option<CiState> {
         .any(|b| matches!(b, CheckBucket::ActionRequired))
     {
         Some(CiState::ActionRequired)
+    } else if buckets.iter().any(|b| matches!(b, CheckBucket::Pending)) {
+        Some(CiState::Pending)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contexts::evaluation::infrastructure::gh::schema::CheckBucket;
+
+    #[test]
+    fn aggregate_ci_pending_returns_pending() {
+        let buckets = vec![CheckBucket::Pending];
+        assert_eq!(aggregate_ci(&buckets), Some(CiState::Pending));
+    }
+
+    #[test]
+    fn aggregate_ci_fail_takes_priority_over_pending() {
+        let buckets = vec![CheckBucket::Fail, CheckBucket::Pending];
+        assert_eq!(aggregate_ci(&buckets), Some(CiState::Fail));
+    }
+
+    #[test]
+    fn aggregate_ci_no_pending_returns_none() {
+        let buckets = vec![CheckBucket::Other];
+        assert_eq!(aggregate_ci(&buckets), None);
     }
 }
 

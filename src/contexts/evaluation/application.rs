@@ -18,6 +18,7 @@ pub enum OutputToken {
     SyncUnknown,
     CiFail,
     CiAction,
+    CiPending,
     ReviewRequested,
     ReviewRequired,
     MergeReady,
@@ -38,6 +39,7 @@ fn map_blocked_to_tokens(blocked: BlockedState) -> Vec<OutputToken> {
         tokens.push(match c {
             CiState::Fail => OutputToken::CiFail,
             CiState::ActionRequired => OutputToken::CiAction,
+            CiState::Pending => OutputToken::CiPending,
         });
     }
     if let Some(r) = blocked.review {
@@ -89,5 +91,18 @@ mod tests {
         let tokens = map_pr_state_to_tokens(PrState::Blocked(blocked));
         assert_eq!(tokens.len(), 1);
         assert!(matches!(tokens[0], OutputToken::ReviewRequired));
+    }
+
+    #[test]
+    fn ci_pending_maps_to_ci_pending_token() {
+        use crate::contexts::evaluation::domain::pr_state::blocked::BlockedState;
+        let blocked = BlockedState {
+            branch_sync: None,
+            ci: Some(CiState::Pending),
+            review: None,
+        };
+        let tokens = map_pr_state_to_tokens(PrState::Blocked(blocked));
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(tokens[0], OutputToken::CiPending));
     }
 }

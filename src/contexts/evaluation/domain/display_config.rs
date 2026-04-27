@@ -11,6 +11,7 @@ pub struct DisplayConfig {
     pub sync_unknown: Option<TokenConfig>,
     pub ci_fail: Option<TokenConfig>,
     pub ci_action: Option<TokenConfig>,
+    pub ci_pending: Option<TokenConfig>,
     pub review: Option<TokenConfig>,
     pub review_required: Option<TokenConfig>,
     pub draft: Option<TokenConfig>,
@@ -35,6 +36,8 @@ impl DisplayConfig {
             .get_or_insert_with(|| tok("?", "sync-unknown"));
         self.ci_fail.get_or_insert_with(|| tok("✗", "ci-fail"));
         self.ci_action.get_or_insert_with(|| tok("⚠", "ci-action"));
+        self.ci_pending
+            .get_or_insert_with(|| tok("⧖", "wait-for-ci"));
         self.review.get_or_insert_with(|| tok("⚠", "review"));
         self.review_required
             .get_or_insert_with(|| tok("@", "assign-reviewer"));
@@ -116,5 +119,14 @@ mod tests {
         let tok = config.review_required.as_ref().unwrap();
         assert_eq!(tok.symbol.as_deref(), Some("@"));
         assert_eq!(tok.label.as_deref(), Some("assign-reviewer"));
+    }
+
+    #[test]
+    fn fill_defaults_sets_ci_pending() {
+        let mut config = DisplayConfig::default();
+        config.fill_defaults();
+        let tok = config.ci_pending.as_ref().unwrap();
+        assert_eq!(tok.symbol.as_deref(), Some("⧖"));
+        assert_eq!(tok.label.as_deref(), Some("wait-for-ci"));
     }
 }

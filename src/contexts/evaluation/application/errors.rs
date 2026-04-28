@@ -25,13 +25,8 @@ pub fn into_token<L: ErrorLogger>(e: RepositoryError, logger: &L) -> Option<Erro
                 message: "rate limited".to_owned(),
             })
         }
-        RepositoryError::Unexpected(msg) => {
-            let message = msg.lines().next().map(str::to_owned).unwrap_or_default();
-            logger.log(&LogRecord {
-                category: ErrorCategory::Unknown,
-                detail: Some(msg),
-            });
-            Some(ErrorToken { message })
-        }
+        RepositoryError::Unexpected => Some(ErrorToken {
+            message: "unexpected error".to_owned(),
+        }),
     }
 }

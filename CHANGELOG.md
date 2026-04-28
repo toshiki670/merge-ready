@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.1] - 2026-04-28
+### Features
+- BLOCKED かつ理由不明のとき ? Check merge blocker を表示する ([#192](https://github.com/toshiki670/merge-ready/pull/192)) ([`d63f075`](https://github.com/toshiki670/merge-ready/commit/d63f075d11c9e92fe72373eb9391a8ae260244b2))
+
+
 ## [0.5.0] - 2026-04-27
 ### Features
 - ReviewDecision == "REVIEW_REQUIRED" のとき @ assign-reviewer を表示する ([#180](https://github.com/toshiki670/merge-ready/pull/180)) ([`8ea56db`](https://github.com/toshiki670/merge-ready/commit/8ea56dbe0190d62fb8607473903e5b3373115446))

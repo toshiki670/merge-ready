@@ -50,11 +50,7 @@ fn test_gh_not_installed() {
     1,
     "✗ authentication required"
 )]
-#[case::api_error(
-    "HTTP 500: Internal Server Error",
-    1,
-    "✗ unexpected error"
-)]
+#[case::api_error("HTTP 500: Internal Server Error", 1, "✗ unexpected error")]
 #[case::no_network(
     r#"Post "https://api.github.com/graphql": dial tcp: connection refused"#,
     1,
@@ -86,10 +82,7 @@ fn test_gh_timeout() {
     let _daemon = DaemonHandle::start_with_env(&env, &[("MERGE_READY_GH_TIMEOUT_SECS", "2")]);
     DaemonHandle::wait_for_cache(&env, 10000);
 
-    cmd(&env)
-        .assert()
-        .success()
-        .stdout("✗ unexpected error");
+    cmd(&env).assert().success().stdout("✗ unexpected error");
 }
 
 // ── #41: エラーログ ───────────────────────────────────────────────────────────

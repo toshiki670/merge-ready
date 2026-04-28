@@ -9,40 +9,29 @@ pub struct ErrorToken {
     pub message: String,
 }
 
-/// エラーをユーザーに表示するポート
-pub trait ErrorPresenter {
-    fn show_error(&self, token: ErrorToken);
-}
-
-/// `RepositoryError` を受け取り、エラーポリシーに従って出力・ログ記録を行う
-pub fn handle(
-    e: RepositoryError,
-    err_logger: &impl ErrorLogger,
-    err_presenter: &impl ErrorPresenter,
-) {
+/// `RepositoryError` をエラートークンに変換する。`NotFound` は表示不要なため `None` を返す。
+pub fn into_token<L: ErrorLogger>(e: RepositoryError, logger: &L) -> Option<ErrorToken> {
     match e {
-        RepositoryError::Unauthenticated => {
-            err_presenter.show_error(ErrorToken {
-                message: "authentication required".to_owned(),
-            });
-        }
-        RepositoryError::NotFound => {}
+        RepositoryError::Unauthenticated => Some(ErrorToken {
+            message: "authentication required".to_owned(),
+        }),
+        RepositoryError::NotFound => None,
         RepositoryError::RateLimited => {
-            err_logger.log(&LogRecord {
+            logger.log(&LogRecord {
                 category: ErrorCategory::RateLimit,
                 detail: None,
             });
-            err_presenter.show_error(ErrorToken {
+            Some(ErrorToken {
                 message: "rate limited".to_owned(),
-            });
+            })
         }
         RepositoryError::Unexpected(msg) => {
             let message = msg.lines().next().map(str::to_owned).unwrap_or_default();
-            err_logger.log(&LogRecord {
+            logger.log(&LogRecord {
                 category: ErrorCategory::Unknown,
                 detail: Some(msg),
             });
-            err_presenter.show_error(ErrorToken { message });
+            Some(ErrorToken { message })
         }
     }
 }

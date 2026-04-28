@@ -5,7 +5,6 @@ use clap::CommandFactory;
 use crate::cli::{Cli, Command};
 use crate::contexts::daemon::application::cache as daemon_cache_app;
 use crate::contexts::daemon::infrastructure::daemon_client::DaemonClient;
-use crate::contexts::evaluation::application::config_service;
 use crate::contexts::evaluation::infrastructure::toml_loader::TomlConfigRepository;
 use crate::contexts::evaluation::infrastructure::{gh::GhClient, logger::Logger};
 
@@ -24,15 +23,12 @@ pub fn run(cli: Cli) -> ExitCode {
                     |repo_id: &str, cwd: &std::path::Path| {
                         let repo_id = repo_id.to_owned();
                         let client = GhClient::new_in(cwd.to_path_buf());
-                        let (tokens, error, is_terminal) =
-                            crate::contexts::evaluation::application::prompt::fetch_output(
-                                &client, &Logger,
+                        let (output, is_terminal) =
+                            crate::contexts::evaluation::interface::prompt::render(
+                                &client,
+                                &TomlConfigRepository,
+                                &Logger,
                             );
-                        let output = config_service::render_output(
-                            &tokens,
-                            error.as_ref(),
-                            &TomlConfigRepository,
-                        );
                         daemon_cache_app::update(&DaemonClient, &repo_id, &output, is_terminal);
                     },
                 );

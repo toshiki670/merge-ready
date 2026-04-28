@@ -1,51 +1,29 @@
-use std::sync::Mutex;
+pub mod display_item;
 
-use super::OutputToken;
-use super::errors::{ErrorLogger, ErrorPresenter, ErrorToken};
+use super::errors::{ErrorToken, into_token};
+use super::port::ErrorLogger;
+use crate::contexts::evaluation::domain::error::RepositoryError;
 use crate::contexts::evaluation::domain::pr_state::PrRepository;
+use crate::contexts::evaluation::domain::pr_state::PrState;
 
-/// gh を呼んで出力トークン・エラートークン・終端判定を返す。
-///
-/// `daemon refresh` 処理用。エラーは stderr に出力せず内部で捕捉する。
-/// `is_terminal` が `true` のとき daemon はポーリングを停止してよい。
-pub fn fetch_output<R, L>(repo: &R, logger: &L) -> (Vec<OutputToken>, Option<ErrorToken>, bool)
+/// PR 状態を取得するユースケース。
+/// `NotFound` は表示不要な状態として空リストを返す。
+pub fn fetch<R, L>(
+    repo: &R,
+    logger: &L,
+) -> Result<(Vec<display_item::DisplayItem>, bool), ErrorToken>
 where
     R: PrRepository,
     L: ErrorLogger,
 {
-    struct CapturingPresenter(Mutex<Option<ErrorToken>>);
-
-    impl ErrorPresenter for CapturingPresenter {
-        fn show_error(&self, token: ErrorToken) {
-            *self
-                .0
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(token);
-        }
-    }
-
-    let presenter = CapturingPresenter(Mutex::new(None));
-
-    let pr_state = match repo.fetch() {
+    let state = match repo.fetch() {
         Ok(s) => s,
-        Err(e) => {
-            super::errors::handle(e, logger, &presenter);
-            let error = presenter
-                .0
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .take();
-            return (vec![], error, false);
-        }
+        Err(RepositoryError::NotFound) => PrState::Unknown,
+        Err(e) => match into_token(e, logger) {
+            Some(token) => return Err(token),
+            None => PrState::Unknown,
+        },
     };
-
-    let is_terminal = pr_state.is_terminal();
-    let tokens = super::map_pr_state_to_tokens(pr_state);
-    let error = presenter
-        .0
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .take();
-
-    (tokens, error, is_terminal)
+    let is_terminal = state.is_terminal();
+    Ok((display_item::from_pr_state(state), is_terminal))
 }

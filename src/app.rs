@@ -24,7 +24,7 @@ pub fn run(cli: Cli) -> ExitCode {
                         let repo_id = repo_id.to_owned();
                         let client = GhClient::new_in(cwd.to_path_buf());
                         let (output, is_terminal) =
-                            crate::contexts::evaluation::application::prompt::render(
+                            crate::contexts::evaluation::interface::prompt::render(
                                 &client,
                                 &TomlConfigRepository,
                                 &Logger,

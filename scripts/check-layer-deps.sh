@@ -7,7 +7,7 @@
 #   domain           –        ❌            ❌             ❌
 #   application      ✅        –            ❌             ❌
 #   infrastructure   ✅      ❌(†)           –              ❌
-#   interface        ❌       ✅            ❌             –
+#   interface        ✅       ✅            ❌             –
 #   bin              ✅       ✅            ✅             ✅
 #
 # (†) infrastructure → application::port is allowed (hexagonal port adapter pattern).
@@ -31,7 +31,6 @@ FORBIDDEN_LAYERS=(
   "application:interface"
   "infrastructure:application"
   "infrastructure:interface"
-  "interface:domain"
   "interface:infrastructure"
 )
 ALL_LAYERS=(domain application infrastructure interface)

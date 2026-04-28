@@ -36,6 +36,7 @@ fn merge_with_defaults(raw: RawDisplayConfig) -> DisplayConfig {
         review_required: merge_token(raw.review_required, defaults.review_required),
         draft: merge_token(raw.draft, defaults.draft),
         status_calculating: merge_token(raw.status_calculating, defaults.status_calculating),
+        blocked_unknown: merge_token(raw.blocked_unknown, defaults.blocked_unknown),
         error: merge_error(raw.error, defaults.error),
     }
 }
@@ -84,6 +85,7 @@ struct RawDisplayConfig {
     review_required: Option<RawTokenConfig>,
     draft: Option<RawTokenConfig>,
     status_calculating: Option<RawTokenConfig>,
+    blocked_unknown: Option<RawTokenConfig>,
     error: Option<RawErrorConfig>,
 }
 

@@ -173,6 +173,11 @@ symbol = "⧖"
 label = "Wait for status"
 # format = "$symbol $label"
 
+[blocked_unknown]
+symbol = "?"
+label = "Check merge blocker"
+# format = "$symbol $label"
+
 [error]
 symbol = "✗"
 # format = "$symbol $message"

@@ -11,6 +11,7 @@ use schema::{
 };
 
 use crate::contexts::evaluation::domain::error::RepositoryError;
+use crate::contexts::evaluation::domain::pr_state::blocked::GenericBlockedState;
 use crate::contexts::evaluation::domain::pr_state::blocked::branch_sync::BranchSyncState;
 use crate::contexts::evaluation::domain::pr_state::blocked::ci::CiState;
 use crate::contexts::evaluation::domain::pr_state::blocked::review::ReviewState;
@@ -143,13 +144,21 @@ impl PrRepository for GhClient {
         let unblocked = translate_unblocked(pr_view.is_draft, &pr_view.merge_state_status);
 
         let state = evaluate(branch_sync, ci, review, unblocked);
-        if matches!(state, PrState::Unknown)
-            && matches!(
-                pr_view.merge_state_status.as_str(),
-                "MERGE_STATE_UNKNOWN" | "UNKNOWN"
-            )
-        {
-            return Ok(PrState::NotApplicable(NotApplicableState::Calculating));
+        if matches!(state, PrState::Unknown) {
+            return Ok(match pr_view.merge_state_status.as_str() {
+                "MERGE_STATE_UNKNOWN" | "UNKNOWN" => {
+                    PrState::NotApplicable(NotApplicableState::Calculating)
+                }
+                "BLOCKED" => PrState::Blocked(
+                    crate::contexts::evaluation::domain::pr_state::blocked::BlockedState {
+                        branch_sync: None,
+                        ci: None,
+                        review: None,
+                        generic: Some(GenericBlockedState::BlockedUnknown),
+                    },
+                ),
+                _ => state,
+            });
         }
         Ok(state)
     }
@@ -233,6 +242,11 @@ mod tests {
     #[test]
     fn translate_unblocked_unknown_returns_none() {
         assert_eq!(translate_unblocked(false, "UNKNOWN"), None);
+    }
+
+    #[test]
+    fn translate_unblocked_blocked_returns_none() {
+        assert_eq!(translate_unblocked(false, "BLOCKED"), None);
     }
 }
 

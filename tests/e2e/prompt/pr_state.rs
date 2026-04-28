@@ -16,6 +16,7 @@ const MERGED_PR: &str = r#"{"state":"MERGED","isDraft":false,"mergeable":"UNKNOW
 const DRAFT_PR: &str = r#"{"state":"OPEN","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
 const MERGE_STATE_UNKNOWN_PR: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"MERGE_STATE_UNKNOWN","reviewDecision":null,"baseRefName":"","headRefName":""}"#;
 const UNKNOWN_STATUS_PR: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null,"baseRefName":"","headRefName":""}"#;
+const BLOCKED_UNKNOWN_PR: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":null,"baseRefName":"","headRefName":""}"#;
 
 fn assert_prompt(env: &TestEnv, expected: &str) {
     let _daemon = DaemonHandle::start(env);
@@ -94,4 +95,14 @@ fn test_merge_state_unknown_shows_wait_for_status() {
 fn test_unknown_merge_state_status_shows_wait_for_status() {
     let env = TestEnv::new(UNKNOWN_STATUS_PR, Some(r#"[]"#));
     assert_prompt(&env, "⧖ Wait for status");
+}
+
+// ── #178: BLOCKED + 全シグナル None ──────────────────────────────────────────
+
+/// #178: `mergeStateStatus == "BLOCKED"` かつ branch_sync / ci / review がすべて None
+///       → `? Check merge blocker`
+#[test]
+fn test_blocked_unknown_shows_check_merge_blocker() {
+    let env = TestEnv::new(BLOCKED_UNKNOWN_PR, Some(r#"[]"#));
+    assert_prompt(&env, "? Check merge blocker");
 }

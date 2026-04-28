@@ -37,7 +37,7 @@ fn test_gh_not_installed() {
 // ── #35–39: with_error() 系 ───────────────────────────────────────────────────
 
 /// #35 `exit 4`（未ログイン）/ #36 `HTTP 401`（認証エラー）→ `✗ authentication required`
-/// #37 `HTTP 500` / #38 `connection refused` → `✗ <error message>`
+/// #37 `HTTP 500` / #38 `connection refused` → `✗ unexpected error`（詳細はログ）
 /// #39 `HTTP 403`（レート制限）→ `✗ rate limited`
 #[rstest]
 #[case::not_logged_in(
@@ -53,12 +53,12 @@ fn test_gh_not_installed() {
 #[case::api_error(
     "HTTP 500: Internal Server Error",
     1,
-    "✗ HTTP 500: Internal Server Error"
+    "✗ unexpected error"
 )]
 #[case::no_network(
     r#"Post "https://api.github.com/graphql": dial tcp: connection refused"#,
     1,
-    r#"✗ Post "https://api.github.com/graphql": dial tcp: connection refused"#
+    "✗ unexpected error"
 )]
 #[case::rate_limited(
     "HTTP 403: API rate limit exceeded (https://api.github.com/graphql)",
@@ -79,7 +79,7 @@ fn test_error_output(#[case] msg: &str, #[case] code: u8, #[case] expected: &str
 
 // ── #40: タイムアウト ─────────────────────────────────────────────────────────
 
-/// #40: `gh` がハングした場合、タイムアウト後に `✗ gh command timed out` を返すこと。
+/// #40: `gh` がハングした場合、タイムアウト後に `✗ unexpected error` を返すこと（詳細はログ）。
 #[test]
 fn test_gh_timeout() {
     let env = TestEnv::with_hanging_gh();
@@ -89,7 +89,7 @@ fn test_gh_timeout() {
     cmd(&env)
         .assert()
         .success()
-        .stdout("✗ gh command timed out");
+        .stdout("✗ unexpected error");
 }
 
 // ── #41: エラーログ ───────────────────────────────────────────────────────────

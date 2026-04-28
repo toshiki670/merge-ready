@@ -1,3 +1,4 @@
+use crate::contexts::evaluation::application::config_service;
 use crate::contexts::evaluation::application::errors::ErrorToken;
 use crate::contexts::evaluation::application::port::ErrorLogger;
 use crate::contexts::evaluation::application::prompt::fetch;
@@ -20,7 +21,7 @@ where
     C: DisplayConfigRepository,
     L: ErrorLogger,
 {
-    let config = config_repo.load();
+    let config = config_service::load(config_repo);
     match fetch(repo, logger) {
         Ok((state, is_terminal)) => (render_pr_state(state, &config), is_terminal),
         Err(token) => (render_error(&token, &config), false),

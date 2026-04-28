@@ -10,6 +10,7 @@ use schema::{
     CheckBucket, GhCheckItem, GhCompare, GhPrView, GhRepoView, GhRepoViewFull, translate_bucket,
 };
 
+use crate::contexts::evaluation::application::port::{ErrorCategory, ErrorLogger, LogRecord};
 use crate::contexts::evaluation::domain::error::RepositoryError;
 use crate::contexts::evaluation::domain::pr_state::blocked::GenericBlockedState;
 use crate::contexts::evaluation::domain::pr_state::blocked::branch_sync::BranchSyncState;
@@ -22,51 +23,67 @@ use crate::contexts::evaluation::infrastructure::git::{current_branch, is_git_re
 
 // ── GhClient ────────────────────────────────────────────────────────────────
 
-pub struct GhClient {
+pub struct GhClient<L> {
     cwd: Option<std::path::PathBuf>,
+    logger: L,
 }
 
-impl Default for GhClient {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl GhClient {
+impl<L: ErrorLogger + Sync> GhClient<L> {
     #[must_use]
-    pub fn new() -> Self {
-        Self { cwd: None }
+    pub fn new_in(cwd: std::path::PathBuf, logger: L) -> Self {
+        Self {
+            cwd: Some(cwd),
+            logger,
+        }
     }
 
-    #[must_use]
-    pub fn new_in(cwd: std::path::PathBuf) -> Self {
-        Self { cwd: Some(cwd) }
-    }
-
-    fn run_gh(&self, args: &[&str]) -> Result<Vec<u8>, RepositoryError> {
+    fn run_gh(&self, args: &[&str]) -> Result<Vec<u8>, GhError> {
         run_gh(args, self.cwd.as_deref())
     }
 
+    fn log_and_convert(&self, e: GhError) -> RepositoryError {
+        if let GhError::ApiError(ref msg) = e {
+            self.logger.log(&LogRecord {
+                category: ErrorCategory::Unknown,
+                detail: Some(msg.clone()),
+            });
+        }
+        RepositoryError::from(e)
+    }
+
     fn fetch_pr_view(&self) -> Result<GhPrView, RepositoryError> {
-        let bytes = self.run_gh(&[
-            "pr",
-            "view",
-            "--json",
-            "state,isDraft,mergeable,mergeStateStatus,reviewDecision,baseRefName,headRefName",
-        ])?;
-        serde_json::from_slice(&bytes).map_err(|e| RepositoryError::Unexpected(e.to_string()))
+        let bytes = self
+            .run_gh(&[
+                "pr",
+                "view",
+                "--json",
+                "state,isDraft,mergeable,mergeStateStatus,reviewDecision,baseRefName,headRefName",
+            ])
+            .map_err(|e| self.log_and_convert(e))?;
+        serde_json::from_slice(&bytes).map_err(|e| {
+            self.logger.log(&LogRecord {
+                category: ErrorCategory::Unknown,
+                detail: Some(e.to_string()),
+            });
+            RepositoryError::Unexpected
+        })
     }
 
     fn fetch_ci_state(&self) -> Result<Option<CiState>, RepositoryError> {
         let bytes = match self.run_gh(&["pr", "checks", "--json", "bucket,state"]) {
             Ok(b) => b,
-            Err(RepositoryError::Unexpected(msg)) if msg.contains("no checks reported") => {
+            Err(GhError::ApiError(msg)) if msg.contains("no checks reported") => {
                 return Ok(None);
             }
-            Err(e) => return Err(e),
+            Err(e) => return Err(self.log_and_convert(e)),
         };
-        let items: Vec<GhCheckItem> = serde_json::from_slice(&bytes)
-            .map_err(|e| RepositoryError::Unexpected(e.to_string()))?;
+        let items: Vec<GhCheckItem> = serde_json::from_slice(&bytes).map_err(|e| {
+            self.logger.log(&LogRecord {
+                category: ErrorCategory::Unknown,
+                detail: Some(e.to_string()),
+            });
+            RepositoryError::Unexpected
+        })?;
         let buckets: Vec<CheckBucket> = items.iter().map(|c| translate_bucket(&c.bucket)).collect();
         Ok(aggregate_ci(&buckets))
     }
@@ -102,7 +119,7 @@ impl GhClient {
 
 // ── PrRepository 実装 ────────────────────────────────────────────────────────
 
-impl PrRepository for GhClient {
+impl<L: ErrorLogger + Sync> PrRepository for GhClient<L> {
     fn fetch(&self) -> Result<PrState, RepositoryError> {
         if !is_git_repo(self.cwd.as_deref()) {
             return Ok(PrState::NotApplicable(NotApplicableState::NoRepository));
@@ -293,7 +310,7 @@ impl From<GhError> for RepositoryError {
             GhError::NotInstalled | GhError::AuthRequired => RepositoryError::Unauthenticated,
             GhError::NoPr => RepositoryError::NotFound,
             GhError::RateLimited => RepositoryError::RateLimited,
-            GhError::ApiError(msg) => RepositoryError::Unexpected(msg),
+            GhError::ApiError(_) => RepositoryError::Unexpected,
         }
     }
 }
@@ -306,7 +323,7 @@ fn gh_timeout() -> Duration {
     Duration::from_secs(secs)
 }
 
-fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, RepositoryError> {
+fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhError> {
     let mut cmd = Command::new("gh");
     cmd.args(args);
     cmd.stdout(Stdio::piped());
@@ -316,8 +333,8 @@ fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, RepositoryError>
     }
 
     let mut child = match cmd.spawn() {
-        Err(e) if e.kind() == ErrorKind::NotFound => return Err(GhError::NotInstalled.into()),
-        Err(e) => return Err(GhError::ApiError(e.to_string()).into()),
+        Err(e) if e.kind() == ErrorKind::NotFound => return Err(GhError::NotInstalled),
+        Err(e) => return Err(GhError::ApiError(e.to_string())),
         Ok(c) => c,
     };
 
@@ -348,15 +365,15 @@ fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, RepositoryError>
                 }
                 let exit_code = status.code().unwrap_or(1);
                 let stderr_str = String::from_utf8_lossy(&stderr).into_owned();
-                return Err(classify_gh_error(exit_code, &stderr_str).into());
+                return Err(classify_gh_error(exit_code, &stderr_str));
             }
             Ok(None) if Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(GhError::ApiError("gh command timed out".to_string()).into());
+                return Err(GhError::ApiError("gh command timed out".to_string()));
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(e) => return Err(GhError::ApiError(e.to_string()).into()),
+            Err(e) => return Err(GhError::ApiError(e.to_string())),
         }
     }
 }

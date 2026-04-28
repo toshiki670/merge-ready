@@ -22,7 +22,7 @@ pub fn run(cli: Cli) -> ExitCode {
                 crate::contexts::daemon::infrastructure::daemon_lifecycle::DaemonLifecycle::new(
                     |repo_id: &str, cwd: &std::path::Path| {
                         let repo_id = repo_id.to_owned();
-                        let client = GhClient::new_in(cwd.to_path_buf());
+                        let client = GhClient::new_in(cwd.to_path_buf(), Logger);
                         let (output, is_terminal) =
                             crate::contexts::evaluation::interface::prompt::render(
                                 &client,

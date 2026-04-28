@@ -43,7 +43,7 @@ impl GhClient {
         Self { cwd: Some(cwd) }
     }
 
-    fn run_gh(&self, args: &[&str]) -> Result<Vec<u8>, RepositoryError> {
+    fn run_gh(&self, args: &[&str]) -> Result<Vec<u8>, GhError> {
         run_gh(args, self.cwd.as_deref())
     }
 
@@ -60,10 +60,10 @@ impl GhClient {
     fn fetch_ci_state(&self) -> Result<Option<CiState>, RepositoryError> {
         let bytes = match self.run_gh(&["pr", "checks", "--json", "bucket,state"]) {
             Ok(b) => b,
-            Err(RepositoryError::Unexpected(msg)) if msg.contains("no checks reported") => {
+            Err(GhError::ApiError(msg)) if msg.contains("no checks reported") => {
                 return Ok(None);
             }
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.into()),
         };
         let items: Vec<GhCheckItem> = serde_json::from_slice(&bytes)
             .map_err(|e| RepositoryError::Unexpected(e.to_string()))?;
@@ -306,7 +306,7 @@ fn gh_timeout() -> Duration {
     Duration::from_secs(secs)
 }
 
-fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, RepositoryError> {
+fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhError> {
     let mut cmd = Command::new("gh");
     cmd.args(args);
     cmd.stdout(Stdio::piped());
@@ -316,8 +316,8 @@ fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, RepositoryError>
     }
 
     let mut child = match cmd.spawn() {
-        Err(e) if e.kind() == ErrorKind::NotFound => return Err(GhError::NotInstalled.into()),
-        Err(e) => return Err(GhError::ApiError(e.to_string()).into()),
+        Err(e) if e.kind() == ErrorKind::NotFound => return Err(GhError::NotInstalled),
+        Err(e) => return Err(GhError::ApiError(e.to_string())),
         Ok(c) => c,
     };
 
@@ -348,15 +348,15 @@ fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, RepositoryError>
                 }
                 let exit_code = status.code().unwrap_or(1);
                 let stderr_str = String::from_utf8_lossy(&stderr).into_owned();
-                return Err(classify_gh_error(exit_code, &stderr_str).into());
+                return Err(classify_gh_error(exit_code, &stderr_str));
             }
             Ok(None) if Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(GhError::ApiError("gh command timed out".to_string()).into());
+                return Err(GhError::ApiError("gh command timed out".to_string()));
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(e) => return Err(GhError::ApiError(e.to_string()).into()),
+            Err(e) => return Err(GhError::ApiError(e.to_string())),
         }
     }
 }

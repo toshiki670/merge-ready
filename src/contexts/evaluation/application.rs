@@ -6,6 +6,7 @@ pub mod prompt;
 use crate::contexts::evaluation::domain::pr_state::NotApplicableState;
 use crate::contexts::evaluation::domain::pr_state::PrState;
 use crate::contexts::evaluation::domain::pr_state::blocked::BlockedState;
+use crate::contexts::evaluation::domain::pr_state::blocked::GenericBlockedState;
 use crate::contexts::evaluation::domain::pr_state::blocked::branch_sync::BranchSyncState;
 use crate::contexts::evaluation::domain::pr_state::blocked::ci::CiState;
 use crate::contexts::evaluation::domain::pr_state::blocked::review::ReviewState;
@@ -27,6 +28,7 @@ pub enum OutputToken {
     NoPullRequest,
     Draft,
     StatusCalculating,
+    BlockedUnknown,
 }
 
 fn map_blocked_to_tokens(blocked: BlockedState) -> Vec<OutputToken> {
@@ -49,6 +51,11 @@ fn map_blocked_to_tokens(blocked: BlockedState) -> Vec<OutputToken> {
         tokens.push(match r {
             ReviewState::ChangesRequested => OutputToken::ReviewRequested,
             ReviewState::ReviewRequired => OutputToken::ReviewRequired,
+        });
+    }
+    if let Some(g) = blocked.generic {
+        tokens.push(match g {
+            GenericBlockedState::BlockedUnknown => OutputToken::BlockedUnknown,
         });
     }
     tokens
@@ -93,6 +100,7 @@ mod tests {
             branch_sync: None,
             ci: None,
             review: Some(ReviewState::ReviewRequired),
+            generic: None,
         };
         let tokens = map_pr_state_to_tokens(PrState::Blocked(blocked));
         assert_eq!(tokens.len(), 1);
@@ -106,6 +114,7 @@ mod tests {
             branch_sync: None,
             ci: Some(CiState::Pending),
             review: None,
+            generic: None,
         };
         let tokens = map_pr_state_to_tokens(PrState::Blocked(blocked));
         assert_eq!(tokens.len(), 1);
@@ -118,5 +127,19 @@ mod tests {
             map_pr_state_to_tokens(PrState::NotApplicable(NotApplicableState::Calculating));
         assert_eq!(tokens.len(), 1);
         assert!(matches!(tokens[0], OutputToken::StatusCalculating));
+    }
+
+    #[test]
+    fn blocked_unknown_maps_to_blocked_unknown_token() {
+        use crate::contexts::evaluation::domain::pr_state::blocked::BlockedState;
+        let blocked = BlockedState {
+            branch_sync: None,
+            ci: None,
+            review: None,
+            generic: Some(GenericBlockedState::BlockedUnknown),
+        };
+        let tokens = map_pr_state_to_tokens(PrState::Blocked(blocked));
+        assert_eq!(tokens.len(), 1);
+        assert!(matches!(tokens[0], OutputToken::BlockedUnknown));
     }
 }

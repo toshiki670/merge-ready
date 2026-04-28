@@ -1,9 +1,11 @@
 pub mod branch_sync;
 pub mod ci;
+pub mod generic;
 pub mod review;
 
 use branch_sync::BranchSyncState;
 use ci::CiState;
+pub use generic::GenericBlockedState;
 use review::ReviewState;
 
 /// PR がブロックされているときのブロッカー集合（複数同時に存在できる）
@@ -17,4 +19,6 @@ pub struct BlockedState {
     pub ci: Option<CiState>,
     /// レビューの blocker（変更要求）
     pub review: Option<ReviewState>,
+    /// 汎用ブロッカー（API では原因を特定できないブロック）
+    pub generic: Option<GenericBlockedState>,
 }

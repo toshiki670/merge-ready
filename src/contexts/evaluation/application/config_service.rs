@@ -38,6 +38,7 @@ fn render_token_output(config: &DisplayConfig, token: &OutputToken) -> String {
         OutputToken::ReviewRequired => render_token(&config.review_required),
         OutputToken::Draft => render_token(&config.draft),
         OutputToken::StatusCalculating => render_token(&config.status_calculating),
+        OutputToken::BlockedUnknown => render_token(&config.blocked_unknown),
     }
 }
 
@@ -102,5 +103,11 @@ mod tests {
         };
         let result = render_output(&[], Some(&token), &DefaultRepo);
         assert_eq!(result, "✗ rate limited");
+    }
+
+    #[test]
+    fn blocked_unknown_renders_with_default_config() {
+        let result = render_output(&[OutputToken::BlockedUnknown], None, &DefaultRepo);
+        assert_eq!(result, "? Check merge blocker");
     }
 }

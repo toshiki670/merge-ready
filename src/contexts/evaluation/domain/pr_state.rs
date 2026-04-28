@@ -62,6 +62,7 @@ pub fn evaluate(
             branch_sync,
             ci,
             review,
+            generic: None,
         })
     } else if let Some(u) = unblocked {
         PrState::Unblocked(u)
@@ -130,5 +131,14 @@ mod tests {
     fn calculating_is_not_terminal() {
         let state = PrState::NotApplicable(NotApplicableState::Calculating);
         assert!(!state.is_terminal());
+    }
+
+    #[test]
+    fn evaluate_sets_generic_none_when_blockers_present() {
+        let state = evaluate(Some(BranchSyncState::Conflict), None, None, None);
+        let PrState::Blocked(blocked) = state else {
+            panic!("expected Blocked");
+        };
+        assert_eq!(blocked.generic, None);
     }
 }

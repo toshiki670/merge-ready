@@ -17,6 +17,7 @@ pub struct DisplayConfig {
     pub review_required: TokenConfig,
     pub draft: TokenConfig,
     pub status_calculating: TokenConfig,
+    pub blocked_unknown: TokenConfig,
     pub error: ErrorConfig,
 }
 
@@ -40,6 +41,7 @@ impl Default for DisplayConfig {
             review_required: tok("@", "Assign reviewer"),
             draft: tok("✎", "Ready for review"),
             status_calculating: tok("⧖", "Wait for status"),
+            blocked_unknown: tok("?", "Check merge blocker"),
             error: ErrorConfig::default(),
         }
     }
@@ -124,6 +126,13 @@ mod tests {
         let config = DisplayConfig::default();
         assert_eq!(config.status_calculating.symbol, "⧖");
         assert_eq!(config.status_calculating.label, "Wait for status");
+    }
+
+    #[test]
+    fn default_sets_blocked_unknown() {
+        let config = DisplayConfig::default();
+        assert_eq!(config.blocked_unknown.symbol, "?");
+        assert_eq!(config.blocked_unknown.label, "Check merge blocker");
     }
 
     #[test]

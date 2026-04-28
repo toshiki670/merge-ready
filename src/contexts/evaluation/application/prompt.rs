@@ -1,3 +1,5 @@
+pub mod display_item;
+
 use super::errors::{ErrorToken, into_token};
 use super::port::ErrorLogger;
 use crate::contexts::evaluation::domain::error::RepositoryError;
@@ -5,8 +7,11 @@ use crate::contexts::evaluation::domain::pr_state::PrRepository;
 use crate::contexts::evaluation::domain::pr_state::PrState;
 
 /// PR 状態を取得するユースケース。
-/// `NotFound` は表示不要な状態として `Ok(Unknown)` を返す。
-pub fn fetch<R, L>(repo: &R, logger: &L) -> Result<(PrState, bool), ErrorToken>
+/// `NotFound` は表示不要な状態として空リストを返す。
+pub fn fetch<R, L>(
+    repo: &R,
+    logger: &L,
+) -> Result<(Vec<display_item::DisplayItem>, bool), ErrorToken>
 where
     R: PrRepository,
     L: ErrorLogger,
@@ -20,5 +25,5 @@ where
         },
     };
     let is_terminal = state.is_terminal();
-    Ok((state, is_terminal))
+    Ok((display_item::from_pr_state(state), is_terminal))
 }

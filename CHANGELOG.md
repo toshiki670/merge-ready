@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.2] - 2026-04-29
+### Features
+- Daemon の定期取得サイクルをリポジトリごとに適応的に制御する ([#198](https://github.com/toshiki670/merge-ready/pull/198)) ([`5e25824`](https://github.com/toshiki670/merge-ready/commit/5e258242a304c2105f35a621a30c73e65aa6b6c0))
+### Performance
+- リリースバイナリにデバッグシンボルの strip を追加する ([#199](https://github.com/toshiki670/merge-ready/pull/199)) ([`cf9b930`](https://github.com/toshiki670/merge-ready/commit/cf9b930b47480851f2d970ff55dfe3e0020c2dd1))
+
+
 ## [0.5.1] - 2026-04-28
 ### Features
 - BLOCKED かつ理由不明のとき ? Check merge blocker を表示する ([#192](https://github.com/toshiki670/merge-ready/pull/192)) ([`d63f075`](https://github.com/toshiki670/merge-ready/commit/d63f075d11c9e92fe72373eb9391a8ae260244b2))

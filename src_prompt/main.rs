@@ -1,6 +1,6 @@
 // merge-ready-prompt: 軽量なシェルプロンプト用バイナリ。
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -31,31 +31,43 @@ fn query_daemon() -> Option<String> {
     let msg = encode_query(&cwd, env!("CARGO_PKG_VERSION"));
     stream.write_all(msg.as_bytes()).ok()?;
 
-    let mut buf = String::new();
-    BufReader::new(&stream).read_line(&mut buf).ok()?;
+    // レスポンスはスタックバッファで受け取る（8KB BufReader ヒープ確保を回避）
+    let mut buf = [0u8; 512];
+    let n = stream.read(&mut buf).ok()?;
 
-    decode_query_response(&buf)
+    decode_query_response(&buf[..n])
 }
 
 /// `{"action":"query","cwd":"...","client_version":"..."}\n`
 fn encode_query(cwd: &str, client_version: &str) -> String {
-    format!(
-        "{}\n",
-        serde_json::json!({
-            "action": "query",
-            "cwd": cwd,
-            "client_version": client_version,
-        })
-    )
+    #[derive(serde::Serialize)]
+    struct QueryMsg<'a> {
+        action: &'a str,
+        cwd: &'a str,
+        client_version: &'a str,
+    }
+    let mut s = serde_json::to_string(&QueryMsg {
+        action: "query",
+        cwd,
+        client_version,
+    })
+    .unwrap_or_default();
+    s.push('\n');
+    s
 }
 
 /// `{"tag":"output","output":"..."}` → output フィールドを返す
-fn decode_query_response(line: &str) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
-    if v.get("tag")?.as_str()? != "output" {
+fn decode_query_response(bytes: &[u8]) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    struct ResponseMsg {
+        tag: String,
+        output: Option<String>,
+    }
+    let msg: ResponseMsg = serde_json::from_slice(bytes.split(|&b| b == b'\n').next()?).ok()?;
+    if msg.tag != "output" {
         return None;
     }
-    v.get("output")?.as_str().map(str::to_owned)
+    Some(msg.output.unwrap_or_default())
 }
 
 fn socket_path() -> PathBuf {

@@ -48,3 +48,6 @@ tempfile = "3.27.0"
 [[bench]]
 name = "hot_path"
 harness = false
+
+[profile.release]
+strip = "symbols"

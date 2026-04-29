@@ -11,7 +11,7 @@ use super::paths;
 use super::pid;
 use super::protocol::{Request, Response};
 use super::repo_id;
-use crate::contexts::daemon::domain::cache::RefreshMode;
+use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode};
 
 const DEFAULT_STALE_TTL_SECS: u64 = 5;
 const DEFAULT_REFRESH_LOCK_TIMEOUT_SECS: u64 = 120;
@@ -48,21 +48,6 @@ const DEFAULT_COLD_EARLY_LIMIT: u32 = 10;
 // ── エントリ寿命 ──────────────────────────────────────────────────────────────
 /// 最終 Query から この秒数が経過したエントリを削除する（2 日）
 const DEFAULT_ENTRY_MAX_AGE_SECS: u64 = 2 * 24 * 60 * 60;
-
-struct CacheEntry {
-    output: String,
-    has_fetched: bool,
-    fetched_at: Instant,
-    refreshing: bool,
-    refresh_started_at: Option<Instant>,
-    cwd: PathBuf,
-    /// 評価コンテキストから渡されたリフレッシュモード
-    refresh_mode: RefreshMode,
-    /// 最後に Query を受け付けた時刻（Cold 判定・Hot 昇格に使用）
-    last_queried_at: Option<Instant>,
-    /// Cold モードでのリフレッシュ累計回数（初期→後期の切り替え判定）
-    cold_refresh_count: u32,
-}
 
 struct DaemonState {
     entries: HashMap<String, CacheEntry>,
@@ -320,7 +305,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
 fn effective_ttl(entry: &CacheEntry, base_ttl: u64) -> u64 {
     // Terminal エントリは Query 起点のリフレッシュを Warm 間隔で許容する
     // （PR が再オープンされた場合に検知できるようにする）
-    if entry.refresh_mode == RefreshMode::Terminal {
+    if entry.refresh_mode() == RefreshMode::Terminal {
         warm_refresh_secs()
     } else {
         base_ttl
@@ -335,12 +320,12 @@ fn process_query(
     entries: &mut HashMap<String, CacheEntry>,
 ) -> ActionResult {
     match entries.get_mut(repo_id) {
-        Some(entry) if entry.fetched_at.elapsed().as_secs() <= effective_ttl(entry, ttl) => {
+        Some(entry) if entry.is_fresh(effective_ttl(entry, ttl)) => {
             // Fresh キャッシュ
-            entry.last_queried_at = Some(Instant::now());
+            entry.record_query();
             ActionResult {
                 response: Response::Output {
-                    output: entry.output.clone(),
+                    output: entry.output().to_owned(),
                 },
                 refresh_repo_id: None,
                 refresh_cwd: None,
@@ -350,23 +335,21 @@ fn process_query(
         }
         Some(entry) => {
             // Stale または TTL 超過
-            let output = entry.output.clone();
-            let has_fetched = entry.has_fetched;
-            let stored_cwd = entry.cwd.clone();
-            let need_refresh = !entry.refreshing;
-            let refreshing_now = entry.refreshing;
-            let is_terminal = entry.refresh_mode == RefreshMode::Terminal;
+            let output = entry.output().to_owned();
+            let has_fetched = entry.has_fetched();
+            let stored_cwd = entry.cwd().to_path_buf();
+            let need_refresh = !entry.is_refreshing();
+            let refreshing_now = entry.is_refreshing();
+            let is_terminal = entry.refresh_mode() == RefreshMode::Terminal;
             // Query を受けたので last_queried_at を更新し Cold カウンタをリセット
-            let was_cold = entry
-                .last_queried_at
-                .is_none_or(|t| t.elapsed().as_secs() >= warm_to_cold_secs());
+            let was_cold = entry.is_cold_or_never_queried(warm_to_cold_secs());
             if was_cold {
-                entry.cold_refresh_count = 0;
+                entry.reset_cold_count();
             }
-            entry.last_queried_at = Some(Instant::now());
+            entry.record_query();
             if is_terminal && need_refresh {
                 // Terminal が stale になったらモードをリセットして再確認
-                entry.refresh_mode = RefreshMode::Warm;
+                entry.reset_to_warm();
             }
             process_stale_query(
                 repo_id,
@@ -383,23 +366,7 @@ fn process_query(
         }
         None => {
             // 初回 Miss → エントリを作成してリフレッシュ予約
-            let past = Instant::now()
-                .checked_sub(Duration::from_secs(ttl.saturating_add(1)))
-                .unwrap_or_else(Instant::now);
-            entries.insert(
-                repo_id.to_owned(),
-                CacheEntry {
-                    output: String::new(),
-                    has_fetched: false,
-                    fetched_at: past,
-                    refreshing: true,
-                    refresh_started_at: Some(Instant::now()),
-                    cwd: cwd_path.clone(),
-                    refresh_mode: RefreshMode::Warm,
-                    last_queried_at: Some(Instant::now()),
-                    cold_refresh_count: 0,
-                },
-            );
+            entries.insert(repo_id.to_owned(), CacheEntry::new(cwd_path.clone(), ttl));
             ActionResult {
                 response: Response::Output {
                     output: "? loading".to_owned(),
@@ -500,18 +467,6 @@ fn env_u64(key: &str, default: u64) -> u64 {
 
 // ── リフレッシュ間隔計算 ──────────────────────────────────────────────────────
 
-fn is_recent_query(entry: &CacheEntry) -> bool {
-    entry
-        .last_queried_at
-        .is_some_and(|t| t.elapsed().as_secs() <= hot_recent_query_secs())
-}
-
-fn is_cold_mode(entry: &CacheEntry) -> bool {
-    entry
-        .last_queried_at
-        .is_some_and(|t| t.elapsed().as_secs() >= warm_to_cold_secs())
-}
-
 fn cold_interval_secs(count: u32) -> u64 {
     if count < cold_early_limit() {
         cold_early_secs()
@@ -522,21 +477,21 @@ fn cold_interval_secs(count: u32) -> u64 {
 
 /// エントリの現在の状態からリフレッシュ間隔（秒）を計算する。
 fn effective_refresh_interval_secs(entry: &CacheEntry) -> u64 {
-    match entry.refresh_mode {
+    match entry.refresh_mode() {
         RefreshMode::Terminal => u64::MAX,
         RefreshMode::Hot => {
-            if is_recent_query(entry) {
+            if entry.has_recent_query(hot_recent_query_secs()) {
                 hot_with_query_secs()
             } else {
                 hot_without_query_secs()
             }
         }
         RefreshMode::Warm => {
-            if is_recent_query(entry) {
+            if entry.has_recent_query(hot_recent_query_secs()) {
                 // Warm + 最近 Query → Hot 相当
                 hot_with_query_secs()
-            } else if is_cold_mode(entry) {
-                cold_interval_secs(entry.cold_refresh_count)
+            } else if entry.is_cold(warm_to_cold_secs()) {
+                cold_interval_secs(entry.cold_refresh_count())
             } else {
                 warm_refresh_secs()
             }
@@ -545,11 +500,6 @@ fn effective_refresh_interval_secs(entry: &CacheEntry) -> u64 {
 }
 
 // ── 内部処理ヘルパー ──────────────────────────────────────────────────────────
-
-fn mark_refreshing(entry: &mut CacheEntry) {
-    entry.refreshing = true;
-    entry.refresh_started_at = Some(Instant::now());
-}
 
 #[allow(clippy::struct_excessive_bools)]
 struct StaleQueryParams {
@@ -588,7 +538,7 @@ fn process_stale_query(
             };
         }
         if need_refresh {
-            mark_refreshing(entries.get_mut(repo_id).expect("entry exists"));
+            entries.get_mut(repo_id).expect("entry exists").mark_refreshing();
         }
         return ActionResult {
             response: Response::Output {
@@ -602,7 +552,7 @@ fn process_stale_query(
     }
 
     if need_refresh {
-        mark_refreshing(entries.get_mut(repo_id).expect("entry exists"));
+        entries.get_mut(repo_id).expect("entry exists").mark_refreshing();
     }
     ActionResult {
         response: Response::Output { output },
@@ -611,22 +561,6 @@ fn process_stale_query(
         stop: false,
         restart_after_response,
     }
-}
-
-fn is_active_entry(entry: &CacheEntry) -> bool {
-    !entry.output.is_empty() && entry.refresh_mode != RefreshMode::Terminal
-}
-
-fn refresh_lock_expired(entry: &CacheEntry) -> bool {
-    entry
-        .refresh_started_at
-        .is_some_and(|started| started.elapsed().as_secs() >= refresh_lock_timeout_secs())
-}
-
-fn entry_expired(entry: &CacheEntry) -> bool {
-    entry
-        .last_queried_at
-        .is_some_and(|t| t.elapsed().as_secs() >= entry_max_age_secs())
 }
 
 /// エントリは必ず `process_query`（Query 経由）で生成される。
@@ -639,12 +573,7 @@ fn process_update(
     entries: &mut HashMap<String, CacheEntry>,
 ) -> ActionResult {
     if let Some(entry) = entries.get_mut(repo_id) {
-        entry.output.clone_from(&output.to_owned());
-        entry.has_fetched = true;
-        entry.fetched_at = Instant::now();
-        entry.refreshing = false;
-        entry.refresh_started_at = None;
-        entry.refresh_mode = refresh_mode;
+        entry.update(output.to_owned(), refresh_mode);
     }
     ActionResult {
         response: Response::Ok,
@@ -661,18 +590,18 @@ fn collect_background_refresh_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(S
         .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     // 期限切れエントリを削除
-    s.entries.retain(|_, entry| !entry_expired(entry));
+    s.entries
+        .retain(|_, entry| !entry.is_expired(entry_max_age_secs()));
 
     let mut targets = Vec::new();
     for (repo_id, entry) in &mut s.entries {
-        if !is_active_entry(entry) {
+        if !entry.is_active() {
             continue;
         }
-        if entry.refreshing && refresh_lock_expired(entry) {
-            entry.refreshing = false;
-            entry.refresh_started_at = None;
+        if entry.is_refreshing() && entry.refresh_lock_expired(refresh_lock_timeout_secs()) {
+            entry.clear_refresh_lock();
         }
-        if entry.refreshing {
+        if entry.is_refreshing() {
             continue;
         }
         let interval = effective_refresh_interval_secs(entry);
@@ -680,10 +609,10 @@ fn collect_background_refresh_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(S
             continue;
         }
         // Cold モードでリフレッシュする場合はカウンタを進める
-        if entry.refresh_mode == RefreshMode::Warm && is_cold_mode(entry) {
-            entry.cold_refresh_count = entry.cold_refresh_count.saturating_add(1);
+        if entry.refresh_mode() == RefreshMode::Warm && entry.is_cold(warm_to_cold_secs()) {
+            entry.increment_cold_count();
         }
-        mark_refreshing(entry);
+        entry.mark_refreshing();
         targets.push((repo_id.clone(), entry.cwd.clone()));
     }
 
@@ -695,57 +624,40 @@ mod tests {
     use super::*;
 
     fn make_entry(output: &str, refresh_mode: RefreshMode) -> CacheEntry {
-        CacheEntry {
-            output: output.to_owned(),
-            has_fetched: true,
-            fetched_at: Instant::now(),
-            refreshing: false,
-            refresh_started_at: None,
-            cwd: PathBuf::new(),
-            refresh_mode,
-            last_queried_at: Some(Instant::now()),
-            cold_refresh_count: 0,
-        }
+        let mut e = CacheEntry::new(PathBuf::new(), 5);
+        e.update(output.to_owned(), refresh_mode);
+        e.record_query();
+        e
     }
 
     fn make_stale_entry(output: &str, refresh_mode: RefreshMode, age_secs: u64) -> CacheEntry {
-        CacheEntry {
-            fetched_at: Instant::now()
-                .checked_sub(Duration::from_secs(age_secs))
-                .unwrap_or_else(Instant::now),
-            ..make_entry(output, refresh_mode)
-        }
+        let mut e = make_entry(output, refresh_mode);
+        e.fetched_at = Instant::now()
+            .checked_sub(Duration::from_secs(age_secs))
+            .unwrap_or_else(Instant::now);
+        e
     }
 
-    // ── is_active_entry ────────────────────────────────────────────────────────
+    // ── is_active (via CacheEntry) ─────────────────────────────────────────────
 
     #[test]
     fn active_when_non_empty_output_and_warm() {
-        assert!(is_active_entry(&make_entry(
-            "✓ Ready for merge",
-            RefreshMode::Warm
-        )));
+        assert!(make_entry("✓ Ready for merge", RefreshMode::Warm).is_active());
     }
 
     #[test]
     fn active_when_hot() {
-        assert!(is_active_entry(&make_entry(
-            "⧖ Wait for CI",
-            RefreshMode::Hot
-        )));
+        assert!(make_entry("⧖ Wait for CI", RefreshMode::Hot).is_active());
     }
 
     #[test]
     fn inactive_when_empty_output() {
-        assert!(!is_active_entry(&make_entry("", RefreshMode::Warm)));
+        assert!(!make_entry("", RefreshMode::Warm).is_active());
     }
 
     #[test]
     fn inactive_when_terminal() {
-        assert!(!is_active_entry(&make_entry(
-            "✓ Ready for merge",
-            RefreshMode::Terminal
-        )));
+        assert!(!make_entry("✓ Ready for merge", RefreshMode::Terminal).is_active());
     }
 
     // ── process_update ─────────────────────────────────────────────────────────
@@ -758,7 +670,7 @@ mod tests {
             make_entry("✓ Ready for merge", RefreshMode::Warm),
         );
         process_update("repo", "", RefreshMode::Terminal, &mut entries);
-        assert_eq!(entries["repo"].refresh_mode, RefreshMode::Terminal);
+        assert_eq!(entries["repo"].refresh_mode(), RefreshMode::Terminal);
     }
 
     #[test]
@@ -769,7 +681,7 @@ mod tests {
             make_entry("✓ Ready for merge", RefreshMode::Warm),
         );
         process_update("repo", "⧖ Wait for CI", RefreshMode::Hot, &mut entries);
-        assert_eq!(entries["repo"].refresh_mode, RefreshMode::Hot);
+        assert_eq!(entries["repo"].refresh_mode(), RefreshMode::Hot);
     }
 
     #[test]
@@ -789,7 +701,7 @@ mod tests {
         let mut entries = HashMap::new();
         entries.insert("repo".to_owned(), make_entry("", RefreshMode::Terminal));
         process_update("repo", "✓ Ready for merge", RefreshMode::Warm, &mut entries);
-        assert_eq!(entries["repo"].refresh_mode, RefreshMode::Warm);
+        assert_eq!(entries["repo"].refresh_mode(), RefreshMode::Warm);
     }
 
     // ── effective_refresh_interval_secs ────────────────────────────────────────
@@ -916,7 +828,7 @@ mod tests {
         }
         collect_background_refresh_targets(&state);
         let s = state.lock().unwrap();
-        assert_eq!(s.entries["repo"].cold_refresh_count, 4);
+        assert_eq!(s.entries["repo"].cold_refresh_count(), 4);
     }
 
     #[test]

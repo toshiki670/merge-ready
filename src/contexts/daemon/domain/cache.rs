@@ -56,10 +56,10 @@ pub struct CacheEntry {
     pub(crate) fetched_at: Instant,
     refreshing: bool,
     pub(crate) refresh_started_at: Option<Instant>,
-    cwd: PathBuf,
+    pub(crate) cwd: PathBuf,
     refresh_mode: RefreshMode,
     pub(crate) last_queried_at: Option<Instant>,
-    cold_refresh_count: u32,
+    pub(crate) cold_refresh_count: u32,
 }
 
 impl CacheEntry {

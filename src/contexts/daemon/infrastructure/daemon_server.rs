@@ -11,10 +11,9 @@ use super::paths;
 use super::pid;
 use super::protocol::{Request, Response};
 use super::repo_id;
+use crate::contexts::daemon::domain::cache::RefreshMode;
 
 const DEFAULT_STALE_TTL_SECS: u64 = 5;
-const IDLE_TIMEOUT_SECS: u64 = 30 * 60;
-const DEFAULT_BACKGROUND_REFRESH_SECS: u64 = 180;
 const DEFAULT_REFRESH_LOCK_TIMEOUT_SECS: u64 = 120;
 /// version mismatch 後の自己再起動までの待機時間 (ms)
 const RESTART_GRACE_MS: u64 = 30;
@@ -22,6 +21,33 @@ const RESTART_GRACE_MS: u64 = 30;
 const BIND_RETRY_INTERVAL_MS: u64 = 100;
 /// bind リトライ最大回数（合計 1 秒）
 const BIND_RETRY_MAX: usize = 10;
+/// バックグラウンドスケジューラの動作間隔。Hot 最小間隔（2 秒）に合わせる。
+const SCHEDULER_TICK_SECS: u64 = 2;
+
+// ── Hot モード ────────────────────────────────────────────────────────────────
+/// 「最近 Query あり」と見なす経過秒数
+const DEFAULT_HOT_RECENT_QUERY_SECS: u64 = 30;
+/// Hot + 最近 Query あり の場合のリフレッシュ間隔
+const DEFAULT_HOT_WITH_QUERY_SECS: u64 = 2;
+/// Hot のみ（Query なし）の場合のリフレッシュ間隔
+const DEFAULT_HOT_WITHOUT_QUERY_SECS: u64 = 10;
+
+// ── Warm モード ───────────────────────────────────────────────────────────────
+const DEFAULT_WARM_REFRESH_SECS: u64 = 180;
+/// Warm から Cold へ移行するまでの Query 無し経過秒数
+const DEFAULT_WARM_TO_COLD_SECS: u64 = 30 * 60;
+
+// ── Cold モード ───────────────────────────────────────────────────────────────
+/// Cold 初期（累計リフレッシュ `COLD_EARLY_LIMIT` 回まで）の間隔
+const DEFAULT_COLD_EARLY_SECS: u64 = 30 * 60;
+/// Cold 後期（`COLD_EARLY_LIMIT` 回超）の間隔
+const DEFAULT_COLD_LATE_SECS: u64 = 60 * 60;
+/// Cold 初期から後期へ切り替わる累計リフレッシュ回数
+const DEFAULT_COLD_EARLY_LIMIT: u32 = 10;
+
+// ── エントリ寿命 ──────────────────────────────────────────────────────────────
+/// 最終 Query から この秒数が経過したエントリを削除する（2 日）
+const DEFAULT_ENTRY_MAX_AGE_SECS: u64 = 2 * 24 * 60 * 60;
 
 struct CacheEntry {
     output: String,
@@ -30,23 +56,24 @@ struct CacheEntry {
     refreshing: bool,
     refresh_started_at: Option<Instant>,
     cwd: PathBuf,
-    /// PR が closed / merged 確認済みかどうか。true の場合バックグラウンドリフレッシュを停止する。
-    is_terminal: bool,
+    /// 評価コンテキストから渡されたリフレッシュモード
+    refresh_mode: RefreshMode,
+    /// 最後に Query を受け付けた時刻（Cold 判定・Hot 昇格に使用）
+    last_queried_at: Option<Instant>,
+    /// Cold モードでのリフレッシュ累計回数（初期→後期の切り替え判定）
+    cold_refresh_count: u32,
 }
 
 struct DaemonState {
     entries: HashMap<String, CacheEntry>,
-    last_activity: Instant,
     started_at: Instant,
 }
 
 impl DaemonState {
     fn new() -> Self {
-        let now = Instant::now();
         Self {
             entries: HashMap::new(),
-            last_activity: now,
-            started_at: now,
+            started_at: Instant::now(),
         }
     }
 }
@@ -66,7 +93,7 @@ type RefreshFn = Arc<dyn Fn(&str, &std::path::Path) + Send + Sync + 'static>;
 /// デーモンのメインループ。ソケットをバインドして接続を待ち受ける。
 ///
 /// `on_refresh` はキャッシュ更新が必要になったときにスレッドで呼ばれる。
-/// アイドルタイムアウトまたは Stop リクエストで `ExitCode` を返す。
+/// Stop リクエストで `ExitCode` を返す。
 pub fn run(on_refresh: &RefreshFn) -> ExitCode {
     let socket_path = paths::socket_path();
     if let Some(parent) = socket_path.parent() {
@@ -90,43 +117,15 @@ pub fn run(on_refresh: &RefreshFn) -> ExitCode {
     let state = Arc::new(Mutex::new(DaemonState::new()));
     let (exit_tx, exit_rx) = mpsc::channel::<ExitCode>();
 
-    // アイドルタイムアウト監視スレッド
-    {
-        let state = Arc::clone(&state);
-        let exit_tx = exit_tx.clone();
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(Duration::from_mins(1));
-                let guard = state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                let has_active_entries = guard.entries.values().any(is_active_entry);
-                let idle = guard.last_activity.elapsed().as_secs();
-                if has_active_entries {
-                    continue;
-                }
-                if idle >= IDLE_TIMEOUT_SECS {
-                    cleanup();
-                    let _ = exit_tx.send(ExitCode::SUCCESS);
-                    return;
-                }
-            }
-        });
-    }
-
-    // 定期バックグラウンドリフレッシュ（prompt 問い合わせがなくても有効PRを更新）
+    // 定期バックグラウンドリフレッシュ
+    // SCHEDULER_TICK_SECS ごとに各エントリのリフレッシュ間隔を個別に評価する
     {
         let state = Arc::clone(&state);
         let on_refresh = Arc::clone(on_refresh);
         std::thread::spawn(move || {
-            let interval = background_refresh_secs();
-            if interval == 0 {
-                return;
-            }
-
             loop {
-                std::thread::sleep(Duration::from_secs(interval));
-                let refresh_targets = collect_background_refresh_targets(&state, interval);
+                std::thread::sleep(Duration::from_secs(SCHEDULER_TICK_SECS));
+                let refresh_targets = collect_background_refresh_targets(&state);
                 for (repo_id, cwd) in refresh_targets {
                     spawn_refresh(&repo_id, &cwd, &on_refresh);
                 }
@@ -164,7 +163,6 @@ pub fn run(on_refresh: &RefreshFn) -> ExitCode {
 }
 
 fn bind_socket(socket_path: &std::path::Path) -> Result<UnixListener, ExitCode> {
-    // PID ファイルを確認し、生きている daemon が居れば起動しない
     match pid::read() {
         Some(p) if pid::is_alive(p) => {
             log::error!("daemon is already running (pid {p})");
@@ -172,12 +170,10 @@ fn bind_socket(socket_path: &std::path::Path) -> Result<UnixListener, ExitCode> 
             return Err(ExitCode::FAILURE);
         }
         _ => {
-            // stale PID または未起動 → socket を安全に削除
             let _ = std::fs::remove_file(socket_path);
         }
     }
 
-    // EADDRINUSE 時は別プロセスが先に bind した → リトライ (version mismatch 再起動レース対策)
     let mut retries = 0;
     loop {
         match UnixListener::bind(socket_path) {
@@ -236,7 +232,6 @@ fn handle_client(
     }
 
     if restart_after_response {
-        // レスポンスが届く時間を確保してから自己再起動する
         std::thread::sleep(Duration::from_millis(RESTART_GRACE_MS));
         cleanup();
         spawn_self_as_daemon();
@@ -246,7 +241,6 @@ fn handle_client(
 
     if stop {
         cleanup();
-        // レスポンスの書き込みが完了するまで少し待つ
         std::thread::sleep(Duration::from_millis(50));
         let _ = exit_tx.send(ExitCode::SUCCESS);
     }
@@ -269,7 +263,6 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
     let mut s = state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    s.last_activity = Instant::now();
 
     match request {
         Request::Query {
@@ -278,9 +271,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
         } => {
             let version_mismatch = client_version.as_str() != env!("CARGO_PKG_VERSION");
 
-            // repo_id を daemon 側で導出する
             let Some(repo_id) = repo_id::repo_id_from_cwd(cwd) else {
-                // git リポジトリ外 → 空文字を返す (PR なし扱い)
                 return ActionResult {
                     response: Response::Output {
                         output: String::new(),
@@ -298,8 +289,8 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
         Request::Update {
             repo_id,
             output,
-            is_terminal,
-        } => process_update(repo_id, output, *is_terminal, &mut s.entries),
+            refresh_mode,
+        } => process_update(repo_id, output, *refresh_mode, &mut s.entries),
         Request::Stop => ActionResult {
             response: Response::Ok,
             refresh_repo_id: None,
@@ -327,8 +318,10 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
 }
 
 fn effective_ttl(entry: &CacheEntry, base_ttl: u64) -> u64 {
-    if entry.is_terminal {
-        background_refresh_secs()
+    // Terminal エントリは Query 起点のリフレッシュを Warm 間隔で許容する
+    // （PR が再オープンされた場合に検知できるようにする）
+    if entry.refresh_mode == RefreshMode::Terminal {
+        warm_refresh_secs()
     } else {
         base_ttl
     }
@@ -341,9 +334,10 @@ fn process_query(
     restart_after_response: bool,
     entries: &mut HashMap<String, CacheEntry>,
 ) -> ActionResult {
-    match entries.get(repo_id) {
+    match entries.get_mut(repo_id) {
         Some(entry) if entry.fetched_at.elapsed().as_secs() <= effective_ttl(entry, ttl) => {
-            // Fresh キャッシュ（terminal エントリは background_refresh_secs を TTL として使用）
+            // Fresh キャッシュ
+            entry.last_queried_at = Some(Instant::now());
             ActionResult {
                 response: Response::Output {
                     output: entry.output.clone(),
@@ -355,13 +349,25 @@ fn process_query(
             }
         }
         Some(entry) => {
-            // Stale または Miss（TTL 超過 or 空出力中）
+            // Stale または TTL 超過
             let output = entry.output.clone();
             let has_fetched = entry.has_fetched;
             let stored_cwd = entry.cwd.clone();
             let need_refresh = !entry.refreshing;
             let refreshing_now = entry.refreshing;
-            let is_terminal = entry.is_terminal;
+            let is_terminal = entry.refresh_mode == RefreshMode::Terminal;
+            // Query を受けたので last_queried_at を更新し Cold カウンタをリセット
+            let was_cold = entry
+                .last_queried_at
+                .is_none_or(|t| t.elapsed().as_secs() >= warm_to_cold_secs());
+            if was_cold {
+                entry.cold_refresh_count = 0;
+            }
+            entry.last_queried_at = Some(Instant::now());
+            if is_terminal && need_refresh {
+                // Terminal が stale になったらモードをリセットして再確認
+                entry.refresh_mode = RefreshMode::Warm;
+            }
             process_stale_query(
                 repo_id,
                 StaleQueryParams {
@@ -371,7 +377,6 @@ fn process_query(
                     need_refresh,
                     refreshing_now,
                     restart_after_response,
-                    is_terminal,
                 },
                 entries,
             )
@@ -390,7 +395,9 @@ fn process_query(
                     refreshing: true,
                     refresh_started_at: Some(Instant::now()),
                     cwd: cwd_path.clone(),
-                    is_terminal: false,
+                    refresh_mode: RefreshMode::Warm,
+                    last_queried_at: Some(Instant::now()),
+                    cold_refresh_count: 0,
                 },
             );
             ActionResult {
@@ -406,11 +413,16 @@ fn process_query(
     }
 }
 
-fn spawn_refresh(repo_id: &str, cwd: &std::path::Path, on_refresh: &RefreshFn) {
-    let repo_id = repo_id.to_owned();
+/// リフレッシュ後に `cwd` から `repo_id` を再導出してコールバックを呼ぶ。
+/// ブランチが変わっていれば新しい `repo_id` に対してキャッシュを更新する。
+fn spawn_refresh(stored_repo_id: &str, cwd: &std::path::Path, on_refresh: &RefreshFn) {
+    let current_repo_id = cwd
+        .to_str()
+        .and_then(repo_id::repo_id_from_cwd)
+        .unwrap_or_else(|| stored_repo_id.to_owned());
     let cwd = cwd.to_path_buf();
     let on_refresh = Arc::clone(on_refresh);
-    std::thread::spawn(move || on_refresh(&repo_id, &cwd));
+    std::thread::spawn(move || on_refresh(&current_repo_id, &cwd));
 }
 
 fn cleanup() {
@@ -418,26 +430,121 @@ fn cleanup() {
     pid::remove();
 }
 
-fn stale_ttl_secs() -> u64 {
-    std::env::var("MERGE_READY_STALE_TTL")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_STALE_TTL_SECS)
-}
+// ── 設定値（環境変数オーバーライド対応） ─────────────────────────────────────
 
-fn background_refresh_secs() -> u64 {
-    std::env::var("MERGE_READY_BACKGROUND_REFRESH_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_BACKGROUND_REFRESH_SECS)
+fn stale_ttl_secs() -> u64 {
+    env_u64("MERGE_READY_STALE_TTL", DEFAULT_STALE_TTL_SECS)
 }
 
 fn refresh_lock_timeout_secs() -> u64 {
-    std::env::var("MERGE_READY_REFRESH_LOCK_TIMEOUT_SECS")
+    env_u64(
+        "MERGE_READY_REFRESH_LOCK_TIMEOUT_SECS",
+        DEFAULT_REFRESH_LOCK_TIMEOUT_SECS,
+    )
+}
+
+fn hot_recent_query_secs() -> u64 {
+    env_u64(
+        "MERGE_READY_HOT_RECENT_QUERY_SECS",
+        DEFAULT_HOT_RECENT_QUERY_SECS,
+    )
+}
+
+fn hot_with_query_secs() -> u64 {
+    env_u64(
+        "MERGE_READY_HOT_WITH_QUERY_SECS",
+        DEFAULT_HOT_WITH_QUERY_SECS,
+    )
+}
+
+fn hot_without_query_secs() -> u64 {
+    env_u64(
+        "MERGE_READY_HOT_WITHOUT_QUERY_SECS",
+        DEFAULT_HOT_WITHOUT_QUERY_SECS,
+    )
+}
+
+fn warm_refresh_secs() -> u64 {
+    env_u64("MERGE_READY_WARM_REFRESH_SECS", DEFAULT_WARM_REFRESH_SECS)
+}
+
+fn warm_to_cold_secs() -> u64 {
+    env_u64("MERGE_READY_WARM_TO_COLD_SECS", DEFAULT_WARM_TO_COLD_SECS)
+}
+
+fn cold_early_secs() -> u64 {
+    env_u64("MERGE_READY_COLD_EARLY_SECS", DEFAULT_COLD_EARLY_SECS)
+}
+
+fn cold_late_secs() -> u64 {
+    env_u64("MERGE_READY_COLD_LATE_SECS", DEFAULT_COLD_LATE_SECS)
+}
+
+fn cold_early_limit() -> u32 {
+    std::env::var("MERGE_READY_COLD_EARLY_LIMIT")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_REFRESH_LOCK_TIMEOUT_SECS)
+        .unwrap_or(DEFAULT_COLD_EARLY_LIMIT)
 }
+
+fn entry_max_age_secs() -> u64 {
+    env_u64("MERGE_READY_ENTRY_MAX_AGE_SECS", DEFAULT_ENTRY_MAX_AGE_SECS)
+}
+
+fn env_u64(key: &str, default: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
+// ── リフレッシュ間隔計算 ──────────────────────────────────────────────────────
+
+fn is_recent_query(entry: &CacheEntry) -> bool {
+    entry
+        .last_queried_at
+        .is_some_and(|t| t.elapsed().as_secs() <= hot_recent_query_secs())
+}
+
+fn is_cold_mode(entry: &CacheEntry) -> bool {
+    entry
+        .last_queried_at
+        .is_some_and(|t| t.elapsed().as_secs() >= warm_to_cold_secs())
+}
+
+fn cold_interval_secs(count: u32) -> u64 {
+    if count < cold_early_limit() {
+        cold_early_secs()
+    } else {
+        cold_late_secs()
+    }
+}
+
+/// エントリの現在の状態からリフレッシュ間隔（秒）を計算する。
+fn effective_refresh_interval_secs(entry: &CacheEntry) -> u64 {
+    match entry.refresh_mode {
+        RefreshMode::Terminal => u64::MAX,
+        RefreshMode::Hot => {
+            if is_recent_query(entry) {
+                hot_with_query_secs()
+            } else {
+                hot_without_query_secs()
+            }
+        }
+        RefreshMode::Warm => {
+            if is_recent_query(entry) {
+                // Warm + 最近 Query → Hot 相当
+                hot_with_query_secs()
+            } else if is_cold_mode(entry) {
+                cold_interval_secs(entry.cold_refresh_count)
+            } else {
+                warm_refresh_secs()
+            }
+        }
+    }
+}
+
+// ── 内部処理ヘルパー ──────────────────────────────────────────────────────────
 
 fn mark_refreshing(entry: &mut CacheEntry) {
     entry.refreshing = true;
@@ -452,11 +559,8 @@ struct StaleQueryParams {
     need_refresh: bool,
     refreshing_now: bool,
     restart_after_response: bool,
-    is_terminal: bool,
 }
 
-// no-PR cache is a valid empty output. Keep returning empty output while scheduling background
-// refresh, but still show loading for initial placeholder entries that are currently being refreshed.
 fn process_stale_query(
     repo_id: &str,
     params: StaleQueryParams,
@@ -469,17 +573,7 @@ fn process_stale_query(
         need_refresh,
         refreshing_now,
         restart_after_response,
-        is_terminal,
     } = params;
-
-    // terminal エントリが stale になったら is_terminal をリセットして再アクティブ化する。
-    // 再取得後に依然 closed / merged なら process_update が is_terminal = true を再設定する。
-    if let Some(entry) = entries.get_mut(repo_id)
-        && is_terminal
-        && need_refresh
-    {
-        entry.is_terminal = false;
-    }
 
     if output.is_empty() {
         if refreshing_now && !has_fetched {
@@ -520,9 +614,7 @@ fn process_stale_query(
 }
 
 fn is_active_entry(entry: &CacheEntry) -> bool {
-    // no-PR entries and terminal (closed/merged) entries are treated as inactive so they do not
-    // keep the daemon alive forever. They can be re-created on the next prompt.
-    !entry.output.is_empty() && !entry.is_terminal
+    !entry.output.is_empty() && entry.refresh_mode != RefreshMode::Terminal
 }
 
 fn refresh_lock_expired(entry: &CacheEntry) -> bool {
@@ -531,10 +623,19 @@ fn refresh_lock_expired(entry: &CacheEntry) -> bool {
         .is_some_and(|started| started.elapsed().as_secs() >= refresh_lock_timeout_secs())
 }
 
+fn entry_expired(entry: &CacheEntry) -> bool {
+    entry
+        .last_queried_at
+        .is_some_and(|t| t.elapsed().as_secs() >= entry_max_age_secs())
+}
+
+/// エントリは必ず `process_query`（Query 経由）で生成される。
+/// 未知の `repo_id` への Update（ブランチ切替直後の再導出 ID など）は無視する。
+/// `cwd: PathBuf::new()` / `last_queried_at: None` の孤立エントリが生まれるのを防ぐ。
 fn process_update(
     repo_id: &str,
     output: &str,
-    is_terminal: bool,
+    refresh_mode: RefreshMode,
     entries: &mut HashMap<String, CacheEntry>,
 ) -> ActionResult {
     if let Some(entry) = entries.get_mut(repo_id) {
@@ -543,20 +644,7 @@ fn process_update(
         entry.fetched_at = Instant::now();
         entry.refreshing = false;
         entry.refresh_started_at = None;
-        entry.is_terminal = is_terminal;
-    } else {
-        entries.insert(
-            repo_id.to_owned(),
-            CacheEntry {
-                output: output.to_owned(),
-                has_fetched: true,
-                fetched_at: Instant::now(),
-                refreshing: false,
-                refresh_started_at: None,
-                cwd: PathBuf::new(),
-                is_terminal,
-            },
-        );
+        entry.refresh_mode = refresh_mode;
     }
     ActionResult {
         response: Response::Ok,
@@ -567,13 +655,13 @@ fn process_update(
     }
 }
 
-fn collect_background_refresh_targets(
-    state: &Arc<Mutex<DaemonState>>,
-    interval_secs: u64,
-) -> Vec<(String, PathBuf)> {
+fn collect_background_refresh_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(String, PathBuf)> {
     let mut s = state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    // 期限切れエントリを削除
+    s.entries.retain(|_, entry| !entry_expired(entry));
 
     let mut targets = Vec::new();
     for (repo_id, entry) in &mut s.entries {
@@ -587,17 +675,18 @@ fn collect_background_refresh_targets(
         if entry.refreshing {
             continue;
         }
-        if entry.fetched_at.elapsed().as_secs() < interval_secs {
+        let interval = effective_refresh_interval_secs(entry);
+        if entry.fetched_at.elapsed().as_secs() < interval {
             continue;
+        }
+        // Cold モードでリフレッシュする場合はカウンタを進める
+        if entry.refresh_mode == RefreshMode::Warm && is_cold_mode(entry) {
+            entry.cold_refresh_count = entry.cold_refresh_count.saturating_add(1);
         }
         mark_refreshing(entry);
         targets.push((repo_id.clone(), entry.cwd.clone()));
     }
 
-    if !targets.is_empty() {
-        // 有効PRの定期更新が動いている間は daemon を生かす
-        s.last_activity = Instant::now();
-    }
     targets
 }
 
@@ -605,7 +694,7 @@ fn collect_background_refresh_targets(
 mod tests {
     use super::*;
 
-    fn make_entry(output: &str, is_terminal: bool) -> CacheEntry {
+    fn make_entry(output: &str, refresh_mode: RefreshMode) -> CacheEntry {
         CacheEntry {
             output: output.to_owned(),
             has_fetched: true,
@@ -613,48 +702,169 @@ mod tests {
             refreshing: false,
             refresh_started_at: None,
             cwd: PathBuf::new(),
-            is_terminal,
+            refresh_mode,
+            last_queried_at: Some(Instant::now()),
+            cold_refresh_count: 0,
+        }
+    }
+
+    fn make_stale_entry(output: &str, refresh_mode: RefreshMode, age_secs: u64) -> CacheEntry {
+        CacheEntry {
+            fetched_at: Instant::now()
+                .checked_sub(Duration::from_secs(age_secs))
+                .unwrap_or_else(Instant::now),
+            ..make_entry(output, refresh_mode)
         }
     }
 
     // ── is_active_entry ────────────────────────────────────────────────────────
 
     #[test]
-    fn active_when_non_empty_output_and_not_terminal() {
-        assert!(is_active_entry(&make_entry("✓ Ready for merge", false)));
+    fn active_when_non_empty_output_and_warm() {
+        assert!(is_active_entry(&make_entry(
+            "✓ Ready for merge",
+            RefreshMode::Warm
+        )));
+    }
+
+    #[test]
+    fn active_when_hot() {
+        assert!(is_active_entry(&make_entry(
+            "⧖ Wait for CI",
+            RefreshMode::Hot
+        )));
     }
 
     #[test]
     fn inactive_when_empty_output() {
-        assert!(!is_active_entry(&make_entry("", false)));
+        assert!(!is_active_entry(&make_entry("", RefreshMode::Warm)));
     }
 
     #[test]
-    fn inactive_when_terminal_with_empty_output() {
-        assert!(!is_active_entry(&make_entry("", true)));
-    }
-
-    #[test]
-    fn inactive_when_terminal_even_with_non_empty_output() {
-        assert!(!is_active_entry(&make_entry("✓ Ready for merge", true)));
+    fn inactive_when_terminal() {
+        assert!(!is_active_entry(&make_entry(
+            "✓ Ready for merge",
+            RefreshMode::Terminal
+        )));
     }
 
     // ── process_update ─────────────────────────────────────────────────────────
 
     #[test]
-    fn process_update_sets_is_terminal_true() {
+    fn process_update_sets_refresh_mode_terminal() {
         let mut entries = HashMap::new();
-        entries.insert("repo".to_owned(), make_entry("✓ Ready for merge", false));
-        process_update("repo", "", true, &mut entries);
-        assert!(entries["repo"].is_terminal);
+        entries.insert(
+            "repo".to_owned(),
+            make_entry("✓ Ready for merge", RefreshMode::Warm),
+        );
+        process_update("repo", "", RefreshMode::Terminal, &mut entries);
+        assert_eq!(entries["repo"].refresh_mode, RefreshMode::Terminal);
     }
 
     #[test]
-    fn process_update_clears_is_terminal_when_pr_reopens() {
+    fn process_update_sets_refresh_mode_hot() {
         let mut entries = HashMap::new();
-        entries.insert("repo".to_owned(), make_entry("", true));
-        process_update("repo", "✓ Ready for merge", false, &mut entries);
-        assert!(!entries["repo"].is_terminal);
+        entries.insert(
+            "repo".to_owned(),
+            make_entry("✓ Ready for merge", RefreshMode::Warm),
+        );
+        process_update("repo", "⧖ Wait for CI", RefreshMode::Hot, &mut entries);
+        assert_eq!(entries["repo"].refresh_mode, RefreshMode::Hot);
+    }
+
+    #[test]
+    fn process_update_unknown_repo_id_is_ignored() {
+        // ブランチ切替後に spawn_refresh が新 repo_id で Update してきた場合、
+        // エントリを新規作成せず無視する（孤立エントリ防止）
+        let mut entries = HashMap::new();
+        process_update("unknown-repo", "output", RefreshMode::Warm, &mut entries);
+        assert!(
+            entries.is_empty(),
+            "未知の repo_id への Update はエントリを作成しないはず"
+        );
+    }
+
+    #[test]
+    fn process_update_clears_terminal_when_pr_reopens() {
+        let mut entries = HashMap::new();
+        entries.insert("repo".to_owned(), make_entry("", RefreshMode::Terminal));
+        process_update("repo", "✓ Ready for merge", RefreshMode::Warm, &mut entries);
+        assert_eq!(entries["repo"].refresh_mode, RefreshMode::Warm);
+    }
+
+    // ── effective_refresh_interval_secs ────────────────────────────────────────
+
+    #[test]
+    fn hot_with_recent_query_uses_short_interval() {
+        let entry = make_entry("⧖ Wait for CI", RefreshMode::Hot);
+        assert_eq!(
+            effective_refresh_interval_secs(&entry),
+            hot_with_query_secs()
+        );
+    }
+
+    #[test]
+    fn hot_without_recent_query_uses_long_interval() {
+        let mut entry = make_entry("⧖ Wait for CI", RefreshMode::Hot);
+        entry.last_queried_at = Some(
+            Instant::now()
+                .checked_sub(Duration::from_secs(hot_recent_query_secs() + 1))
+                .unwrap(),
+        );
+        assert_eq!(
+            effective_refresh_interval_secs(&entry),
+            hot_without_query_secs()
+        );
+    }
+
+    #[test]
+    fn warm_with_recent_query_promotes_to_hot() {
+        let entry = make_entry("✓ Ready for merge", RefreshMode::Warm);
+        assert_eq!(
+            effective_refresh_interval_secs(&entry),
+            hot_with_query_secs()
+        );
+    }
+
+    #[test]
+    fn warm_without_recent_query_uses_warm_interval() {
+        let mut entry = make_entry("✓ Ready for merge", RefreshMode::Warm);
+        entry.last_queried_at = Some(
+            Instant::now()
+                .checked_sub(Duration::from_secs(hot_recent_query_secs() + 1))
+                .unwrap(),
+        );
+        assert_eq!(effective_refresh_interval_secs(&entry), warm_refresh_secs());
+    }
+
+    #[test]
+    fn warm_cold_mode_early_uses_cold_early_interval() {
+        let mut entry = make_entry("✓ Ready for merge", RefreshMode::Warm);
+        entry.last_queried_at = Some(
+            Instant::now()
+                .checked_sub(Duration::from_secs(warm_to_cold_secs() + 1))
+                .unwrap(),
+        );
+        entry.cold_refresh_count = 0;
+        assert_eq!(effective_refresh_interval_secs(&entry), cold_early_secs());
+    }
+
+    #[test]
+    fn warm_cold_mode_late_uses_cold_late_interval() {
+        let mut entry = make_entry("✓ Ready for merge", RefreshMode::Warm);
+        entry.last_queried_at = Some(
+            Instant::now()
+                .checked_sub(Duration::from_secs(warm_to_cold_secs() + 1))
+                .unwrap(),
+        );
+        entry.cold_refresh_count = cold_early_limit();
+        assert_eq!(effective_refresh_interval_secs(&entry), cold_late_secs());
+    }
+
+    #[test]
+    fn terminal_interval_is_max() {
+        let entry = make_entry("", RefreshMode::Terminal);
+        assert_eq!(effective_refresh_interval_secs(&entry), u64::MAX);
     }
 
     // ── collect_background_refresh_targets ─────────────────────────────────────
@@ -664,78 +874,80 @@ mod tests {
         let state = Arc::new(Mutex::new(DaemonState::new()));
         {
             let mut s = state.lock().unwrap();
-            // terminal エントリ（stale）
-            let mut entry = make_entry("✓ Ready for merge", true);
-            entry.fetched_at = Instant::now()
-                .checked_sub(Duration::from_secs(9999))
-                .unwrap();
-            s.entries.insert("repo".to_owned(), entry);
+            s.entries.insert(
+                "repo".to_owned(),
+                make_stale_entry("✓ Ready for merge", RefreshMode::Terminal, 9999),
+            );
         }
-        let targets = collect_background_refresh_targets(&state, 1);
+        let targets = collect_background_refresh_targets(&state);
         assert!(
             targets.is_empty(),
-            "terminal エントリはバックグラウンドリフレッシュ対象外のはず"
+            "Terminal エントリはバックグラウンドリフレッシュ対象外のはず"
         );
     }
 
     #[test]
-    fn background_refresh_includes_active_entry() {
+    fn background_refresh_includes_stale_hot_entry() {
         let state = Arc::new(Mutex::new(DaemonState::new()));
         {
             let mut s = state.lock().unwrap();
-            let mut entry = make_entry("✓ Ready for merge", false);
-            entry.fetched_at = Instant::now()
-                .checked_sub(Duration::from_secs(9999))
-                .unwrap();
+            let mut entry = make_stale_entry("⧖ Wait for CI", RefreshMode::Hot, 9999);
             entry.cwd = PathBuf::from("/some/repo");
             s.entries.insert("repo".to_owned(), entry);
         }
-        let targets = collect_background_refresh_targets(&state, 1);
+        let targets = collect_background_refresh_targets(&state);
         assert_eq!(targets.len(), 1);
+    }
+
+    #[test]
+    fn background_refresh_increments_cold_count() {
+        let state = Arc::new(Mutex::new(DaemonState::new()));
+        {
+            let mut s = state.lock().unwrap();
+            let mut entry = make_stale_entry("✓ Ready for merge", RefreshMode::Warm, 9999);
+            entry.last_queried_at = Some(
+                Instant::now()
+                    .checked_sub(Duration::from_secs(warm_to_cold_secs() + 1))
+                    .unwrap(),
+            );
+            entry.cold_refresh_count = 3;
+            entry.cwd = PathBuf::from("/some/repo");
+            s.entries.insert("repo".to_owned(), entry);
+        }
+        collect_background_refresh_targets(&state);
+        let s = state.lock().unwrap();
+        assert_eq!(s.entries["repo"].cold_refresh_count, 4);
+    }
+
+    #[test]
+    fn background_refresh_removes_expired_entries() {
+        let state = Arc::new(Mutex::new(DaemonState::new()));
+        {
+            let mut s = state.lock().unwrap();
+            let mut entry = make_entry("✓ Ready for merge", RefreshMode::Warm);
+            entry.last_queried_at = Some(
+                Instant::now()
+                    .checked_sub(Duration::from_secs(entry_max_age_secs() + 1))
+                    .unwrap(),
+            );
+            s.entries.insert("repo".to_owned(), entry);
+        }
+        collect_background_refresh_targets(&state);
+        let s = state.lock().unwrap();
+        assert!(s.entries.is_empty(), "期限切れエントリは削除されるはず");
     }
 
     // ── effective_ttl ──────────────────────────────────────────────────────────
 
     #[test]
-    fn terminal_entry_uses_background_refresh_secs_as_ttl() {
-        let entry = make_entry("", true);
-        assert_eq!(effective_ttl(&entry, 5), background_refresh_secs());
+    fn terminal_entry_uses_warm_refresh_secs_as_ttl() {
+        let entry = make_entry("", RefreshMode::Terminal);
+        assert_eq!(effective_ttl(&entry, 5), warm_refresh_secs());
     }
 
     #[test]
     fn non_terminal_entry_uses_base_ttl() {
-        let entry = make_entry("✓ Ready for merge", false);
+        let entry = make_entry("✓ Ready for merge", RefreshMode::Warm);
         assert_eq!(effective_ttl(&entry, 5), 5);
-    }
-
-    // ── process_stale_query: 再アクティブ化 ────────────────────────────────────
-
-    #[test]
-    fn stale_terminal_entry_resets_is_terminal_on_reactivation() {
-        let mut entries = HashMap::new();
-        let mut entry = make_entry("", true);
-        entry.fetched_at = Instant::now()
-            .checked_sub(Duration::from_secs(9999))
-            .unwrap();
-        entries.insert("repo".to_owned(), entry);
-
-        process_stale_query(
-            "repo",
-            StaleQueryParams {
-                output: String::new(),
-                has_fetched: true,
-                stored_cwd: PathBuf::new(),
-                need_refresh: true,
-                refreshing_now: false,
-                restart_after_response: false,
-                is_terminal: true,
-            },
-            &mut entries,
-        );
-
-        assert!(
-            !entries["repo"].is_terminal,
-            "stale terminal エントリは is_terminal がリセットされるはず"
-        );
     }
 }

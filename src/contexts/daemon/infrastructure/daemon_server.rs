@@ -628,6 +628,9 @@ fn entry_expired(entry: &CacheEntry) -> bool {
         .is_some_and(|t| t.elapsed().as_secs() >= entry_max_age_secs())
 }
 
+/// エントリは必ず process_query（Query 経由）で生成される。
+/// 未知の repo_id への Update（ブランチ切替直後の再導出 ID など）は無視する。
+/// cwd: PathBuf::new() / last_queried_at: None の孤立エントリが生まれるのを防ぐ。
 fn process_update(
     repo_id: &str,
     output: &str,
@@ -641,21 +644,6 @@ fn process_update(
         entry.refreshing = false;
         entry.refresh_started_at = None;
         entry.refresh_mode = refresh_mode;
-    } else {
-        entries.insert(
-            repo_id.to_owned(),
-            CacheEntry {
-                output: output.to_owned(),
-                has_fetched: true,
-                fetched_at: Instant::now(),
-                refreshing: false,
-                refresh_started_at: None,
-                cwd: PathBuf::new(),
-                refresh_mode,
-                last_queried_at: None,
-                cold_refresh_count: 0,
-            },
-        );
     }
     ActionResult {
         response: Response::Ok,
@@ -781,6 +769,18 @@ mod tests {
         );
         process_update("repo", "⧖ Wait for CI", RefreshMode::Hot, &mut entries);
         assert_eq!(entries["repo"].refresh_mode, RefreshMode::Hot);
+    }
+
+    #[test]
+    fn process_update_unknown_repo_id_is_ignored() {
+        // ブランチ切替後に spawn_refresh が新 repo_id で Update してきた場合、
+        // エントリを新規作成せず無視する（孤立エントリ防止）
+        let mut entries = HashMap::new();
+        process_update("unknown-repo", "output", RefreshMode::Warm, &mut entries);
+        assert!(
+            entries.is_empty(),
+            "未知の repo_id への Update はエントリを作成しないはず"
+        );
     }
 
     #[test]

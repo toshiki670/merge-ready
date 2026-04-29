@@ -38,9 +38,9 @@ const DEFAULT_WARM_REFRESH_SECS: u64 = 180;
 const DEFAULT_WARM_TO_COLD_SECS: u64 = 30 * 60;
 
 // ── Cold モード ───────────────────────────────────────────────────────────────
-/// Cold 初期（累計リフレッシュ COLD_EARLY_LIMIT 回まで）の間隔
+/// Cold 初期（累計リフレッシュ `COLD_EARLY_LIMIT` 回まで）の間隔
 const DEFAULT_COLD_EARLY_SECS: u64 = 30 * 60;
-/// Cold 後期（COLD_EARLY_LIMIT 回超）の間隔
+/// Cold 後期（`COLD_EARLY_LIMIT` 回超）の間隔
 const DEFAULT_COLD_LATE_SECS: u64 = 60 * 60;
 /// Cold 初期から後期へ切り替わる累計リフレッシュ回数
 const DEFAULT_COLD_EARLY_LIMIT: u32 = 10;
@@ -359,7 +359,7 @@ fn process_query(
             // Query を受けたので last_queried_at を更新し Cold カウンタをリセット
             let was_cold = entry
                 .last_queried_at
-                .map_or(true, |t| t.elapsed().as_secs() >= warm_to_cold_secs());
+                .is_none_or(|t| t.elapsed().as_secs() >= warm_to_cold_secs());
             if was_cold {
                 entry.cold_refresh_count = 0;
             }
@@ -413,8 +413,8 @@ fn process_query(
     }
 }
 
-/// リフレッシュ後に cwd から repo_id を再導出してコールバックを呼ぶ。
-/// ブランチが変わっていれば新しい repo_id に対してキャッシュを更新する。
+/// リフレッシュ後に `cwd` から `repo_id` を再導出してコールバックを呼ぶ。
+/// ブランチが変わっていれば新しい `repo_id` に対してキャッシュを更新する。
 fn spawn_refresh(stored_repo_id: &str, cwd: &std::path::Path, on_refresh: &RefreshFn) {
     let current_repo_id = cwd
         .to_str()
@@ -481,10 +481,10 @@ fn cold_late_secs() -> u64 {
 }
 
 fn cold_early_limit() -> u32 {
-    env_u64(
-        "MERGE_READY_COLD_EARLY_LIMIT",
-        u64::from(DEFAULT_COLD_EARLY_LIMIT),
-    ) as u32
+    std::env::var("MERGE_READY_COLD_EARLY_LIMIT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_COLD_EARLY_LIMIT)
 }
 
 fn entry_max_age_secs() -> u64 {
@@ -509,7 +509,7 @@ fn is_recent_query(entry: &CacheEntry) -> bool {
 fn is_cold_mode(entry: &CacheEntry) -> bool {
     entry
         .last_queried_at
-        .map_or(false, |t| t.elapsed().as_secs() >= warm_to_cold_secs())
+        .is_some_and(|t| t.elapsed().as_secs() >= warm_to_cold_secs())
 }
 
 fn cold_interval_secs(count: u32) -> u64 {
@@ -551,6 +551,7 @@ fn mark_refreshing(entry: &mut CacheEntry) {
     entry.refresh_started_at = Some(Instant::now());
 }
 
+#[allow(clippy::struct_excessive_bools)]
 struct StaleQueryParams {
     output: String,
     has_fetched: bool,
@@ -628,9 +629,9 @@ fn entry_expired(entry: &CacheEntry) -> bool {
         .is_some_and(|t| t.elapsed().as_secs() >= entry_max_age_secs())
 }
 
-/// エントリは必ず process_query（Query 経由）で生成される。
-/// 未知の repo_id への Update（ブランチ切替直後の再導出 ID など）は無視する。
-/// cwd: PathBuf::new() / last_queried_at: None の孤立エントリが生まれるのを防ぐ。
+/// エントリは必ず `process_query`（Query 経由）で生成される。
+/// 未知の `repo_id` への Update（ブランチ切替直後の再導出 ID など）は無視する。
+/// `cwd: PathBuf::new()` / `last_queried_at: None` の孤立エントリが生まれるのを防ぐ。
 fn process_update(
     repo_id: &str,
     output: &str,

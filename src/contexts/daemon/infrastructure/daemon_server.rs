@@ -12,6 +12,7 @@ use super::pid;
 use super::protocol::{Request, Response};
 use super::repo_id;
 use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode};
+use crate::contexts::daemon::domain::refresh_policy::RefreshPolicy;
 
 const DEFAULT_STALE_TTL_SECS: u64 = 5;
 const DEFAULT_REFRESH_LOCK_TIMEOUT_SECS: u64 = 120;
@@ -52,6 +53,7 @@ const DEFAULT_ENTRY_MAX_AGE_SECS: u64 = 2 * 24 * 60 * 60;
 struct DaemonState {
     entries: HashMap<String, CacheEntry>,
     started_at: Instant,
+    policy: RefreshPolicy,
 }
 
 impl DaemonState {
@@ -59,6 +61,16 @@ impl DaemonState {
         Self {
             entries: HashMap::new(),
             started_at: Instant::now(),
+            policy: RefreshPolicy {
+                hot_recent_query_secs: hot_recent_query_secs(),
+                hot_with_query_secs: hot_with_query_secs(),
+                hot_without_query_secs: hot_without_query_secs(),
+                warm_refresh_secs: warm_refresh_secs(),
+                warm_to_cold_secs: warm_to_cold_secs(),
+                cold_early_secs: cold_early_secs(),
+                cold_late_secs: cold_late_secs(),
+                cold_early_limit: cold_early_limit(),
+            },
         }
     }
 }
@@ -248,6 +260,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
     let mut s = state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let policy = s.policy;
 
     match request {
         Request::Query {
@@ -269,7 +282,14 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
             };
 
             let cwd_path = PathBuf::from(cwd);
-            process_query(&repo_id, cwd_path, ttl, version_mismatch, &mut s.entries)
+            process_query(
+                &repo_id,
+                cwd_path,
+                ttl,
+                version_mismatch,
+                &mut s.entries,
+                &policy,
+            )
         }
         Request::Update {
             repo_id,
@@ -302,25 +322,16 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
     }
 }
 
-fn effective_ttl(entry: &CacheEntry, base_ttl: u64) -> u64 {
-    // Terminal エントリは Query 起点のリフレッシュを Warm 間隔で許容する
-    // （PR が再オープンされた場合に検知できるようにする）
-    if entry.refresh_mode() == RefreshMode::Terminal {
-        warm_refresh_secs()
-    } else {
-        base_ttl
-    }
-}
-
 fn process_query(
     repo_id: &str,
     cwd_path: PathBuf,
     ttl: u64,
     restart_after_response: bool,
     entries: &mut HashMap<String, CacheEntry>,
+    policy: &RefreshPolicy,
 ) -> ActionResult {
     match entries.get_mut(repo_id) {
-        Some(entry) if entry.is_fresh(effective_ttl(entry, ttl)) => {
+        Some(entry) if entry.is_fresh(policy.effective_ttl(entry, ttl)) => {
             // Fresh キャッシュ
             entry.record_query();
             ActionResult {
@@ -342,7 +353,7 @@ fn process_query(
             let refreshing_now = entry.is_refreshing();
             let is_terminal = entry.refresh_mode() == RefreshMode::Terminal;
             // Query を受けたので last_queried_at を更新し Cold カウンタをリセット
-            let was_cold = entry.is_cold_or_never_queried(warm_to_cold_secs());
+            let was_cold = entry.is_cold_or_never_queried(policy.warm_to_cold_secs);
             if was_cold {
                 entry.reset_cold_count();
             }
@@ -465,40 +476,6 @@ fn env_u64(key: &str, default: u64) -> u64 {
         .unwrap_or(default)
 }
 
-// ── リフレッシュ間隔計算 ──────────────────────────────────────────────────────
-
-fn cold_interval_secs(count: u32) -> u64 {
-    if count < cold_early_limit() {
-        cold_early_secs()
-    } else {
-        cold_late_secs()
-    }
-}
-
-/// エントリの現在の状態からリフレッシュ間隔（秒）を計算する。
-fn effective_refresh_interval_secs(entry: &CacheEntry) -> u64 {
-    match entry.refresh_mode() {
-        RefreshMode::Terminal => u64::MAX,
-        RefreshMode::Hot => {
-            if entry.has_recent_query(hot_recent_query_secs()) {
-                hot_with_query_secs()
-            } else {
-                hot_without_query_secs()
-            }
-        }
-        RefreshMode::Warm => {
-            if entry.has_recent_query(hot_recent_query_secs()) {
-                // Warm + 最近 Query → Hot 相当
-                hot_with_query_secs()
-            } else if entry.is_cold(warm_to_cold_secs()) {
-                cold_interval_secs(entry.cold_refresh_count())
-            } else {
-                warm_refresh_secs()
-            }
-        }
-    }
-}
-
 // ── 内部処理ヘルパー ──────────────────────────────────────────────────────────
 
 #[allow(clippy::struct_excessive_bools)]
@@ -594,6 +571,7 @@ fn collect_background_refresh_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(S
     let mut s = state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let policy = s.policy;
 
     // 期限切れエントリを削除
     s.entries
@@ -610,12 +588,12 @@ fn collect_background_refresh_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(S
         if entry.is_refreshing() {
             continue;
         }
-        let interval = effective_refresh_interval_secs(entry);
+        let interval = policy.effective_refresh_interval_secs(entry);
         if entry.fetched_at.elapsed().as_secs() < interval {
             continue;
         }
         // Cold モードでリフレッシュする場合はカウンタを進める
-        if entry.refresh_mode() == RefreshMode::Warm && entry.is_cold(warm_to_cold_secs()) {
+        if entry.refresh_mode() == RefreshMode::Warm && entry.is_cold(policy.warm_to_cold_secs) {
             entry.increment_cold_count();
         }
         entry.mark_refreshing();
@@ -710,81 +688,6 @@ mod tests {
         assert_eq!(entries["repo"].refresh_mode(), RefreshMode::Warm);
     }
 
-    // ── effective_refresh_interval_secs ────────────────────────────────────────
-
-    #[test]
-    fn hot_with_recent_query_uses_short_interval() {
-        let entry = make_entry("⧖ Wait for CI", RefreshMode::Hot);
-        assert_eq!(
-            effective_refresh_interval_secs(&entry),
-            hot_with_query_secs()
-        );
-    }
-
-    #[test]
-    fn hot_without_recent_query_uses_long_interval() {
-        let mut entry = make_entry("⧖ Wait for CI", RefreshMode::Hot);
-        entry.last_queried_at = Some(
-            Instant::now()
-                .checked_sub(Duration::from_secs(hot_recent_query_secs() + 1))
-                .unwrap(),
-        );
-        assert_eq!(
-            effective_refresh_interval_secs(&entry),
-            hot_without_query_secs()
-        );
-    }
-
-    #[test]
-    fn warm_with_recent_query_promotes_to_hot() {
-        let entry = make_entry("✓ Ready for merge", RefreshMode::Warm);
-        assert_eq!(
-            effective_refresh_interval_secs(&entry),
-            hot_with_query_secs()
-        );
-    }
-
-    #[test]
-    fn warm_without_recent_query_uses_warm_interval() {
-        let mut entry = make_entry("✓ Ready for merge", RefreshMode::Warm);
-        entry.last_queried_at = Some(
-            Instant::now()
-                .checked_sub(Duration::from_secs(hot_recent_query_secs() + 1))
-                .unwrap(),
-        );
-        assert_eq!(effective_refresh_interval_secs(&entry), warm_refresh_secs());
-    }
-
-    #[test]
-    fn warm_cold_mode_early_uses_cold_early_interval() {
-        let mut entry = make_entry("✓ Ready for merge", RefreshMode::Warm);
-        entry.last_queried_at = Some(
-            Instant::now()
-                .checked_sub(Duration::from_secs(warm_to_cold_secs() + 1))
-                .unwrap(),
-        );
-        entry.cold_refresh_count = 0;
-        assert_eq!(effective_refresh_interval_secs(&entry), cold_early_secs());
-    }
-
-    #[test]
-    fn warm_cold_mode_late_uses_cold_late_interval() {
-        let mut entry = make_entry("✓ Ready for merge", RefreshMode::Warm);
-        entry.last_queried_at = Some(
-            Instant::now()
-                .checked_sub(Duration::from_secs(warm_to_cold_secs() + 1))
-                .unwrap(),
-        );
-        entry.cold_refresh_count = cold_early_limit();
-        assert_eq!(effective_refresh_interval_secs(&entry), cold_late_secs());
-    }
-
-    #[test]
-    fn terminal_interval_is_max() {
-        let entry = make_entry("", RefreshMode::Terminal);
-        assert_eq!(effective_refresh_interval_secs(&entry), u64::MAX);
-    }
-
     // ── collect_background_refresh_targets ─────────────────────────────────────
 
     #[test]
@@ -853,19 +756,5 @@ mod tests {
         collect_background_refresh_targets(&state);
         let s = state.lock().unwrap();
         assert!(s.entries.is_empty(), "期限切れエントリは削除されるはず");
-    }
-
-    // ── effective_ttl ──────────────────────────────────────────────────────────
-
-    #[test]
-    fn terminal_entry_uses_warm_refresh_secs_as_ttl() {
-        let entry = make_entry("", RefreshMode::Terminal);
-        assert_eq!(effective_ttl(&entry, 5), warm_refresh_secs());
-    }
-
-    #[test]
-    fn non_terminal_entry_uses_base_ttl() {
-        let entry = make_entry("✓ Ready for merge", RefreshMode::Warm);
-        assert_eq!(effective_ttl(&entry, 5), 5);
     }
 }

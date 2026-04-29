@@ -46,7 +46,10 @@ pub fn run(subcommand: DaemonCommand, port: &impl Port) -> ExitCode {
 // 次回 prompt 呼び出し時に lazy_start() が再起動するため実害はない。
 fn start(port: &impl Port) -> ExitCode {
     if std::env::var(DAEMON_INNER_ENV).is_ok() {
-        return lifecycle::start(port);
+        return match lifecycle::start(port) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(_) => ExitCode::FAILURE,
+        };
     }
     let Ok(exe) = std::env::current_exe() else {
         eprintln!("merge-ready: failed to locate executable");
@@ -126,9 +129,10 @@ fn stop(port: &impl Port) -> ExitCode {
 fn status(port: &impl Port) -> ExitCode {
     match lifecycle::get_status(port) {
         Some(s) => {
+            let pid = lifecycle::get_pid(port).map_or_else(|| "-".to_owned(), |p| p.to_string());
             println!(
                 "running  pid={}  entries={}  uptime={}s  version={}",
-                s.pid, s.entries, s.uptime_secs, s.version
+                pid, s.entries, s.uptime_secs, s.version
             );
         }
         None => println!("not running"),

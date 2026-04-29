@@ -129,9 +129,10 @@ fn stop(port: &impl Port) -> ExitCode {
 fn status(port: &impl Port) -> ExitCode {
     match lifecycle::get_status(port) {
         Some(s) => {
+            let pid = lifecycle::get_pid(port).map_or_else(|| "-".to_owned(), |p| p.to_string());
             println!(
-                "running  entries={}  uptime={}s  version={}",
-                s.entries, s.uptime_secs, s.version
+                "running  pid={}  entries={}  uptime={}s  version={}",
+                pid, s.entries, s.uptime_secs, s.version
             );
         }
         None => println!("not running"),

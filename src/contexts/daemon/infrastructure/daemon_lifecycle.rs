@@ -56,4 +56,8 @@ impl DaemonLifecyclePort for DaemonLifecycle {
             version,
         })
     }
+
+    fn get_pid(&self) -> Option<u32> {
+        pid::read().filter(|&p| pid::is_alive(p))
+    }
 }

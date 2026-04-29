@@ -17,3 +17,8 @@ pub fn stop(port: &impl Port) -> bool {
 pub fn get_status(port: &impl Port) -> Option<DaemonStatus> {
     port.get_status()
 }
+
+/// 実行中デーモンの PID を取得するユースケース
+pub fn get_pid(port: &impl Port) -> Option<u32> {
+    port.get_pid()
+}

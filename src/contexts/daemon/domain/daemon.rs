@@ -20,4 +20,6 @@ pub trait DaemonLifecyclePort {
     fn stop(&self) -> bool;
     /// デーモンのステータスを取得する。起動していない場合は `None` を返す。
     fn get_status(&self) -> Option<DaemonStatus>;
+    /// 実行中デーモンの PID を返す。未起動の場合は `None` を返す。
+    fn get_pid(&self) -> Option<u32>;
 }

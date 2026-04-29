@@ -272,3 +272,20 @@ fn test_concurrent_prompt_starts_only_one_daemon() {
         .output()
         .ok();
 }
+
+// ── #16: daemon status の出力フォーマット ────────────────────────────────────
+
+/// #16: `daemon status`（起動中）→ "running pid=<数字> entries=<数字> uptime=<数字>s version=<文字列>"
+#[test]
+fn test_daemon_status_format() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+    let _daemon = DaemonHandle::start(&env);
+
+    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    env.apply(&mut cmd);
+    cmd.args(["daemon", "status"]);
+    cmd.assert().success().stdout(
+        predicate::str::is_match(r"^running  pid=\d+  entries=\d+  uptime=\d+s  version=.+\n$")
+            .unwrap(),
+    );
+}

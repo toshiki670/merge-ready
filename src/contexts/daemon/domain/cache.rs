@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
 /// daemon がキャッシュエントリのリフレッシュ頻度を制御するモード。
 /// evaluation コンテキストの知識（CI 状態・終端状態）を抽象化した daemon 固有の概念。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8,6 +11,191 @@ pub enum RefreshMode {
     Warm,
     /// PR が merged / closed。リフレッシュ不要。
     Terminal,
+}
+
+/// リポジトリとブランチの組み合わせを識別する値オブジェクト。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RepoId(String);
+
+impl RepoId {
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for RepoId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl From<RepoId> for String {
+    fn from(r: RepoId) -> Self {
+        r.0
+    }
+}
+
+impl std::fmt::Display for RepoId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// キャッシュエントリのドメインエンティティ。
+///
+/// 1 リポジトリ＋ブランチに対応するキャッシュ状態を保持し、
+/// 状態遷移（update・mark_refreshing・record_query 等）と
+/// 状態クエリ（is_active・is_fresh・is_expired 等）を提供する。
+pub struct CacheEntry {
+    output: String,
+    has_fetched: bool,
+    pub(crate) fetched_at: Instant,
+    refreshing: bool,
+    pub(crate) refresh_started_at: Option<Instant>,
+    cwd: PathBuf,
+    refresh_mode: RefreshMode,
+    pub(crate) last_queried_at: Option<Instant>,
+    cold_refresh_count: u32,
+}
+
+impl CacheEntry {
+    /// 初回ミス時に生成する新規エントリ。即リフレッシュ済み状態でマークする。
+    ///
+    /// `stale_ttl` は `fetched_at` を TTL 超過済みの過去時刻にセットするために使う。
+    pub fn new(cwd: PathBuf, stale_ttl: u64) -> Self {
+        let past = Instant::now()
+            .checked_sub(Duration::from_secs(stale_ttl.saturating_add(1)))
+            .unwrap_or_else(Instant::now);
+        Self {
+            output: String::new(),
+            has_fetched: false,
+            fetched_at: past,
+            refreshing: true,
+            refresh_started_at: Some(Instant::now()),
+            cwd,
+            refresh_mode: RefreshMode::Warm,
+            last_queried_at: Some(Instant::now()),
+            cold_refresh_count: 0,
+        }
+    }
+
+    // ── 状態遷移 ──────────────────────────────────────────────────────────────
+
+    /// バックグラウンドワーカーの取得結果でエントリを更新する。
+    pub fn update(&mut self, output: String, refresh_mode: RefreshMode) {
+        self.output = output;
+        self.has_fetched = true;
+        self.fetched_at = Instant::now();
+        self.refreshing = false;
+        self.refresh_started_at = None;
+        self.refresh_mode = refresh_mode;
+    }
+
+    /// リフレッシュ開始をマークする。
+    pub fn mark_refreshing(&mut self) {
+        self.refreshing = true;
+        self.refresh_started_at = Some(Instant::now());
+    }
+
+    /// Query 受付時刻を記録する（Cold 判定・Hot 昇格の基準）。
+    pub fn record_query(&mut self) {
+        self.last_queried_at = Some(Instant::now());
+    }
+
+    /// Cold カウンタをリセットする（Query で Warm に戻ったとき）。
+    pub fn reset_cold_count(&mut self) {
+        self.cold_refresh_count = 0;
+    }
+
+    /// Cold カウンタをインクリメントする（Cold モードでリフレッシュするとき）。
+    pub fn increment_cold_count(&mut self) {
+        self.cold_refresh_count = self.cold_refresh_count.saturating_add(1);
+    }
+
+    /// Terminal → Warm にリセットする（PR 再オープン検知時）。
+    pub fn reset_to_warm(&mut self) {
+        self.refresh_mode = RefreshMode::Warm;
+    }
+
+    /// リフレッシュロックを解除する（タイムアウト時）。
+    pub fn clear_refresh_lock(&mut self) {
+        self.refreshing = false;
+        self.refresh_started_at = None;
+    }
+
+    // ── アクセサ ──────────────────────────────────────────────────────────────
+
+    pub fn output(&self) -> &str {
+        &self.output
+    }
+
+    pub fn has_fetched(&self) -> bool {
+        self.has_fetched
+    }
+
+    pub fn cwd(&self) -> &std::path::Path {
+        &self.cwd
+    }
+
+    pub fn refresh_mode(&self) -> RefreshMode {
+        self.refresh_mode
+    }
+
+    pub fn is_refreshing(&self) -> bool {
+        self.refreshing
+    }
+
+    pub fn cold_refresh_count(&self) -> u32 {
+        self.cold_refresh_count
+    }
+
+    // ── 状態クエリ ────────────────────────────────────────────────────────────
+
+    /// 出力が存在し Terminal でないとき active とみなす（バックグラウンドリフレッシュ対象）。
+    pub fn is_active(&self) -> bool {
+        !self.output.is_empty() && self.refresh_mode != RefreshMode::Terminal
+    }
+
+    /// `fetched_at` から `ttl` 秒以内なら fresh とみなす。
+    pub fn is_fresh(&self, ttl: u64) -> bool {
+        self.fetched_at.elapsed().as_secs() <= ttl
+    }
+
+    /// `last_queried_at` から `max_age_secs` 以上経過したエントリを削除対象とみなす。
+    pub fn is_expired(&self, max_age_secs: u64) -> bool {
+        self.last_queried_at
+            .is_some_and(|t| t.elapsed().as_secs() >= max_age_secs)
+    }
+
+    /// リフレッシュ開始から `timeout_secs` 以上経過したらロック切れとみなす。
+    pub fn refresh_lock_expired(&self, timeout_secs: u64) -> bool {
+        self.refresh_started_at
+            .is_some_and(|started| started.elapsed().as_secs() >= timeout_secs)
+    }
+
+    /// `last_queried_at` が未設定、または `warm_to_cold_secs` 以上経過していれば Cold とみなす。
+    ///
+    /// `record_query()` を呼ぶ前に評価すること（呼び後は必ず false になる）。
+    pub fn is_cold_or_never_queried(&self, warm_to_cold_secs: u64) -> bool {
+        self.last_queried_at
+            .is_none_or(|t| t.elapsed().as_secs() >= warm_to_cold_secs)
+    }
+
+    /// `last_queried_at` が `recent_secs` 以内なら recent とみなす（Hot 昇格判定）。
+    pub fn has_recent_query(&self, recent_secs: u64) -> bool {
+        self.last_queried_at
+            .is_some_and(|t| t.elapsed().as_secs() <= recent_secs)
+    }
+
+    /// `last_queried_at` が `warm_to_cold_secs` 以上経過しているか（is_cold のエイリアス）。
+    pub fn is_cold(&self, warm_to_cold_secs: u64) -> bool {
+        self.last_queried_at
+            .is_some_and(|t| t.elapsed().as_secs() >= warm_to_cold_secs)
+    }
 }
 
 /// キャッシュの更新ポート

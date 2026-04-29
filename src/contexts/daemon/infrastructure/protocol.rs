@@ -1,30 +1,13 @@
 use serde::{Deserialize, Serialize};
 
-use crate::contexts::daemon::domain::cache::RefreshMode;
-
-impl Serialize for RefreshMode {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        match self {
-            RefreshMode::Hot => s.serialize_str("hot"),
-            RefreshMode::Warm => s.serialize_str("warm"),
-            RefreshMode::Terminal => s.serialize_str("terminal"),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for RefreshMode {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let s = String::deserialize(d)?;
-        match s.as_str() {
-            "hot" => Ok(RefreshMode::Hot),
-            "warm" => Ok(RefreshMode::Warm),
-            "terminal" => Ok(RefreshMode::Terminal),
-            _ => Err(serde::de::Error::unknown_variant(
-                &s,
-                &["hot", "warm", "terminal"],
-            )),
-        }
-    }
+/// IPC ワイヤフォーマット上のリフレッシュモード DTO。
+/// Domain 層の `RefreshMode` とは独立して定義する。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefreshModeDto {
+    Hot,
+    Warm,
+    Terminal,
 }
 
 /// デーモンへ送信するリクエスト
@@ -41,7 +24,7 @@ pub enum Request {
     Update {
         repo_id: String,
         output: String,
-        refresh_mode: RefreshMode,
+        refresh_mode: RefreshModeDto,
     },
     Stop,
     Status,

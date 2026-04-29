@@ -31,14 +31,13 @@ impl DaemonClient {
         Self::send(&Request::Stop).is_ok()
     }
 
-    pub(super) fn status_raw() -> Option<(u32, usize, u64, String)> {
+    pub(super) fn status_raw() -> Option<(usize, u64, String)> {
         match Self::send(&Request::Status) {
             Ok(Response::Status {
-                pid,
                 entries,
                 uptime_secs,
                 version,
-            }) => Some((pid, entries, uptime_secs, version)),
+            }) => Some((entries, uptime_secs, version)),
             _ => None,
         }
     }

@@ -1,12 +1,10 @@
-use std::process::ExitCode;
-
-use crate::contexts::daemon::domain::daemon::{DaemonLifecyclePort, DaemonStatus};
+use crate::contexts::daemon::domain::daemon::{DaemonError, DaemonLifecyclePort, DaemonStatus};
 
 pub trait Port: DaemonLifecyclePort {}
 impl<T> Port for T where T: DaemonLifecyclePort {}
 
 /// デーモンを起動するユースケース
-pub fn start(port: &impl Port) -> ExitCode {
+pub fn start(port: &impl Port) -> Result<(), DaemonError> {
     port.start()
 }
 

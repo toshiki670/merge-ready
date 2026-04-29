@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
-use std::process::ExitCode;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -90,17 +89,14 @@ type RefreshFn = Arc<dyn Fn(&str, &std::path::Path) + Send + Sync + 'static>;
 /// デーモンのメインループ。ソケットをバインドして接続を待ち受ける。
 ///
 /// `on_refresh` はキャッシュ更新が必要になったときにスレッドで呼ばれる。
-/// Stop リクエストで `ExitCode` を返す。
-pub fn run(on_refresh: &RefreshFn) -> ExitCode {
+/// Stop リクエストで `Ok(())` を返す。
+pub fn run(on_refresh: &RefreshFn) -> Result<(), ()> {
     let socket_path = paths::socket_path();
     if let Some(parent) = socket_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let listener = match bind_socket(&socket_path) {
-        Ok(l) => l,
-        Err(code) => return code,
-    };
+    let listener = bind_socket(&socket_path)?;
 
     pid::write(std::process::id());
 
@@ -112,7 +108,7 @@ pub fn run(on_refresh: &RefreshFn) -> ExitCode {
     }
 
     let state = Arc::new(Mutex::new(DaemonState::new()));
-    let (exit_tx, exit_rx) = mpsc::channel::<ExitCode>();
+    let (exit_tx, exit_rx) = mpsc::channel::<()>();
 
     // 定期バックグラウンドリフレッシュ
     // SCHEDULER_TICK_SECS ごとに各エントリのリフレッシュ間隔を個別に評価する
@@ -134,8 +130,8 @@ pub fn run(on_refresh: &RefreshFn) -> ExitCode {
     listener.set_nonblocking(true).ok();
 
     loop {
-        if let Ok(code) = exit_rx.try_recv() {
-            return code;
+        if exit_rx.try_recv().is_ok() {
+            return Ok(());
         }
 
         match listener.accept() {
@@ -156,15 +152,15 @@ pub fn run(on_refresh: &RefreshFn) -> ExitCode {
     }
 
     cleanup();
-    ExitCode::SUCCESS
+    Ok(())
 }
 
-fn bind_socket(socket_path: &std::path::Path) -> Result<UnixListener, ExitCode> {
+fn bind_socket(socket_path: &std::path::Path) -> Result<UnixListener, ()> {
     match pid::read() {
         Some(p) if pid::is_alive(p) => {
             log::error!("daemon is already running (pid {p})");
             eprintln!("merge-ready daemon is already running (pid {p})");
-            return Err(ExitCode::FAILURE);
+            return Err(());
         }
         _ => {
             let _ = std::fs::remove_file(socket_path);
@@ -178,7 +174,7 @@ fn bind_socket(socket_path: &std::path::Path) -> Result<UnixListener, ExitCode> 
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
                 if retries >= BIND_RETRY_MAX {
                     log::error!("socket already in use after retries, giving up");
-                    return Err(ExitCode::SUCCESS);
+                    return Err(());
                 }
                 retries += 1;
                 std::thread::sleep(Duration::from_millis(BIND_RETRY_INTERVAL_MS));
@@ -186,7 +182,7 @@ fn bind_socket(socket_path: &std::path::Path) -> Result<UnixListener, ExitCode> 
             Err(e) => {
                 log::error!("failed to bind socket: {e}");
                 eprintln!("merge-ready daemon: failed to bind socket: {e}");
-                return Err(ExitCode::FAILURE);
+                return Err(());
             }
         }
     }
@@ -196,7 +192,7 @@ fn handle_client(
     mut stream: std::os::unix::net::UnixStream,
     state: &Arc<Mutex<DaemonState>>,
     on_refresh: &RefreshFn,
-    exit_tx: &mpsc::Sender<ExitCode>,
+    exit_tx: &mpsc::Sender<()>,
 ) {
     let mut buf = String::new();
     {
@@ -232,14 +228,14 @@ fn handle_client(
         std::thread::sleep(Duration::from_millis(RESTART_GRACE_MS));
         cleanup();
         spawn_self_as_daemon();
-        let _ = exit_tx.send(ExitCode::SUCCESS);
+        let _ = exit_tx.send(());
         return;
     }
 
     if stop {
         cleanup();
         std::thread::sleep(Duration::from_millis(50));
-        let _ = exit_tx.send(ExitCode::SUCCESS);
+        let _ = exit_tx.send(());
     }
 }
 
@@ -308,7 +304,6 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
             let entries = s.entries.len();
             ActionResult {
                 response: Response::Status {
-                    pid: std::process::id(),
                     entries,
                     uptime_secs,
                     version: env!("CARGO_PKG_VERSION").to_owned(),

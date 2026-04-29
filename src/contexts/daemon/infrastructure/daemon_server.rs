@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use super::paths;
 use super::pid;
-use super::protocol::{Request, Response};
+use super::protocol::{RefreshModeDto, Request, Response};
 use super::repo_id;
 use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode};
 use crate::contexts::daemon::domain::refresh_policy::RefreshPolicy;
@@ -48,6 +48,16 @@ const DEFAULT_COLD_EARLY_LIMIT: u32 = 10;
 // ── エントリ寿命 ──────────────────────────────────────────────────────────────
 /// 最終 Query から この秒数が経過したエントリを削除する（2 日）
 const DEFAULT_ENTRY_MAX_AGE_SECS: u64 = 2 * 24 * 60 * 60;
+
+impl From<RefreshModeDto> for RefreshMode {
+    fn from(dto: RefreshModeDto) -> Self {
+        match dto {
+            RefreshModeDto::Hot => RefreshMode::Hot,
+            RefreshModeDto::Warm => RefreshMode::Warm,
+            RefreshModeDto::Terminal => RefreshMode::Terminal,
+        }
+    }
+}
 
 struct DaemonState {
     entries: HashMap<String, CacheEntry>,
@@ -291,7 +301,12 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
             repo_id,
             output,
             refresh_mode,
-        } => process_update(repo_id, output, *refresh_mode, &mut s.entries),
+        } => process_update(
+            repo_id,
+            output,
+            RefreshMode::from(*refresh_mode),
+            &mut s.entries,
+        ),
         Request::Stop => ActionResult {
             response: Response::Ok,
             refresh_repo_id: None,

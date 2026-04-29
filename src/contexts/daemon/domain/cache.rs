@@ -46,10 +46,6 @@ impl std::fmt::Display for RepoId {
 }
 
 /// キャッシュエントリのドメインエンティティ。
-///
-/// 1 リポジトリ＋ブランチに対応するキャッシュ状態を保持し、
-/// 状態遷移（update・mark_refreshing・record_query 等）と
-/// 状態クエリ（is_active・is_fresh・is_expired 等）を提供する。
 pub struct CacheEntry {
     output: String,
     has_fetched: bool,
@@ -191,7 +187,7 @@ impl CacheEntry {
             .is_some_and(|t| t.elapsed().as_secs() <= recent_secs)
     }
 
-    /// `last_queried_at` が `warm_to_cold_secs` 以上経過しているか（is_cold のエイリアス）。
+    /// `last_queried_at` が `warm_to_cold_secs` 以上経過しているか（queried 前提版、never queried は false）。
     pub fn is_cold(&self, warm_to_cold_secs: u64) -> bool {
         self.last_queried_at
             .is_some_and(|t| t.elapsed().as_secs() >= warm_to_cold_secs)
@@ -399,11 +395,7 @@ mod tests {
     #[test]
     fn stale_query_outside_threshold() {
         let mut e = make_entry("out", RefreshMode::Warm);
-        e.last_queried_at = Some(
-            Instant::now()
-                .checked_sub(Duration::from_secs(31))
-                .unwrap(),
-        );
+        e.last_queried_at = Some(Instant::now().checked_sub(Duration::from_secs(31)).unwrap());
         assert!(!e.has_recent_query(30));
     }
 

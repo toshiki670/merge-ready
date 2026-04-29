@@ -538,7 +538,10 @@ fn process_stale_query(
             };
         }
         if need_refresh {
-            entries.get_mut(repo_id).expect("entry exists").mark_refreshing();
+            entries
+                .get_mut(repo_id)
+                .expect("entry exists")
+                .mark_refreshing();
         }
         return ActionResult {
             response: Response::Output {
@@ -552,7 +555,10 @@ fn process_stale_query(
     }
 
     if need_refresh {
-        entries.get_mut(repo_id).expect("entry exists").mark_refreshing();
+        entries
+            .get_mut(repo_id)
+            .expect("entry exists")
+            .mark_refreshing();
     }
     ActionResult {
         response: Response::Output { output },

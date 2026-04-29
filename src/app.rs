@@ -4,7 +4,7 @@ use clap::CommandFactory;
 
 use crate::cli::{Cli, Command};
 use crate::contexts::daemon::application::cache as daemon_cache_app;
-use crate::contexts::daemon::domain::cache::RefreshMode;
+use crate::contexts::daemon::domain::cache::{RefreshMode, RepoId};
 use crate::contexts::daemon::infrastructure::daemon_client::DaemonClient;
 use crate::contexts::evaluation::infrastructure::toml_loader::TomlConfigRepository;
 use crate::contexts::evaluation::infrastructure::{gh::GhClient, logger::Logger};
@@ -32,7 +32,7 @@ pub fn run(cli: Cli) -> ExitCode {
                 crate::contexts::daemon::infrastructure::daemon_lifecycle::DaemonLifecycle::new(
                     // repo_id はブランチ変化を考慮して daemon_server が再導出して渡す
                     |repo_id: &str, cwd: &std::path::Path| {
-                        let repo_id = repo_id.to_owned();
+                        let repo_id = RepoId::new(repo_id);
                         let client = GhClient::new_in(cwd.to_path_buf(), Logger);
                         let (output, hint) = crate::contexts::evaluation::interface::prompt::render(
                             &client,

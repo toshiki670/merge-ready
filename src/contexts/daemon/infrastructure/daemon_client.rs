@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use super::paths;
 use super::protocol::{Request, Response};
-use crate::contexts::daemon::domain::cache::CachePort;
+use crate::contexts::daemon::domain::cache::{CachePort, RepoId};
 
 /// デーモンソケットへの接続タイムアウト（ms）
 const READ_TIMEOUT_MS: u64 = 500;
@@ -14,12 +14,12 @@ pub struct DaemonClient;
 impl CachePort for DaemonClient {
     fn update(
         &self,
-        repo_id: &str,
+        repo_id: &RepoId,
         output: &str,
         refresh_mode: crate::contexts::daemon::domain::cache::RefreshMode,
     ) {
         let _ = Self::send(&Request::Update {
-            repo_id: repo_id.to_owned(),
+            repo_id: repo_id.as_str().to_owned(),
             output: output.to_owned(),
             refresh_mode,
         });

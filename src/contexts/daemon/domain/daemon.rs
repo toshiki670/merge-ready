@@ -15,6 +15,10 @@ pub struct DaemonStatus {
 /// デーモンのライフサイクル管理ポート
 pub trait DaemonLifecyclePort {
     /// デーモンを起動する。アイドルタイムアウトまたは Stop リクエストで返る。
+    ///
+    /// # Errors
+    ///
+    /// デーモンがすでに起動中の場合は [`DaemonError::AlreadyRunning`]、起動失敗時は [`DaemonError::Failure`] を返す。
     fn start(&self) -> Result<(), DaemonError>;
     /// デーモンを停止する。成功時は `true` を返す。
     fn stop(&self) -> bool;

@@ -23,6 +23,7 @@ pub enum DisplayItem {
     BlockedUnknown,
 }
 
+#[must_use]
 pub fn from_pr_state(state: PrState) -> Vec<DisplayItem> {
     match state {
         PrState::Blocked(blocked) => from_blocked(blocked),

@@ -1,13 +1,16 @@
 use std::path::PathBuf;
 
+#[must_use]
 pub fn socket_path() -> PathBuf {
     base_dir().join("daemon.sock")
 }
 
+#[must_use]
 pub fn pid_path() -> PathBuf {
     base_dir().join("daemon.pid")
 }
 
+#[must_use]
 pub fn base_dir() -> PathBuf {
     std::env::temp_dir().join(dir_name())
 }

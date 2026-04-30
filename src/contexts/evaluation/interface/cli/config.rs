@@ -3,6 +3,7 @@ use std::process::ExitCode;
 
 pub mod edit;
 
+#[must_use]
 pub fn run(config_path: Option<&Path>) -> ExitCode {
     let Some(path) = config_path else {
         eprintln!(

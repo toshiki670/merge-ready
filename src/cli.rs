@@ -23,6 +23,7 @@ pub enum Command {
     Daemon(DaemonArgs),
 }
 
+#[must_use]
 #[allow(clippy::needless_pass_by_value)]
 pub fn run(cli: Cli) -> ExitCode {
     match cli.command {

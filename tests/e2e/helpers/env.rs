@@ -19,21 +19,21 @@ pub struct TestEnv {
     pub repo_dir: TempDir,
 }
 
-const DEFAULT_BRANCH: &str = "main";
-
 impl TestEnv {
-    fn setup_with_git() -> (TempDir, TempDir, TempDir) {
+    fn setup_with_git(branch: &str) -> (TempDir, TempDir, TempDir) {
         let bin_dir = tempdir().expect("failed to create bin_dir");
         let home_dir = tempdir().expect("failed to create home_dir");
         let repo_dir = tempdir().expect("failed to create repo_dir");
 
         let git_dir = repo_dir.path().join(".git");
-        fs::create_dir_all(&git_dir).expect("create .git");
+        fs::create_dir_all(git_dir.join("objects")).expect("create .git/objects");
+        fs::create_dir_all(git_dir.join("refs")).expect("create .git/refs");
+        fs::write(git_dir.join("HEAD"), format!("ref: refs/heads/{branch}\n")).expect("write HEAD");
         fs::write(
-            git_dir.join("HEAD"),
-            format!("ref: refs/heads/{DEFAULT_BRANCH}\n"),
+            git_dir.join("config"),
+            "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n",
         )
-        .expect("write HEAD");
+        .expect("write config");
 
         (bin_dir, home_dir, repo_dir)
     }
@@ -48,7 +48,7 @@ impl TestEnv {
 
     /// 正常系: `pr view` / `pr checks` それぞれの JSON を返す `fake gh` を配置する。
     pub fn new(pr_view_json: &str, pr_checks_json: Option<&str>) -> Self {
-        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
 
         let checks_block = match pr_checks_json {
             Some(j) => format!("printf '%s' '{j}'\n"),
@@ -88,7 +88,7 @@ impl TestEnv {
         pr_checks_json: Option<&str>,
         behind_by: u64,
     ) -> Self {
-        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
 
         let checks_block = match pr_checks_json {
             Some(j) => format!("printf '%s' '{j}'\n"),
@@ -127,7 +127,7 @@ impl TestEnv {
 
     /// compare API がエラーを返すシナリオ用の `fake gh` を配置する。
     pub fn with_compare_error(pr_view_json: &str, pr_checks_json: Option<&str>) -> Self {
-        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
 
         let checks_block = match pr_checks_json {
             Some(j) => format!("printf '%s' '{j}'\n"),
@@ -167,7 +167,7 @@ impl TestEnv {
 
     /// エラー系: 指定した `exit_code` と `stderr` メッセージを返す `fake gh` を配置する。
     pub fn with_error(stderr_msg: &str, exit_code: u8) -> Self {
-        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
         let script = format!("#!/bin/sh\nprintf '%s' '{stderr_msg}' >&2\nexit {exit_code}\n");
         write_executable(bin_dir.path().join("gh"), &script);
         Self {
@@ -179,7 +179,7 @@ impl TestEnv {
 
     /// CI 未設定シナリオ: `gh pr checks` が `"no checks reported"` で `exit 1` を返す。
     pub fn with_no_ci_checks(pr_view_json: &str) -> Self {
-        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
         let script = format!(
             "#!/bin/sh\n\
              case \"$*\" in\n\
@@ -206,7 +206,7 @@ impl TestEnv {
 
     /// `gh` バイナリが `PATH` に存在しないシナリオ
     pub fn without_gh() -> Self {
-        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
         Self {
             bin_dir,
             home_dir,
@@ -218,7 +218,7 @@ impl TestEnv {
     ///
     /// `gh pr view` が closed / merged JSON を返す。カウンタログファイルのパスを返す。
     pub fn with_terminal_pr_call_log(state: &str) -> (Self, std::path::PathBuf) {
-        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
         let log_path = home_dir.path().join("gh_calls.log");
         let log = log_path.display().to_string();
         let pr_view_json = format!(
@@ -248,10 +248,27 @@ impl TestEnv {
         )
     }
 
-    /// PR なしシナリオ: `gh pr view` が "no pull requests found" で exit 1 を返す。
+    /// PR なしシナリオ: フィーチャーブランチに PR が存在しない場合を模倣する。
+    ///
+    /// 現在ブランチ: `feat/my-feature`（デフォルトブランチではない）
+    /// `gh pr view` → "no pull requests found" で exit 1
+    /// `gh repo view --json defaultBranchRef` → main をデフォルトブランチとして返す
     pub fn with_no_pr() -> Self {
-        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
-        let script = "#!/bin/sh\nprintf 'no pull requests found' >&2\nexit 1\n";
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
+        let script = "#!/bin/sh\n\
+                      case \"$*\" in\n\
+                        *'pr view'*)\n\
+                          printf 'no pull requests found' >&2\n\
+                          exit 1\n\
+                          ;;\n\
+                        *'repo view'*'defaultBranchRef'*)\n\
+                          printf '{\"defaultBranchRef\":{\"name\":\"main\"}}'\n\
+                          ;;\n\
+                        *)\n\
+                          printf 'unknown gh command: %s' \"$*\" >&2\n\
+                          exit 127\n\
+                          ;;\n\
+                      esac\n";
         write_executable(bin_dir.path().join("gh"), script);
         Self {
             bin_dir,
@@ -266,21 +283,63 @@ impl TestEnv {
     /// これにより `wait_for_cache` が初回リフレッシュ完了を確実に待てる一方で、
     /// stale refresh 中の挙動（空出力を維持）を検証できる。
     pub fn with_no_pr_stale_delay_ms(delay_ms: u64) -> Self {
-        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
         let secs = delay_ms / 1000;
         let millis = delay_ms % 1000;
         let sleep_arg = format!("{secs}.{millis:03}");
         let count_path = home_dir.path().join(".gh_call_count").display().to_string();
         let script = format!(
             "#!/bin/sh\n\
-             count=$(cat \"{count_path}\" 2>/dev/null || printf '0')\n\
-             count=$((count + 1))\n\
-             printf '%d' \"$count\" > \"{count_path}\"\n\
-             if [ \"$count\" -gt 1 ]; then\n\
-                 sleep {sleep_arg}\n\
-             fi\n\
-             printf 'no pull requests found' >&2\n\
-             exit 1\n"
+             case \"$*\" in\n\
+               *'pr view'*)\n\
+                 count=$(cat \"{count_path}\" 2>/dev/null || printf '0')\n\
+                 count=$((count + 1))\n\
+                 printf '%d' \"$count\" > \"{count_path}\"\n\
+                 if [ \"$count\" -gt 1 ]; then\n\
+                     sleep {sleep_arg}\n\
+                 fi\n\
+                 printf 'no pull requests found' >&2\n\
+                 exit 1\n\
+                 ;;\n\
+               *'repo view'*'defaultBranchRef'*)\n\
+                 printf '{{\"defaultBranchRef\":{{\"name\":\"main\"}}}}'\n\
+                 ;;\n\
+               *)\n\
+                 printf 'unknown gh command: %s' \"$*\" >&2\n\
+                 exit 127\n\
+                 ;;\n\
+             esac\n"
+        );
+        write_executable(bin_dir.path().join("gh"), &script);
+        Self {
+            bin_dir,
+            home_dir,
+            repo_dir,
+        }
+    }
+
+    /// デフォルトブランチ上シナリオ: 現在ブランチ == デフォルトブランチ、PR なし。
+    ///
+    /// `branch` に "main" または "master" などを指定する。
+    /// `gh pr view` → "no pull requests found" で exit 1
+    /// `gh repo view --json defaultBranchRef` → `branch` をデフォルトブランチとして返す
+    pub fn with_default_branch_no_pr(branch: &str) -> Self {
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git(branch);
+        let script = format!(
+            "#!/bin/sh\n\
+             case \"$*\" in\n\
+               *'pr view'*)\n\
+                 printf 'no pull requests found' >&2\n\
+                 exit 1\n\
+                 ;;\n\
+               *'repo view'*'defaultBranchRef'*)\n\
+                 printf '{{\"defaultBranchRef\":{{\"name\":\"{branch}\"}}}}'\n\
+                 ;;\n\
+               *)\n\
+                 printf 'unknown gh command: %s' \"$*\" >&2\n\
+                 exit 127\n\
+                 ;;\n\
+             esac\n"
         );
         write_executable(bin_dir.path().join("gh"), &script);
         Self {
@@ -304,7 +363,7 @@ impl TestEnv {
 
     /// `gh` バイナリが無期限にハングするシナリオ（タイムアウト検証用）
     pub fn with_hanging_gh() -> Self {
-        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git();
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
         write_executable(bin_dir.path().join("gh"), "#!/bin/sh\nsleep 9999\n");
         Self {
             bin_dir,

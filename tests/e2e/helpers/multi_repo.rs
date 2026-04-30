@@ -43,7 +43,8 @@ impl MultiRepoEnv {
         for (repo, json) in [(&repo_a, pr_view_a), (&repo_b, pr_view_b)] {
             let git_dir = repo.path().join(".git");
             fs::create_dir_all(&git_dir).expect("create .git");
-            fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").expect("write HEAD");
+            fs::write(git_dir.join("HEAD"), "ref: refs/heads/feat/my-feature\n")
+                .expect("write HEAD");
             fs::write(repo.path().join(".gh_pr_view.json"), json).expect("write response json");
         }
 

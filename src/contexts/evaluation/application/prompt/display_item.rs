@@ -32,7 +32,7 @@ pub fn from_pr_state(state: PrState) -> Vec<DisplayItem> {
         PrState::NotApplicable(NotApplicableState::Calculating) => {
             vec![DisplayItem::StatusCalculating]
         }
-        PrState::NotApplicable(_) | PrState::Unknown => vec![],
+        PrState::NotApplicable(_) => vec![],
     }
 }
 

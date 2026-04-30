@@ -12,7 +12,6 @@ use schema::{
 
 use crate::contexts::evaluation::application::port::{ErrorCategory, ErrorLogger, LogRecord};
 use crate::contexts::evaluation::domain::error::RepositoryError;
-use crate::contexts::evaluation::domain::pr_state::blocked::GenericBlockedState;
 use crate::contexts::evaluation::domain::pr_state::blocked::branch_sync::BranchSyncState;
 use crate::contexts::evaluation::domain::pr_state::blocked::ci::CiState;
 use crate::contexts::evaluation::domain::pr_state::blocked::review::ReviewState;
@@ -157,27 +156,19 @@ impl<L: ErrorLogger + Sync> PrRepository for GhClient<L> {
         });
 
         let ci = ci_result?;
+
+        // GitHub がまだマージ可能性を計算中（他のシグナルより優先）
+        if matches!(
+            pr_view.merge_state_status.as_str(),
+            "MERGE_STATE_UNKNOWN" | "UNKNOWN"
+        ) {
+            return Ok(PrState::NotApplicable(NotApplicableState::Calculating));
+        }
+
         let review = translate_review(pr_view.review_decision.as_deref());
         let unblocked = translate_unblocked(pr_view.is_draft, &pr_view.merge_state_status);
 
-        let state = evaluate(branch_sync, ci, review, unblocked);
-        if matches!(state, PrState::Unknown) {
-            return Ok(match pr_view.merge_state_status.as_str() {
-                "MERGE_STATE_UNKNOWN" | "UNKNOWN" => {
-                    PrState::NotApplicable(NotApplicableState::Calculating)
-                }
-                "BLOCKED" => PrState::Blocked(
-                    crate::contexts::evaluation::domain::pr_state::blocked::BlockedState {
-                        branch_sync: None,
-                        ci: None,
-                        review: None,
-                        generic: Some(GenericBlockedState::BlockedUnknown),
-                    },
-                ),
-                _ => state,
-            });
-        }
-        Ok(state)
+        Ok(evaluate(branch_sync, ci, review, unblocked))
     }
 }
 

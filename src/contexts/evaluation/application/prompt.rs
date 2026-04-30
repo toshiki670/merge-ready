@@ -18,10 +18,12 @@ where
 {
     let state = match repo.fetch() {
         Ok(s) => s,
-        Err(RepositoryError::NotFound) => PrState::Unknown,
+        Err(RepositoryError::NotFound) => PrState::NoPr,
         Err(e) => match into_token(e, logger) {
             Some(token) => return Err(token),
-            None => PrState::Unknown,
+            None => {
+                unreachable!("into_token returns None only for NotFound, which is handled above")
+            }
         },
     };
     let is_terminal = state.is_terminal();

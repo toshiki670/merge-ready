@@ -3,6 +3,7 @@ pub mod not_applicable;
 pub mod unblocked;
 
 use blocked::BlockedState;
+use blocked::GenericBlockedState;
 use blocked::branch_sync::BranchSyncState;
 use blocked::ci::CiState;
 use blocked::review::ReviewState;
@@ -23,8 +24,6 @@ pub enum PrState {
     Unblocked(UnblockedState),
     /// 評価対象外（理由を保持）
     NotApplicable(NotApplicableState),
-    /// 全パターン不一致の暫定状態（#157 解決後に廃止予定）
-    Unknown,
 }
 
 impl PrState {
@@ -49,7 +48,7 @@ pub trait PrRepository {
 /// PR の評価状態を決定するビジネスルール
 ///
 /// blocker が1つでもあれば `Blocked`、なければ `Unblocked`（`unblocked` の値による）、
-/// それ以外は `Unknown`。
+/// それ以外は blocker 不明として `Blocked(BlockedUnknown)`。
 #[must_use]
 pub fn evaluate(
     branch_sync: Option<BranchSyncState>,
@@ -67,13 +66,19 @@ pub fn evaluate(
     } else if let Some(u) = unblocked {
         PrState::Unblocked(u)
     } else {
-        PrState::Unknown
+        PrState::Blocked(BlockedState {
+            branch_sync: None,
+            ci: None,
+            review: None,
+            generic: Some(GenericBlockedState::BlockedUnknown),
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use blocked::GenericBlockedState;
     use blocked::branch_sync::BranchSyncState;
     use blocked::ci::CiState;
     use blocked::review::ReviewState;
@@ -95,9 +100,15 @@ mod tests {
     }
 
     #[test]
-    fn returns_unknown_when_no_blockers_and_not_ready() {
+    fn returns_blocked_unknown_when_no_blockers_and_not_ready() {
         let state = evaluate(None, None, None, None);
-        assert!(matches!(state, PrState::Unknown));
+        let PrState::Blocked(blocked) = state else {
+            panic!("expected Blocked");
+        };
+        assert_eq!(blocked.generic, Some(GenericBlockedState::BlockedUnknown));
+        assert!(blocked.branch_sync.is_none());
+        assert!(blocked.ci.is_none());
+        assert!(blocked.review.is_none());
     }
 
     #[test]

@@ -41,11 +41,26 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
     }
 
     fn log_and_convert(&self, e: GhError) -> RepositoryError {
-        if let GhError::ApiError(ref msg) = e {
-            self.logger.log(&LogRecord {
-                category: ErrorCategory::Unknown,
-                detail: Some(msg.clone()),
-            });
+        match &e {
+            GhError::AuthRequired => {
+                self.logger.log(&LogRecord {
+                    category: ErrorCategory::Auth,
+                    detail: None,
+                });
+            }
+            GhError::Timeout => {
+                self.logger.log(&LogRecord {
+                    category: ErrorCategory::Timeout,
+                    detail: Some("gh command timed out".to_string()),
+                });
+            }
+            GhError::ApiError(msg) => {
+                self.logger.log(&LogRecord {
+                    category: ErrorCategory::Unknown,
+                    detail: Some(msg.clone()),
+                });
+            }
+            _ => {}
         }
         RepositoryError::from(e)
     }
@@ -292,6 +307,7 @@ enum GhError {
     AuthRequired,
     NoPr,
     RateLimited,
+    Timeout,
     ApiError(String),
 }
 
@@ -301,7 +317,7 @@ impl From<GhError> for RepositoryError {
             GhError::NotInstalled | GhError::AuthRequired => RepositoryError::Unauthenticated,
             GhError::NoPr => RepositoryError::NotFound,
             GhError::RateLimited => RepositoryError::RateLimited,
-            GhError::ApiError(_) => RepositoryError::Unexpected,
+            GhError::Timeout | GhError::ApiError(_) => RepositoryError::Unexpected,
         }
     }
 }
@@ -361,7 +377,7 @@ fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhError> {
             Ok(None) if Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(GhError::ApiError("gh command timed out".to_string()));
+                return Err(GhError::Timeout);
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
             Err(e) => return Err(GhError::ApiError(e.to_string())),

@@ -8,10 +8,6 @@ use crate::contexts::evaluation::domain::pr_state::PrState;
 
 /// PR 状態を取得するユースケース。
 /// `NotFound` は表示不要な状態として空リストを返す。
-///
-/// # Errors
-///
-/// リポジトリの取得に失敗し、エラートークンに変換できた場合に `Err(ErrorToken)` を返す。
 pub fn fetch<R, L>(
     repo: &R,
     logger: &L,

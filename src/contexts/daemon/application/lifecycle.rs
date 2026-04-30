@@ -4,10 +4,6 @@ pub trait Port: DaemonLifecyclePort {}
 impl<T> Port for T where T: DaemonLifecyclePort {}
 
 /// デーモンを起動するユースケース
-///
-/// # Errors
-///
-/// デーモンがすでに起動中の場合は [`DaemonError::AlreadyRunning`]、起動失敗時は [`DaemonError::Failure`] を返す。
 pub fn start(port: &impl Port) -> Result<(), DaemonError> {
     port.start()
 }

@@ -1,8 +1,5 @@
 use std::path::Path;
 
-/// # Errors
-///
-/// 設定ファイルの作成、エディタの起動、またはエディタが非ゼロで終了した場合に `Err` を返す。
 pub fn run(path: &Path) -> Result<(), std::io::Error> {
     use std::ffi::OsString;
     let editor = std::env::var_os("VISUAL")

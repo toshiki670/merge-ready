@@ -100,11 +100,6 @@ type RefreshFn = Arc<dyn Fn(&str, &std::path::Path) + Send + Sync + 'static>;
 ///
 /// `on_refresh` はキャッシュ更新が必要になったときにスレッドで呼ばれる。
 /// Stop リクエストで `Ok(())` を返す。
-///
-/// # Errors
-///
-/// ソケットのバインドに失敗した場合に `Err(())` を返す。
-#[allow(clippy::result_unit_err)]
 pub fn run(on_refresh: &RefreshFn) -> Result<(), ()> {
     let socket_path = paths::socket_path();
     if let Some(parent) = socket_path.parent() {

@@ -1,12 +1,8 @@
-mod app;
-mod cli;
-mod contexts;
-
 use std::process::ExitCode;
 
 use clap::Parser;
 
 fn main() -> ExitCode {
-    let cli = cli::Cli::parse();
-    app::run(cli)
+    let cli = merge_ready::cli::Cli::parse();
+    merge_ready::cli::run(cli)
 }

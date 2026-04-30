@@ -24,11 +24,10 @@ pub enum Command {
 }
 
 #[must_use]
-#[allow(clippy::needless_pass_by_value)]
-pub fn run(cli: Cli) -> ExitCode {
-    match cli.command {
+pub fn run(cli: &Cli) -> ExitCode {
+    match &cli.command {
         Some(Command::Config) => crate::config_command(),
-        Some(Command::Daemon(args)) => crate::daemon_command(args),
+        Some(Command::Daemon(args)) => crate::daemon_command(*args),
         None => {
             let _ = Cli::command().print_help();
             ExitCode::SUCCESS

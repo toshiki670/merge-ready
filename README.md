@@ -39,16 +39,10 @@ merge-ready-prompt
 Example output:
 
 ```text
-⚠ review
+⚠ Resolve review
 ```
 
-`merge-ready-prompt` returns:
-
-- `0` when mergeable (`✓ merge-ready`)
-- `1` when blocked (`⚠ ...` or `✗ ...`)
-- `2` when state cannot be determined (`? ...`)
-
-This makes it easy to use from shell scripts and prompt hooks.
+`merge-ready-prompt` prints a single status token to stdout and always exits with code `0`. Use the printed token text for conditional logic in shell scripts and prompt hooks.
 
 ## Output Tokens
 
@@ -63,6 +57,7 @@ This makes it easy to use from shell scripts and prompt hooks.
 - `✗ Resolve conflict` - merge conflicts exist
 - `✗ Update branch` - branch is behind base branch
 - `? Check branch sync` - branch sync status is unknown
+- `? Check merge blocker` - PR is blocked for an unknown reason
 - `⧖ Wait for status` - GitHub is calculating merge status
 - `? loading` - cache miss; daemon is fetching in the background
 

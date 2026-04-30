@@ -34,17 +34,9 @@ pub fn config_command() -> ExitCode {
 
 /// Manages the background cache daemon.
 ///
-/// Initialises the logger, then wires the refresh callback that the daemon calls on each
-/// cache update cycle:
-///
-/// 1. Derives a [`RepoId`] from the working directory passed by the daemon server.
-/// 2. Calls [`contexts::evaluation::interface::prompt::render`] via [`GhClient`] to fetch
-///    the latest PR merge-readiness output.
-/// 3. Converts the returned [`CacheHint`] to a [`RefreshMode`] and writes the result to
-///    the daemon cache via [`daemon_cache_app::update`].
-///
-/// Delegates subcommand dispatch (start / stop / status) to
-/// [`contexts::daemon::interface::cli::daemon::run`].
+/// Dispatches the given subcommand (start / stop / status) to the daemon.
+/// On start, the daemon fetches PR merge-readiness in the background and caches
+/// the result so that [`config_command`] can respond instantly.
 #[must_use]
 pub fn daemon_command(args: DaemonArgs) -> ExitCode {
     contexts::evaluation::infrastructure::logger::init();

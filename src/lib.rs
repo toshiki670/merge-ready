@@ -36,7 +36,7 @@ pub fn config_command() -> ExitCode {
 ///
 /// Dispatches the given subcommand (start / stop / status) to the daemon.
 /// On start, the daemon fetches PR merge-readiness in the background and caches
-/// the result so that [`config_command`] can respond instantly.
+/// the result so that `merge-ready-prompt` can respond instantly.
 #[must_use]
 pub fn daemon_command(args: DaemonArgs) -> ExitCode {
     contexts::evaluation::infrastructure::logger::init();

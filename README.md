@@ -42,13 +42,7 @@ Example output:
 ⚠ Resolve review
 ```
 
-`merge-ready-prompt` returns:
-
-- `0` when mergeable (`✓ merge-ready`)
-- `1` when blocked (`⚠ ...` or `✗ ...`)
-- `2` when state cannot be determined (`? ...`)
-
-This makes it easy to use from shell scripts and prompt hooks.
+`merge-ready-prompt` prints a single status token to stdout and always exits with code `0`. Use the printed token text for conditional logic in shell scripts and prompt hooks.
 
 ## Output Tokens
 

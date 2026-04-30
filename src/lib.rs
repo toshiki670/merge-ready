@@ -1,7 +1,7 @@
 //! merge-ready — Show pull request merge blockers as concise prompt tokens.
 
 pub mod cli;
-pub mod contexts;
+pub(crate) mod contexts;
 
 use std::process::ExitCode;
 

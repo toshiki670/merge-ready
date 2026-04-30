@@ -23,7 +23,6 @@ pub struct RefreshPolicy {
 
 impl RefreshPolicy {
     /// エントリの現在の状態からリフレッシュ間隔（秒）を返す。
-    #[must_use]
     pub fn effective_refresh_interval_secs(&self, entry: &CacheEntry) -> u64 {
         match entry.refresh_mode() {
             RefreshMode::Terminal => u64::MAX,
@@ -47,7 +46,6 @@ impl RefreshPolicy {
     }
 
     /// Terminal エントリは `warm_refresh_secs` を TTL として返す（PR 再オープン検知のため）。
-    #[must_use]
     pub fn effective_ttl(&self, entry: &CacheEntry, base_ttl: u64) -> u64 {
         if entry.refresh_mode() == RefreshMode::Terminal {
             self.warm_refresh_secs

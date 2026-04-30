@@ -1,7 +1,6 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-#[must_use]
 pub fn is_git_repo(cwd: Option<&Path>) -> bool {
     let base = match cwd {
         Some(d) => d.to_path_buf(),
@@ -22,7 +21,6 @@ pub fn is_git_repo(cwd: Option<&Path>) -> bool {
     }
 }
 
-#[must_use]
 pub fn current_branch(cwd: Option<&Path>) -> Option<String> {
     let mut cmd = Command::new("git");
     cmd.args(["branch", "--show-current"]);

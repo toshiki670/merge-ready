@@ -22,7 +22,6 @@ impl RepoId {
         Self(s.into())
     }
 
-    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -126,32 +125,26 @@ impl CacheEntry {
 
     // ── アクセサ ──────────────────────────────────────────────────────────────
 
-    #[must_use]
     pub fn output(&self) -> &str {
         &self.output
     }
 
-    #[must_use]
     pub fn has_fetched(&self) -> bool {
         self.has_fetched
     }
 
-    #[must_use]
     pub fn cwd(&self) -> &std::path::Path {
         &self.cwd
     }
 
-    #[must_use]
     pub fn refresh_mode(&self) -> RefreshMode {
         self.refresh_mode
     }
 
-    #[must_use]
     pub fn is_refreshing(&self) -> bool {
         self.refreshing
     }
 
-    #[must_use]
     pub fn cold_refresh_count(&self) -> u32 {
         self.cold_refresh_count
     }
@@ -159,26 +152,22 @@ impl CacheEntry {
     // ── 状態クエリ ────────────────────────────────────────────────────────────
 
     /// 出力が存在し Terminal でないとき active とみなす（バックグラウンドリフレッシュ対象）。
-    #[must_use]
     pub fn is_active(&self) -> bool {
         !self.output.is_empty() && self.refresh_mode != RefreshMode::Terminal
     }
 
     /// `fetched_at` から `ttl` 秒以内なら fresh とみなす。
-    #[must_use]
     pub fn is_fresh(&self, ttl: u64) -> bool {
         self.fetched_at.elapsed().as_secs() <= ttl
     }
 
     /// `last_queried_at` から `max_age_secs` 以上経過したエントリを削除対象とみなす。
-    #[must_use]
     pub fn is_expired(&self, max_age_secs: u64) -> bool {
         self.last_queried_at
             .is_some_and(|t| t.elapsed().as_secs() >= max_age_secs)
     }
 
     /// リフレッシュ開始から `timeout_secs` 以上経過したらロック切れとみなす。
-    #[must_use]
     pub fn refresh_lock_expired(&self, timeout_secs: u64) -> bool {
         self.refresh_started_at
             .is_some_and(|started| started.elapsed().as_secs() >= timeout_secs)
@@ -187,21 +176,18 @@ impl CacheEntry {
     /// `last_queried_at` が未設定、または `warm_to_cold_secs` 以上経過していれば Cold とみなす。
     ///
     /// `record_query()` を呼ぶ前に評価すること（呼び後は必ず false になる）。
-    #[must_use]
     pub fn is_cold_or_never_queried(&self, warm_to_cold_secs: u64) -> bool {
         self.last_queried_at
             .is_none_or(|t| t.elapsed().as_secs() >= warm_to_cold_secs)
     }
 
     /// `last_queried_at` が `recent_secs` 以内なら recent とみなす（Hot 昇格判定）。
-    #[must_use]
     pub fn has_recent_query(&self, recent_secs: u64) -> bool {
         self.last_queried_at
             .is_some_and(|t| t.elapsed().as_secs() <= recent_secs)
     }
 
     /// `last_queried_at` が `warm_to_cold_secs` 以上経過しているか（queried 前提版、never queried は false）。
-    #[must_use]
     pub fn is_cold(&self, warm_to_cold_secs: u64) -> bool {
         self.last_queried_at
             .is_some_and(|t| t.elapsed().as_secs() >= warm_to_cold_secs)

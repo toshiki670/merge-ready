@@ -39,7 +39,7 @@ merge-ready-prompt
 Example output:
 
 ```text
-⚠ review
+⚠ Resolve review
 ```
 
 `merge-ready-prompt` returns:

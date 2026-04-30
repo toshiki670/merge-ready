@@ -1,5 +1,4 @@
 /// ロギングのためのエラーカテゴリ（横断的関心事）
-#[allow(dead_code)]
 pub enum ErrorCategory {
     Auth,
     RateLimit,

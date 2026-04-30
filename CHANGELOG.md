@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.3] - 2026-04-30
+### Bug Fixes
+- Docs.rs ビルドのために [lib] ターゲットを追加し app.rs を lib.rs に統合する ([#219](https://github.com/toshiki670/merge-ready/pull/219)) ([`541b318`](https://github.com/toshiki670/merge-ready/commit/541b318cb0842c09c3a1814de1085c8978871e3f))
+
+
 ## [0.5.2] - 2026-04-29
 ### Features
 - Daemon の定期取得サイクルをリポジトリごとに適応的に制御する ([#198](https://github.com/toshiki670/merge-ready/pull/198)) ([`5e25824`](https://github.com/toshiki670/merge-ready/commit/5e258242a304c2105f35a621a30c73e65aa6b6c0))

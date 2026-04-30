@@ -57,6 +57,7 @@ Example output:
 - `✗ Resolve conflict` - merge conflicts exist
 - `✗ Update branch` - branch is behind base branch
 - `? Check branch sync` - branch sync status is unknown
+- `? Check merge blocker` - PR is blocked for an unknown reason
 - `⧖ Wait for status` - GitHub is calculating merge status
 - `? loading` - cache miss; daemon is fetching in the background
 

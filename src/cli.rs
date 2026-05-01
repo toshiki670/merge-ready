@@ -3,6 +3,7 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 
 use crate::contexts::daemon::interface::cli::DaemonArgs;
+use crate::contexts::daemon::interface::cli::daemon::DaemonCommand;
 
 #[derive(Parser)]
 #[command(
@@ -27,7 +28,11 @@ pub enum Command {
 pub fn run(cli: &Cli) -> ExitCode {
     match &cli.command {
         Some(Command::Config) => crate::config_command(),
-        Some(Command::Daemon(args)) => crate::daemon_command(*args),
+        Some(Command::Daemon(args)) => match args.subcommand {
+            DaemonCommand::Start => crate::daemon_start_command(),
+            DaemonCommand::Stop => crate::daemon_stop_command(),
+            DaemonCommand::Status => crate::daemon_status_command(),
+        },
         None => {
             let _ = Cli::command().print_help();
             ExitCode::SUCCESS

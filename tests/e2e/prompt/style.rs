@@ -41,3 +41,22 @@ fn plain_format_produces_no_ansi() {
         .stdout(predicate::str::diff("✓ Ready for merge"))
         .stderr("");
 }
+
+/// スタイル適用後のテキストに色が漏れない（reset が挿入される）。
+/// `[$symbol](bold green) $label` の $label 部分はデフォルトカラーで出力される。
+#[test]
+fn text_after_styled_segment_is_not_colored() {
+    let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
+    env.write_config("[merge_ready]\nformat = \"[$symbol](bold green) $label\"");
+
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    // $label ("Ready for merge") がプレーンテキストとして末尾にある。
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::ends_with("Ready for merge"))
+        .stderr("");
+}

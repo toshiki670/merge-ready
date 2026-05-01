@@ -4,41 +4,49 @@ pub(crate) enum Segment {
     Styled { content: String, style_str: String },
 }
 
+/// `[text](style)` 構文を `Segment` 列に分解する。
+///
+/// `]` の直後が `(` でない場合は Styled として扱わず Text に含める（後方互換）。
+/// ASCII の `[` `]` `(` `)` はすべて 1 バイトなので `str::find` でバイト操作しても安全。
 pub(crate) fn parse_segments(format: &str) -> Vec<Segment> {
     let mut segments = Vec::new();
-    let mut text_buf = String::new();
-    let chars: Vec<char> = format.chars().collect();
-    let mut i = 0;
+    let mut remaining = format;
+    let mut text_acc = String::new();
 
-    while i < chars.len() {
-        if chars[i] == '[' {
-            // `]` を探す
-            if let Some(close) = chars[i + 1..].iter().position(|&c| c == ']') {
-                let close = close + i + 1;
-                // `]` の直後が `(` か確認
-                if close + 1 < chars.len() && chars[close + 1] == '(' {
-                    // `)` を探す
-                    if let Some(paren_close) = chars[close + 2..].iter().position(|&c| c == ')') {
-                        let paren_close = paren_close + close + 2;
-                        if !text_buf.is_empty() {
-                            segments.push(Segment::Text(text_buf.clone()));
-                            text_buf.clear();
-                        }
-                        let content: String = chars[i + 1..close].iter().collect();
-                        let style_str: String = chars[close + 2..paren_close].iter().collect();
-                        segments.push(Segment::Styled { content, style_str });
-                        i = paren_close + 1;
-                        continue;
+    while !remaining.is_empty() {
+        if let Some(open) = remaining.find('[') {
+            let after_open = &remaining[open + 1..];
+
+            if let Some(close_bracket) = after_open.find(']') {
+                let after_bracket = &after_open[close_bracket + 1..];
+
+                if let Some(after_paren) = after_bracket.strip_prefix('(')
+                    && let Some(paren_close) = after_paren.find(')')
+                {
+                    text_acc.push_str(&remaining[..open]);
+                    if !text_acc.is_empty() {
+                        segments.push(Segment::Text(std::mem::take(&mut text_acc)));
                     }
+                    segments.push(Segment::Styled {
+                        content: after_open[..close_bracket].to_owned(),
+                        style_str: after_paren[..paren_close].to_owned(),
+                    });
+                    remaining = &after_paren[paren_close + 1..];
+                    continue;
                 }
             }
+
+            // `[` はスタイル構文の開始ではない — テキストとして蓄積
+            text_acc.push_str(&remaining[..=open]);
+            remaining = &remaining[open + 1..];
+        } else {
+            text_acc.push_str(remaining);
+            remaining = "";
         }
-        text_buf.push(chars[i]);
-        i += 1;
     }
 
-    if !text_buf.is_empty() {
-        segments.push(Segment::Text(text_buf));
+    if !text_acc.is_empty() {
+        segments.push(Segment::Text(text_acc));
     }
 
     segments
@@ -46,84 +54,50 @@ pub(crate) fn parse_segments(format: &str) -> Vec<Segment> {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
-    #[test]
-    fn plain_text_returns_single_text_segment() {
-        let segs = parse_segments("$symbol $label");
-        assert_eq!(segs, vec![Segment::Text("$symbol $label".to_owned())]);
+    // ── プレーンテキスト（Styled 構文なし）───────────────────────────────────
+
+    #[rstest]
+    #[case("$symbol $label", vec![Segment::Text("$symbol $label".to_owned())])]
+    #[case("[$symbol] $label", vec![Segment::Text("[$symbol] $label".to_owned())])]
+    #[case("", vec![])]
+    fn plain_text_cases(#[case] input: &str, #[case] expected: Vec<Segment>) {
+        assert_eq!(parse_segments(input), expected);
     }
 
-    #[test]
-    fn styled_segment_is_parsed() {
-        let segs = parse_segments("[$symbol](bold green) $label");
-        assert_eq!(
-            segs,
-            vec![
-                Segment::Styled {
-                    content: "$symbol".to_owned(),
-                    style_str: "bold green".to_owned(),
-                },
-                Segment::Text(" $label".to_owned()),
-            ]
-        );
-    }
+    // ── Styled セグメントのパース ────────────────────────────────────────────
 
-    #[test]
-    fn unclosed_bracket_treated_as_text() {
-        let segs = parse_segments("[$symbol] $label");
-        assert_eq!(segs, vec![Segment::Text("[$symbol] $label".to_owned())]);
-    }
-
-    #[test]
-    fn empty_style_is_styled_with_empty_str() {
-        let segs = parse_segments("[$symbol]()");
-        assert_eq!(
-            segs,
-            vec![Segment::Styled {
-                content: "$symbol".to_owned(),
-                style_str: String::new(),
-            }]
-        );
-    }
-
-    #[test]
-    fn multiple_styled_segments() {
-        let segs = parse_segments("[$symbol](bold red) [$label](green)");
-        assert_eq!(
-            segs,
-            vec![
-                Segment::Styled {
-                    content: "$symbol".to_owned(),
-                    style_str: "bold red".to_owned(),
-                },
-                Segment::Text(" ".to_owned()),
-                Segment::Styled {
-                    content: "$label".to_owned(),
-                    style_str: "green".to_owned(),
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn empty_string_returns_empty_vec() {
-        let segs = parse_segments("");
-        assert_eq!(segs, vec![]);
-    }
-
-    #[test]
-    fn text_before_styled_segment() {
-        let segs = parse_segments("prefix [$symbol](red)");
-        assert_eq!(
-            segs,
-            vec![
-                Segment::Text("prefix ".to_owned()),
-                Segment::Styled {
-                    content: "$symbol".to_owned(),
-                    style_str: "red".to_owned(),
-                },
-            ]
-        );
+    #[rstest]
+    #[case(
+        "[$symbol](bold green) $label",
+        vec![
+            Segment::Styled { content: "$symbol".to_owned(), style_str: "bold green".to_owned() },
+            Segment::Text(" $label".to_owned()),
+        ]
+    )]
+    #[case(
+        "[$symbol]()",
+        vec![Segment::Styled { content: "$symbol".to_owned(), style_str: String::new() }]
+    )]
+    #[case(
+        "prefix [$symbol](red)",
+        vec![
+            Segment::Text("prefix ".to_owned()),
+            Segment::Styled { content: "$symbol".to_owned(), style_str: "red".to_owned() },
+        ]
+    )]
+    #[case(
+        "[$symbol](bold red) [$label](green)",
+        vec![
+            Segment::Styled { content: "$symbol".to_owned(), style_str: "bold red".to_owned() },
+            Segment::Text(" ".to_owned()),
+            Segment::Styled { content: "$label".to_owned(), style_str: "green".to_owned() },
+        ]
+    )]
+    fn styled_segment_cases(#[case] input: &str, #[case] expected: Vec<Segment>) {
+        assert_eq!(parse_segments(input), expected);
     }
 }

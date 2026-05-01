@@ -237,4 +237,46 @@ mod tests {
         let config = ErrorConfig::default();
         assert_eq!(render_error_token(&config, "oops"), "✗ oops");
     }
+
+    #[test]
+    fn render_token_text_after_style_is_reset() {
+        // `[$symbol](bold green) $label` のとき、$label はスタイルを引き継がない。
+        // nu-ansi-term は styled 部分の末尾に reset (\x1b[0m) を挿入するため
+        // それ以降の文字はデフォルトカラーになる。
+        let tok = TokenConfig {
+            symbol: "✓".to_owned(),
+            label: "Ready".to_owned(),
+            format: "[$symbol](bold green) $label".to_owned(),
+        };
+        let out = render_token(&tok);
+        let reset = "\x1b[0m";
+        let reset_pos = out
+            .find(reset)
+            .expect("reset sequence must exist after styled segment");
+        let label_pos = out.find("Ready").expect("label must exist in output");
+        assert!(
+            reset_pos < label_pos,
+            "reset must appear before the plain-text label: {out:?}"
+        );
+        let after_reset = &out[reset_pos + reset.len()..];
+        assert!(
+            !after_reset.contains("\x1b["),
+            "no ANSI codes should follow the reset: {out:?}"
+        );
+    }
+
+    #[test]
+    fn render_token_plain_format_identical_to_simple_replace() {
+        // 後方互換: スタイル構文なしの format は単純置換と完全一致する。
+        let tok = TokenConfig {
+            symbol: "✓".to_owned(),
+            label: "Ready for merge".to_owned(),
+            format: "$symbol $label".to_owned(),
+        };
+        let expected = tok
+            .format
+            .replace("$symbol", &tok.symbol)
+            .replace("$label", &tok.label);
+        assert_eq!(render_token(&tok), expected);
+    }
 }

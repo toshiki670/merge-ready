@@ -1,4 +1,4 @@
-use anstyle::{AnsiColor, Color, Effects, RgbColor, Style};
+use nu_ansi_term::{Color, Style};
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum NamedColor {
@@ -58,11 +58,9 @@ impl StyleSpec {
                 "hidden" => spec.hidden = true,
                 "strikethrough" => spec.strikethrough = true,
                 "none" => spec.none = true,
-                // 色名（前景色として扱う）
                 name if parse_named_color(name).is_some() => {
                     spec.fg = Some(ColorSpec::Named(parse_named_color(name).unwrap()));
                 }
-                // fg:... / bg:...
                 s if s.starts_with("fg:") => {
                     spec.fg = parse_color_value(&s["fg:".len()..]);
                 }
@@ -81,37 +79,36 @@ impl StyleSpec {
         }
         let mut style = Style::new();
         if let Some(fg) = &self.fg {
-            style = style.fg_color(Some(color_spec_to_anstyle(fg)));
+            style = style.fg(color_spec_to_nu(fg));
         }
         if let Some(bg) = &self.bg {
-            style = style.bg_color(Some(color_spec_to_anstyle(bg)));
+            style = style.on(color_spec_to_nu(bg));
         }
-        let mut effects = Effects::new();
         if self.bold {
-            effects |= Effects::BOLD;
+            style = style.bold();
         }
         if self.italic {
-            effects |= Effects::ITALIC;
+            style = style.italic();
         }
         if self.underline {
-            effects |= Effects::UNDERLINE;
+            style = style.underline();
         }
         if self.dimmed {
-            effects |= Effects::DIMMED;
+            style = style.dimmed();
         }
         if self.inverted {
-            effects |= Effects::INVERT;
+            style = style.reverse();
         }
         if self.blink {
-            effects |= Effects::BLINK;
+            style = style.blink();
         }
         if self.hidden {
-            effects |= Effects::HIDDEN;
+            style = style.hidden();
         }
         if self.strikethrough {
-            effects |= Effects::STRIKETHROUGH;
+            style = style.strikethrough();
         }
-        style.effects(effects)
+        style
     }
 }
 
@@ -138,47 +135,44 @@ fn parse_named_color(s: &str) -> Option<NamedColor> {
 }
 
 fn parse_color_value(s: &str) -> Option<ColorSpec> {
-    // #rrggbb
     if let Some(hex) = s.strip_prefix('#').filter(|h| h.len() == 6) {
         let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
         let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
         let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
         return Some(ColorSpec::Rgb(r, g, b));
     }
-    // 数値（0–255）
     if let Ok(n) = s.parse::<u8>() {
         return Some(ColorSpec::Ansi256(n));
     }
-    // 色名
     parse_named_color(s).map(ColorSpec::Named)
 }
 
-fn named_color_to_ansi(c: &NamedColor) -> AnsiColor {
+fn named_color_to_nu(c: &NamedColor) -> Color {
     match c {
-        NamedColor::Black => AnsiColor::Black,
-        NamedColor::Red => AnsiColor::Red,
-        NamedColor::Green => AnsiColor::Green,
-        NamedColor::Yellow => AnsiColor::Yellow,
-        NamedColor::Blue => AnsiColor::Blue,
-        NamedColor::Purple => AnsiColor::Magenta,
-        NamedColor::Cyan => AnsiColor::Cyan,
-        NamedColor::White => AnsiColor::White,
-        NamedColor::BrightBlack => AnsiColor::BrightBlack,
-        NamedColor::BrightRed => AnsiColor::BrightRed,
-        NamedColor::BrightGreen => AnsiColor::BrightGreen,
-        NamedColor::BrightYellow => AnsiColor::BrightYellow,
-        NamedColor::BrightBlue => AnsiColor::BrightBlue,
-        NamedColor::BrightPurple => AnsiColor::BrightMagenta,
-        NamedColor::BrightCyan => AnsiColor::BrightCyan,
-        NamedColor::BrightWhite => AnsiColor::BrightWhite,
+        NamedColor::Black => Color::Black,
+        NamedColor::Red => Color::Red,
+        NamedColor::Green => Color::Green,
+        NamedColor::Yellow => Color::Yellow,
+        NamedColor::Blue => Color::Blue,
+        NamedColor::Purple => Color::Purple,
+        NamedColor::Cyan => Color::Cyan,
+        NamedColor::White => Color::White,
+        NamedColor::BrightBlack => Color::DarkGray,
+        NamedColor::BrightRed => Color::LightRed,
+        NamedColor::BrightGreen => Color::LightGreen,
+        NamedColor::BrightYellow => Color::LightYellow,
+        NamedColor::BrightBlue => Color::LightBlue,
+        NamedColor::BrightPurple => Color::LightPurple,
+        NamedColor::BrightCyan => Color::LightCyan,
+        NamedColor::BrightWhite => Color::LightGray,
     }
 }
 
-fn color_spec_to_anstyle(spec: &ColorSpec) -> Color {
+fn color_spec_to_nu(spec: &ColorSpec) -> Color {
     match spec {
-        ColorSpec::Named(n) => Color::Ansi(named_color_to_ansi(n)),
-        ColorSpec::Ansi256(n) => Color::Ansi256(anstyle::Ansi256Color(*n)),
-        ColorSpec::Rgb(r, g, b) => Color::Rgb(RgbColor(*r, *g, *b)),
+        ColorSpec::Named(n) => named_color_to_nu(n),
+        ColorSpec::Ansi256(n) => Color::Fixed(*n),
+        ColorSpec::Rgb(r, g, b) => Color::Rgb(*r, *g, *b),
     }
 }
 
@@ -273,8 +267,8 @@ mod tests {
     fn to_ansi_style_bold_green_has_effects_and_color() {
         let s = StyleSpec::parse("bold green");
         let style = s.to_ansi_style();
-        assert!(style.get_effects().contains(Effects::BOLD));
-        assert_eq!(style.get_fg_color(), Some(Color::Ansi(AnsiColor::Green)));
+        assert!(style.is_bold);
+        assert_eq!(style.foreground, Some(Color::Green));
     }
 
     #[test]

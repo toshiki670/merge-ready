@@ -95,24 +95,14 @@ pub fn render_error_token(config: &ErrorConfig, message: &str) -> String {
 }
 
 fn render_segments(s: &str) -> String {
-    let segments = parse_segments(s);
-    if segments.iter().all(|seg| matches!(seg, Segment::Text(_))) {
-        return segments
-            .into_iter()
-            .map(|seg| match seg {
-                Segment::Text(t) => t,
-                Segment::Styled { .. } => unreachable!(),
-            })
-            .collect();
-    }
-    segments
+    parse_segments(s)
         .into_iter()
         .map(|seg| match seg {
             Segment::Text(t) => t,
-            Segment::Styled { content, style_str } => {
-                let style = StyleSpec::parse(&style_str).to_ansi_style();
-                format!("{}{}{}", style.render(), content, style.render_reset())
-            }
+            Segment::Styled { content, style_str } => StyleSpec::parse(&style_str)
+                .to_ansi_style()
+                .paint(content)
+                .to_string(),
         })
         .collect()
 }

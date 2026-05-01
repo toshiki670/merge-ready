@@ -87,13 +87,14 @@ command = "merge-ready-prompt"
 when = true
 require_repo = true
 shell = ["/bin/zsh"]
-format = "[$output]($style) "
-style = "bold yellow"
+format = "($output )"
 ```
 
 `require_repo = true` limits the module to git repositories without any shell command overhead. `merge-ready-prompt` itself returns `+ Create PR` when no pull request exists for the branch, so no additional filtering is needed.
 
 If your environment sets `STARSHIP_SHELL` to a slower shell (for example `fish`), custom modules can be noticeably slower due to shell startup cost. Pinning `shell = ["/bin/zsh"]` (or another lightweight shell on your system) keeps prompt latency low.
+
+> **Note:** Do not set `style` in the Starship custom module when using the `[text](style)` syntax in merge-ready's `format` field. Starship's `style` wraps the entire output in its own ANSI codes, and merge-ready's internal reset sequences will break that outer styling, causing subsequent prompt modules (e.g. `cmd_duration`) to lose their color.
 
 ## Configuration
 
@@ -192,6 +193,33 @@ The `[error]` section uses `$message` instead of `$label`. The message is set au
 |-------|-------------|---------|
 | `symbol` | Leading symbol | `"✗"` |
 | `format` | Output template | `"$symbol $message"` |
+
+### Style Strings
+
+The `format` field supports a [Starship-inspired](https://starship.rs/config/#style-strings) `[text](style)` syntax to apply ANSI colors and attributes:
+
+```toml
+[merge_ready]
+format = "[$symbol $label](bold green)"
+
+[ci_fail]
+format = "[$symbol](bold red) $label"
+
+[changes_requested]
+format = "[$symbol](yellow) $label"
+```
+
+Supported style specifiers:
+
+| Specifier | Examples |
+|-----------|---------|
+| Color names | `red`, `green`, `yellow`, `blue`, `cyan`, `purple`, `white`, `black` |
+| Bright colors | `bright-red`, `bright-green`, … |
+| Attributes | `bold`, `italic`, `underline`, `dimmed`, `inverted`, `blink`, `hidden`, `strikethrough` |
+| 256-color / truecolor | `fg:123`, `bg:255`, `fg:#ff8700` |
+| Disable all styles | `none` |
+
+Specifiers are case-insensitive and order-independent. Multiple specifiers are separated by spaces (e.g. `bold bright-green`).
 
 ## Requirements
 

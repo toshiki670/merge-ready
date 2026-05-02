@@ -189,12 +189,12 @@ mod tests {
     // ── fg カラー解析 ────────────────────────────────────────────────────────
 
     #[rstest]
-    #[case("green",        Some(ColorSpec::Named(NamedColor::Green)))]
-    #[case("GREEN",        Some(ColorSpec::Named(NamedColor::Green)))]
-    #[case("bright-cyan",  Some(ColorSpec::Named(NamedColor::BrightCyan)))]
-    #[case("fg:blue",      Some(ColorSpec::Named(NamedColor::Blue)))]
-    #[case("fg:196",       Some(ColorSpec::Ansi256(196)))]
-    #[case("fg:#ff8800",   Some(ColorSpec::Rgb(0xff, 0x88, 0x00)))]
+    #[case("green", Some(ColorSpec::Named(NamedColor::Green)))]
+    #[case("GREEN", Some(ColorSpec::Named(NamedColor::Green)))]
+    #[case("bright-cyan", Some(ColorSpec::Named(NamedColor::BrightCyan)))]
+    #[case("fg:blue", Some(ColorSpec::Named(NamedColor::Blue)))]
+    #[case("fg:196", Some(ColorSpec::Ansi256(196)))]
+    #[case("fg:#ff8800", Some(ColorSpec::Rgb(0xff, 0x88, 0x00)))]
     fn fg_color_cases(#[case] input: &str, #[case] expected: Option<ColorSpec>) {
         assert_eq!(StyleSpec::parse(input).fg, expected);
     }
@@ -202,8 +202,8 @@ mod tests {
     // ── bg カラー解析 ────────────────────────────────────────────────────────
 
     #[rstest]
-    #[case("bg:red",     Some(ColorSpec::Named(NamedColor::Red)))]
-    #[case("bg:208",     Some(ColorSpec::Ansi256(208)))]
+    #[case("bg:red", Some(ColorSpec::Named(NamedColor::Red)))]
+    #[case("bg:208", Some(ColorSpec::Ansi256(208)))]
     #[case("bg:#001122", Some(ColorSpec::Rgb(0x00, 0x11, 0x22)))]
     fn bg_color_cases(#[case] input: &str, #[case] expected: Option<ColorSpec>) {
         assert_eq!(StyleSpec::parse(input).bg, expected);
@@ -213,7 +213,7 @@ mod tests {
 
     #[rstest]
     #[case("bold xyzzy green", Some(ColorSpec::Named(NamedColor::Green)))]
-    #[case("green fg:typo",    Some(ColorSpec::Named(NamedColor::Green)))]
+    #[case("green fg:typo", Some(ColorSpec::Named(NamedColor::Green)))]
     fn invalid_token_does_not_clear_fg(#[case] input: &str, #[case] expected: Option<ColorSpec>) {
         assert_eq!(StyleSpec::parse(input).fg, expected);
     }

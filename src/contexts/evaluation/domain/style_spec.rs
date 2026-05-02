@@ -182,7 +182,49 @@ fn color_spec_to_nu(spec: &ColorSpec) -> Color {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
+
+    // ── fg カラー解析 ────────────────────────────────────────────────────────
+
+    #[rstest]
+    #[case("green",        Some(ColorSpec::Named(NamedColor::Green)))]
+    #[case("GREEN",        Some(ColorSpec::Named(NamedColor::Green)))]
+    #[case("bright-cyan",  Some(ColorSpec::Named(NamedColor::BrightCyan)))]
+    #[case("fg:blue",      Some(ColorSpec::Named(NamedColor::Blue)))]
+    #[case("fg:196",       Some(ColorSpec::Ansi256(196)))]
+    #[case("fg:#ff8800",   Some(ColorSpec::Rgb(0xff, 0x88, 0x00)))]
+    fn fg_color_cases(#[case] input: &str, #[case] expected: Option<ColorSpec>) {
+        assert_eq!(StyleSpec::parse(input).fg, expected);
+    }
+
+    // ── bg カラー解析 ────────────────────────────────────────────────────────
+
+    #[rstest]
+    #[case("bg:red",     Some(ColorSpec::Named(NamedColor::Red)))]
+    #[case("bg:208",     Some(ColorSpec::Ansi256(208)))]
+    #[case("bg:#001122", Some(ColorSpec::Rgb(0x00, 0x11, 0x22)))]
+    fn bg_color_cases(#[case] input: &str, #[case] expected: Option<ColorSpec>) {
+        assert_eq!(StyleSpec::parse(input).bg, expected);
+    }
+
+    // ── 不正・未知指定子が有効な色を上書きしない ─────────────────────────────
+
+    #[rstest]
+    #[case("bold xyzzy green", Some(ColorSpec::Named(NamedColor::Green)))]
+    #[case("green fg:typo",    Some(ColorSpec::Named(NamedColor::Green)))]
+    fn invalid_token_does_not_clear_fg(#[case] input: &str, #[case] expected: Option<ColorSpec>) {
+        assert_eq!(StyleSpec::parse(input).fg, expected);
+    }
+
+    #[rstest]
+    #[case("bg:red bg:typo", Some(ColorSpec::Named(NamedColor::Red)))]
+    fn invalid_token_does_not_clear_bg(#[case] input: &str, #[case] expected: Option<ColorSpec>) {
+        assert_eq!(StyleSpec::parse(input).bg, expected);
+    }
+
+    // ── その他 ───────────────────────────────────────────────────────────────
 
     #[test]
     fn parse_bold_green() {
@@ -192,61 +234,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_fg_256() {
-        let s = StyleSpec::parse("fg:196");
-        assert_eq!(s.fg, Some(ColorSpec::Ansi256(196)));
-    }
-
-    #[test]
-    fn parse_fg_hex() {
-        let s = StyleSpec::parse("fg:#ff8800");
-        assert_eq!(s.fg, Some(ColorSpec::Rgb(0xff, 0x88, 0x00)));
-    }
-
-    #[test]
-    fn parse_bg_named() {
-        let s = StyleSpec::parse("bg:red");
-        assert_eq!(s.bg, Some(ColorSpec::Named(NamedColor::Red)));
-    }
-
-    #[test]
-    fn parse_bright_modifier() {
-        let s = StyleSpec::parse("bright-cyan");
-        assert_eq!(s.fg, Some(ColorSpec::Named(NamedColor::BrightCyan)));
-    }
-
-    #[test]
     fn parse_none() {
         let s = StyleSpec::parse("none");
         assert!(s.none);
         assert!(!s.bold);
         assert!(s.fg.is_none());
-    }
-
-    #[test]
-    fn parse_case_insensitive() {
-        let s = StyleSpec::parse("BOLD GREEN");
-        assert!(s.bold);
-        assert_eq!(s.fg, Some(ColorSpec::Named(NamedColor::Green)));
-    }
-
-    #[test]
-    fn unknown_token_is_ignored() {
-        let s = StyleSpec::parse("bold xyzzy green");
-        assert!(s.bold);
-        assert_eq!(s.fg, Some(ColorSpec::Named(NamedColor::Green)));
-    }
-
-    #[test]
-    fn invalid_fg_prefix_does_not_clear_prior_color() {
-        let s = StyleSpec::parse("green fg:typo");
-        assert_eq!(s.fg, Some(ColorSpec::Named(NamedColor::Green)));
-    }
-
-    #[test]
-    fn invalid_bg_prefix_does_not_clear_prior_color() {
-        let s = StyleSpec::parse("bg:red bg:typo");
-        assert_eq!(s.bg, Some(ColorSpec::Named(NamedColor::Red)));
     }
 
     #[test]
@@ -259,24 +251,6 @@ mod tests {
         assert!(s.blink);
         assert!(s.hidden);
         assert!(s.strikethrough);
-    }
-
-    #[test]
-    fn parse_fg_prefix_named() {
-        let s = StyleSpec::parse("fg:blue");
-        assert_eq!(s.fg, Some(ColorSpec::Named(NamedColor::Blue)));
-    }
-
-    #[test]
-    fn parse_bg_256() {
-        let s = StyleSpec::parse("bg:208");
-        assert_eq!(s.bg, Some(ColorSpec::Ansi256(208)));
-    }
-
-    #[test]
-    fn parse_bg_hex() {
-        let s = StyleSpec::parse("bg:#001122");
-        assert_eq!(s.bg, Some(ColorSpec::Rgb(0x00, 0x11, 0x22)));
     }
 
     #[test]

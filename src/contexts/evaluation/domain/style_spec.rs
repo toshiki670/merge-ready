@@ -62,10 +62,14 @@ impl StyleSpec {
                     spec.fg = Some(ColorSpec::Named(parse_named_color(name).unwrap()));
                 }
                 s if s.starts_with("fg:") => {
-                    spec.fg = parse_color_value(&s["fg:".len()..]);
+                    if let Some(color) = parse_color_value(&s["fg:".len()..]) {
+                        spec.fg = Some(color);
+                    }
                 }
                 s if s.starts_with("bg:") => {
-                    spec.bg = parse_color_value(&s["bg:".len()..]);
+                    if let Some(color) = parse_color_value(&s["bg:".len()..]) {
+                        spec.bg = Some(color);
+                    }
                 }
                 _ => {}
             }
@@ -231,6 +235,18 @@ mod tests {
         let s = StyleSpec::parse("bold xyzzy green");
         assert!(s.bold);
         assert_eq!(s.fg, Some(ColorSpec::Named(NamedColor::Green)));
+    }
+
+    #[test]
+    fn invalid_fg_prefix_does_not_clear_prior_color() {
+        let s = StyleSpec::parse("green fg:typo");
+        assert_eq!(s.fg, Some(ColorSpec::Named(NamedColor::Green)));
+    }
+
+    #[test]
+    fn invalid_bg_prefix_does_not_clear_prior_color() {
+        let s = StyleSpec::parse("bg:red bg:typo");
+        assert_eq!(s.bg, Some(ColorSpec::Named(NamedColor::Red)));
     }
 
     #[test]

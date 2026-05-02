@@ -112,71 +112,71 @@ All fields are optional — omitting any field falls back to the default shown b
 [merge_ready]
 symbol = "✓"
 label = "Ready for merge"
-# format = "$symbol $label"
+format = "[$symbol $label](bold green)"
 
 [no_pull_request]
 symbol = "+"
 label = "Create PR"
-# format = "$symbol $label"
+format = "[$symbol $label](cyan)"
 
 [conflict]
 symbol = "✗"
 label = "Resolve conflict"
-# format = "$symbol $label"
+format = "[$symbol $label](bold red)"
 
 [update_branch]
 symbol = "✗"
 label = "Update branch"
-# format = "$symbol $label"
+format = "[$symbol $label](yellow)"
 
-[sync_unknown]
-symbol = "?"
-label = "Check branch sync"
-# format = "$symbol $label"
+# [sync_unknown]
+# symbol = "?"
+# label = "Check branch sync"
+# format = "[$symbol $label](yellow)"
 
 [ci_fail]
 symbol = "✗"
 label = "Fix CI failure"
-# format = "$symbol $label"
+format = "[$symbol $label](bold red)"
 
-[ci_action]
-symbol = "⚠"
-label = "Run CI action"
-# format = "$symbol $label"
+# [ci_action]
+# symbol = "⚠"
+# label = "Run CI action"
+# format = "[$symbol $label](yellow)"
 
 [ci_pending]
 symbol = "⧖"
 label = "Wait for CI"
-# format = "$symbol $label"
+format = "[$symbol $label](cyan)"
 
 [changes_requested]
 symbol = "⚠"
 label = "Resolve review"
-# format = "$symbol $label"
+format = "[$symbol $label](yellow)"
 
 [review_required]
 symbol = "@"
 label = "Assign reviewer"
-# format = "$symbol $label"
+format = "[$symbol $label](cyan)"
 
 [draft]
 symbol = "✎"
 label = "Ready for review"
-# format = "$symbol $label"
+format = "[$symbol $label](dimmed)"
 
-[status_calculating]
-symbol = "⧖"
-label = "Wait for status"
-# format = "$symbol $label"
+# [status_calculating]
+# symbol = "⧖"
+# label = "Wait for status"
+# format = "[$symbol $label](dimmed)"
 
-[blocked_unknown]
-symbol = "?"
-label = "Check merge blocker"
-# format = "$symbol $label"
+# [blocked_unknown]
+# symbol = "?"
+# label = "Check merge blocker"
+# format = "[$symbol $label](yellow)"
 
 [error]
 symbol = "✗"
-# format = "$symbol $message"
+format = "[$symbol $message](bold red)"
 ```
 
 Each token supports three optional fields:

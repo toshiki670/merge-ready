@@ -1,5 +1,8 @@
 use serde::Serialize;
 
+use super::format_parser::{Segment, parse_segments};
+use super::style_spec::StyleSpec;
+
 const DEFAULT_FORMAT: &str = "$symbol $label";
 const DEFAULT_ERROR_FORMAT: &str = "$symbol $message";
 
@@ -60,10 +63,11 @@ pub struct TokenConfig {
 
 #[must_use]
 pub fn render_token(token: &TokenConfig) -> String {
-    token
+    let substituted = token
         .format
         .replace("$symbol", &token.symbol)
-        .replace("$label", &token.label)
+        .replace("$label", &token.label);
+    render_segments(&substituted)
 }
 
 #[derive(Serialize)]
@@ -83,10 +87,24 @@ impl Default for ErrorConfig {
 
 #[must_use]
 pub fn render_error_token(config: &ErrorConfig, message: &str) -> String {
-    config
+    let substituted = config
         .format
         .replace("$symbol", &config.symbol)
-        .replace("$message", message)
+        .replace("$message", message);
+    render_segments(&substituted)
+}
+
+fn render_segments(s: &str) -> String {
+    parse_segments(s)
+        .into_iter()
+        .map(|seg| match seg {
+            Segment::Text(t) => t,
+            Segment::Styled { content, style_str } => StyleSpec::parse(&style_str)
+                .to_ansi_style()
+                .paint(content)
+                .to_string(),
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -161,5 +179,104 @@ mod tests {
             render_error_token(&config, "authentication required"),
             "[!] authentication required"
         );
+    }
+
+    // ── スタイル構文のテスト ─────────────────────────────────────────────────
+
+    #[test]
+    fn render_token_plain_format_unaffected() {
+        let tok = TokenConfig {
+            symbol: "✓".to_owned(),
+            label: "Ready".to_owned(),
+            format: "$symbol $label".to_owned(),
+        };
+        assert_eq!(render_token(&tok), "✓ Ready");
+    }
+
+    #[test]
+    fn render_token_styled_contains_ansi() {
+        let tok = TokenConfig {
+            symbol: "✓".to_owned(),
+            label: "Ready".to_owned(),
+            format: "[$symbol](bold green) $label".to_owned(),
+        };
+        let out = render_token(&tok);
+        assert!(out.contains("\x1b["), "expected ANSI codes in: {out:?}");
+        assert!(out.contains("✓"));
+        assert!(out.contains("Ready"));
+    }
+
+    #[test]
+    fn render_token_placeholder_substituted_before_style() {
+        let tok = TokenConfig {
+            symbol: "✓".to_owned(),
+            label: "Ready".to_owned(),
+            format: "[$symbol $label](green)".to_owned(),
+        };
+        let out = render_token(&tok);
+        assert!(
+            out.contains("✓ Ready"),
+            "placeholder must be substituted: {out:?}"
+        );
+    }
+
+    #[test]
+    fn render_error_token_styled_contains_ansi() {
+        let config = ErrorConfig {
+            symbol: "✗".to_owned(),
+            format: "[$symbol](bold red) $message".to_owned(),
+        };
+        let out = render_error_token(&config, "failed");
+        assert!(out.contains("\x1b["), "expected ANSI codes in: {out:?}");
+        assert!(out.contains("✗"));
+        assert!(out.contains("failed"));
+    }
+
+    #[test]
+    fn render_error_token_plain_format_unaffected() {
+        let config = ErrorConfig::default();
+        assert_eq!(render_error_token(&config, "oops"), "✗ oops");
+    }
+
+    #[test]
+    fn render_token_text_after_style_is_reset() {
+        // `[$symbol](bold green) $label` のとき、$label はスタイルを引き継がない。
+        // nu-ansi-term は styled 部分の末尾に reset (\x1b[0m) を挿入するため
+        // それ以降の文字はデフォルトカラーになる。
+        let tok = TokenConfig {
+            symbol: "✓".to_owned(),
+            label: "Ready".to_owned(),
+            format: "[$symbol](bold green) $label".to_owned(),
+        };
+        let out = render_token(&tok);
+        let reset = "\x1b[0m";
+        let reset_pos = out
+            .find(reset)
+            .expect("reset sequence must exist after styled segment");
+        let label_pos = out.find("Ready").expect("label must exist in output");
+        assert!(
+            reset_pos < label_pos,
+            "reset must appear before the plain-text label: {out:?}"
+        );
+        let after_reset = &out[reset_pos + reset.len()..];
+        assert!(
+            !after_reset.contains("\x1b["),
+            "no ANSI codes should follow the reset: {out:?}"
+        );
+    }
+
+    #[test]
+    fn render_token_plain_format_identical_to_simple_replace() {
+        // 後方互換: スタイル構文なしの format は単純置換と完全一致する。
+        let tok = TokenConfig {
+            symbol: "✓".to_owned(),
+            label: "Ready for merge".to_owned(),
+            format: "$symbol $label".to_owned(),
+        };
+        let expected = tok
+            .format
+            .replace("$symbol", &tok.symbol)
+            .replace("$label", &tok.label);
+        assert_eq!(render_token(&tok), expected);
     }
 }

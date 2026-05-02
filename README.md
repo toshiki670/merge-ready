@@ -87,13 +87,14 @@ command = "merge-ready-prompt"
 when = true
 require_repo = true
 shell = ["/bin/zsh"]
-format = "[$output]($style) "
-style = "bold yellow"
+format = "($output )"
 ```
 
 `require_repo = true` limits the module to git repositories without any shell command overhead. `merge-ready-prompt` itself returns `+ Create PR` when no pull request exists for the branch, so no additional filtering is needed.
 
 If your environment sets `STARSHIP_SHELL` to a slower shell (for example `fish`), custom modules can be noticeably slower due to shell startup cost. Pinning `shell = ["/bin/zsh"]` (or another lightweight shell on your system) keeps prompt latency low.
+
+> **Note:** Do not set `style` in the Starship custom module when using the `[text](style)` syntax in merge-ready's `format` field. Starship's `style` wraps the entire output in its own ANSI codes, and merge-ready's internal reset sequences will break that outer styling, causing subsequent prompt modules (e.g. `cmd_duration`) to lose their color.
 
 ## Configuration
 
@@ -111,71 +112,71 @@ All fields are optional — omitting any field falls back to the default shown b
 [merge_ready]
 symbol = "✓"
 label = "Ready for merge"
-# format = "$symbol $label"
+format = "[$symbol $label](bold green)"
 
 [no_pull_request]
 symbol = "+"
 label = "Create PR"
-# format = "$symbol $label"
+format = "[$symbol $label](cyan)"
 
 [conflict]
 symbol = "✗"
 label = "Resolve conflict"
-# format = "$symbol $label"
+format = "[$symbol $label](bold red)"
 
 [update_branch]
 symbol = "✗"
 label = "Update branch"
-# format = "$symbol $label"
+format = "[$symbol $label](yellow)"
 
-[sync_unknown]
-symbol = "?"
-label = "Check branch sync"
-# format = "$symbol $label"
+# [sync_unknown]
+# symbol = "?"
+# label = "Check branch sync"
+# format = "[$symbol $label](yellow)"
 
 [ci_fail]
 symbol = "✗"
 label = "Fix CI failure"
-# format = "$symbol $label"
+format = "[$symbol $label](bold red)"
 
-[ci_action]
-symbol = "⚠"
-label = "Run CI action"
-# format = "$symbol $label"
+# [ci_action]
+# symbol = "⚠"
+# label = "Run CI action"
+# format = "[$symbol $label](yellow)"
 
 [ci_pending]
 symbol = "⧖"
 label = "Wait for CI"
-# format = "$symbol $label"
+format = "[$symbol $label](cyan)"
 
 [changes_requested]
 symbol = "⚠"
 label = "Resolve review"
-# format = "$symbol $label"
+format = "[$symbol $label](yellow)"
 
 [review_required]
 symbol = "@"
 label = "Assign reviewer"
-# format = "$symbol $label"
+format = "[$symbol $label](cyan)"
 
 [draft]
 symbol = "✎"
 label = "Ready for review"
-# format = "$symbol $label"
+format = "[$symbol $label](dimmed)"
 
-[status_calculating]
-symbol = "⧖"
-label = "Wait for status"
-# format = "$symbol $label"
+# [status_calculating]
+# symbol = "⧖"
+# label = "Wait for status"
+# format = "[$symbol $label](dimmed)"
 
-[blocked_unknown]
-symbol = "?"
-label = "Check merge blocker"
-# format = "$symbol $label"
+# [blocked_unknown]
+# symbol = "?"
+# label = "Check merge blocker"
+# format = "[$symbol $label](yellow)"
 
 [error]
 symbol = "✗"
-# format = "$symbol $message"
+format = "[$symbol $message](bold red)"
 ```
 
 Each token supports three optional fields:
@@ -192,6 +193,33 @@ The `[error]` section uses `$message` instead of `$label`. The message is set au
 |-------|-------------|---------|
 | `symbol` | Leading symbol | `"✗"` |
 | `format` | Output template | `"$symbol $message"` |
+
+### Style Strings
+
+The `format` field supports a [Starship-inspired](https://starship.rs/config/#style-strings) `[text](style)` syntax to apply ANSI colors and attributes:
+
+```toml
+[merge_ready]
+format = "[$symbol $label](bold green)"
+
+[ci_fail]
+format = "[$symbol](bold red) $label"
+
+[changes_requested]
+format = "[$symbol](yellow) $label"
+```
+
+Supported style specifiers:
+
+| Specifier | Examples |
+|-----------|---------|
+| Color names | `red`, `green`, `yellow`, `blue`, `cyan`, `purple`, `white`, `black` |
+| Bright colors | `bright-red`, `bright-green`, … |
+| Attributes | `bold`, `italic`, `underline`, `dimmed`, `inverted`, `blink`, `hidden`, `strikethrough` |
+| 256-color / truecolor | `fg:123`, `bg:255`, `fg:#ff8700` |
+| Disable all styles | `none` |
+
+Specifiers are case-insensitive and order-independent. Multiple specifiers are separated by spaces (e.g. `bold bright-green`).
 
 ## Requirements
 

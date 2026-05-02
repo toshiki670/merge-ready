@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-05-02
+### Bug Fixes
+- Remove needless pass-by-value allow in cli::run ([#226](https://github.com/toshiki670/merge-ready/pull/226)) ([`2ed55c9`](https://github.com/toshiki670/merge-ready/commit/2ed55c910d6f9a7deb2ed5faf271c07c65305f55))
+- Align error category logging for auth and timeout ([#227](https://github.com/toshiki670/merge-ready/pull/227)) ([`7692847`](https://github.com/toshiki670/merge-ready/commit/76928475a5aa698717f08d2d28e9f2ff33743f39))
+### Features
+- [**BREAKING**] Split daemon_command into daemon_start/stop/status_command ([#230](https://github.com/toshiki670/merge-ready/pull/230)) ([`396cbea`](https://github.com/toshiki670/merge-ready/commit/396cbeabc3d85d4f85e330c449bd14d5faab0a8b))
+- Format フィールドで Starship 風の色・スタイル指定をサポートする ([#231](https://github.com/toshiki670/merge-ready/pull/231)) ([`4b81a93`](https://github.com/toshiki670/merge-ready/commit/4b81a937bd09cef2734db2626bb1e2c5bf3fb773))
+
+
 ## [0.5.3] - 2026-04-30
 ### Bug Fixes
 - Docs.rs ビルドのために [lib] ターゲットを追加し app.rs を lib.rs に統合する ([#219](https://github.com/toshiki670/merge-ready/pull/219)) ([`541b318`](https://github.com/toshiki670/merge-ready/commit/541b318cb0842c09c3a1814de1085c8978871e3f))

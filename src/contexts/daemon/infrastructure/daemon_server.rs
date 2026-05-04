@@ -276,7 +276,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
         } => {
             let version_mismatch = client_version.as_str() != env!("CARGO_PKG_VERSION");
 
-            let Some(repo_id) = repo_id::repo_id_from_cwd(cwd) else {
+            let Some((repo_id, branch)) = repo_id::repo_info_from_cwd(cwd) else {
                 return ActionResult {
                     response: Response::Output {
                         output: String::new(),
@@ -291,6 +291,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
             let cwd_path = PathBuf::from(cwd);
             process_query(
                 &repo_id,
+                branch,
                 cwd_path,
                 ttl,
                 version_mismatch,
@@ -359,6 +360,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
 
 fn process_query(
     repo_id: &str,
+    branch: String,
     cwd_path: PathBuf,
     ttl: u64,
     restart_after_response: bool,
@@ -412,10 +414,6 @@ fn process_query(
         }
         None => {
             // 初回 Miss → エントリを作成してリフレッシュ予約
-            let branch = cwd_path
-                .to_str()
-                .map(repo_id::branch_from_cwd)
-                .unwrap_or_default();
             entries.insert(
                 repo_id.to_owned(),
                 CacheEntry::new(cwd_path.clone(), branch, ttl),

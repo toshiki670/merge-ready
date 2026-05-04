@@ -11,6 +11,7 @@ use super::pid;
 use super::protocol::{RefreshModeDto, Request, Response};
 use super::repo_id;
 use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode};
+use crate::contexts::daemon::domain::daemon::DaemonError;
 use crate::contexts::daemon::domain::refresh_policy::RefreshPolicy;
 
 const DEFAULT_STALE_TTL_SECS: u64 = 5;
@@ -100,7 +101,7 @@ type RefreshFn = Arc<dyn Fn(&str, &std::path::Path) + Send + Sync + 'static>;
 ///
 /// `on_refresh` はキャッシュ更新が必要になったときにスレッドで呼ばれる。
 /// Stop リクエストで `Ok(())` を返す。
-pub fn run(on_refresh: &RefreshFn) -> Result<(), ()> {
+pub fn run(on_refresh: &RefreshFn) -> Result<(), DaemonError> {
     let socket_path = paths::socket_path();
     if let Some(parent) = socket_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -165,12 +166,12 @@ pub fn run(on_refresh: &RefreshFn) -> Result<(), ()> {
     Ok(())
 }
 
-fn bind_socket(socket_path: &std::path::Path) -> Result<UnixListener, ()> {
+fn bind_socket(socket_path: &std::path::Path) -> Result<UnixListener, DaemonError> {
     match pid::read() {
         Some(p) if pid::is_alive(p) => {
             log::error!("daemon is already running (pid {p})");
             eprintln!("merge-ready daemon is already running (pid {p})");
-            return Err(());
+            return Err(DaemonError::AlreadyRunning);
         }
         _ => {
             let _ = std::fs::remove_file(socket_path);
@@ -184,7 +185,7 @@ fn bind_socket(socket_path: &std::path::Path) -> Result<UnixListener, ()> {
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
                 if retries >= BIND_RETRY_MAX {
                     log::error!("socket already in use after retries, giving up");
-                    return Err(());
+                    return Err(DaemonError::AlreadyRunning);
                 }
                 retries += 1;
                 std::thread::sleep(Duration::from_millis(BIND_RETRY_INTERVAL_MS));
@@ -192,7 +193,7 @@ fn bind_socket(socket_path: &std::path::Path) -> Result<UnixListener, ()> {
             Err(e) => {
                 log::error!("failed to bind socket: {e}");
                 eprintln!("merge-ready daemon: failed to bind socket: {e}");
-                return Err(());
+                return Err(DaemonError::Failure);
             }
         }
     }

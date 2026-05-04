@@ -40,6 +40,7 @@ cargo fmt --check --all              # formatting check
 cargo deny check                     # dependency audit
 bash scripts/check-layer-deps.sh     # DDD layer dependency rules
 bash scripts/check-no-mod-rs.sh      # forbid mod.rs (use Rust 2018+ style)
+bash scripts/check-e2e.sh           # feat/fix PRs must include changes under tests/e2e/ (set PR_TITLE and BASE_REF)
 ```
 
 ## File Naming
@@ -83,6 +84,7 @@ PR checklist:
 - [ ] Each commit is atomic and passes tests on its own
 - [ ] Commit messages follow the convention above
 - [ ] New behaviour is covered by tests written before the implementation
+- [ ] `feat:` / `fix:` PRs include changes under `tests/e2e/`
 
 ## Release
 

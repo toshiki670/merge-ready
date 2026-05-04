@@ -1,23 +1,23 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// `cwd` 文字列から `repo_id` を導出する。
+/// `cwd` 文字列から `repo_id` とブランチ名を一度のディレクトリ探索で導出する。
 ///
-/// `.git` ディレクトリを上方向に探し、toplevel パス + ブランチ名を FNV-1a でハッシュ化する。
-/// 取得失敗時は `None` を返す。
-pub fn repo_id_from_cwd(cwd: &str) -> Option<String> {
+/// `.git` ディレクトリを上方向に探し、toplevel パス + ブランチ名を FNV-1a でハッシュ化した
+/// `repo_id` と、そのブランチ名を返す。取得失敗時は `None` を返す。
+pub fn repo_info_from_cwd(cwd: &str) -> Option<(String, String)> {
     let start = Path::new(cwd);
     let (toplevel, git_dir) = find_git_dir(start)?;
     let branch = read_head(&git_dir).unwrap_or_default();
-    Some(path_to_id(&format!("{}\0{}", toplevel.display(), branch)))
+    let repo_id = path_to_id(&format!("{}\0{}", toplevel.display(), branch));
+    Some((repo_id, branch))
 }
 
-/// `cwd` から現在のブランチ名だけを返す（`repo_id` ハッシュ不要な用途向け）。
-pub fn branch_from_cwd(cwd: &str) -> String {
-    let start = Path::new(cwd);
-    find_git_dir(start)
-        .and_then(|(_, git_dir)| read_head(&git_dir))
-        .unwrap_or_default()
+/// `cwd` 文字列から `repo_id` を導出する。
+///
+/// ブランチ名が不要な場合に使う薄いラッパー。
+pub fn repo_id_from_cwd(cwd: &str) -> Option<String> {
+    repo_info_from_cwd(cwd).map(|(id, _)| id)
 }
 
 /// カレントディレクトリから上に向かって `.git` を探す。
@@ -90,6 +90,30 @@ mod tests {
         )
         .unwrap();
         (main_repo, worktree)
+    }
+
+    #[test]
+    fn repo_info_returns_id_and_branch() {
+        let repo = make_normal_repo("feature");
+        let info = repo_info_from_cwd(repo.path().to_str().unwrap());
+        assert!(info.is_some());
+        let (_, branch) = info.unwrap();
+        assert_eq!(branch, "feature");
+    }
+
+    #[test]
+    fn repo_info_outside_repo_returns_none() {
+        let dir = TempDir::new().unwrap();
+        assert!(repo_info_from_cwd(dir.path().to_str().unwrap()).is_none());
+    }
+
+    #[test]
+    fn repo_info_id_matches_repo_id_from_cwd() {
+        let repo = make_normal_repo("main");
+        let cwd = repo.path().to_str().unwrap();
+        let (id_from_info, _) = repo_info_from_cwd(cwd).unwrap();
+        let id_direct = repo_id_from_cwd(cwd).unwrap();
+        assert_eq!(id_from_info, id_direct);
     }
 
     #[test]

@@ -77,6 +77,24 @@ On the first query the daemon has no cache yet, so `? loading` is printed while 
 
 The daemon exits automatically after 30 minutes of inactivity.
 
+### Watch Mode
+
+To inspect all cached entries in real time, use the `watch` subcommand:
+
+```bash
+merge-ready watch   # refresh every second; Ctrl+C to stop
+```
+
+Example output:
+
+```text
+CWD              BRANCH          STATUS             CACHED AT
+/home/user/myapp feat/42-login   ✓ Ready for merge  5s ago
+/home/user/myapp main            ⧖ Wait for CI      23s ago
+```
+
+`watch` polls the daemon once per second and redraws the table in place. If the daemon is not running it prints `daemon is not running` and exits immediately.
+
 ## Starship Integration
 
 Add merge status to your [Starship](https://starship.rs/) prompt by using a custom command module in `~/.config/starship.toml`:

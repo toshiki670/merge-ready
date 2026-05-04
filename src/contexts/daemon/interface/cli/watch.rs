@@ -11,35 +11,34 @@ use crate::contexts::daemon::application::watch;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 
-pub fn run(once: bool, port: &impl WatchPort) -> ExitCode {
-    if once {
-        return run_once(port);
-    }
-
+pub fn run(port: &impl WatchPort) -> ExitCode {
     loop {
-        let mut stdout = std::io::stdout();
-        let _ = execute!(
-            stdout,
-            terminal::Clear(ClearType::All),
-            cursor::MoveTo(0, 0)
-        );
-        let code = run_once(port);
-        if code != ExitCode::SUCCESS {
-            return code;
+        clear_screen();
+        if !draw(port) {
+            return ExitCode::FAILURE;
         }
         std::thread::sleep(POLL_INTERVAL);
     }
 }
 
-fn run_once(port: &impl WatchPort) -> ExitCode {
+fn clear_screen() {
+    let mut stdout = std::io::stdout();
+    let _ = execute!(
+        stdout,
+        terminal::Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    );
+}
+
+fn draw(port: &impl WatchPort) -> bool {
     match watch::entries(port) {
         None => {
             println!("daemon is not running");
-            ExitCode::FAILURE
+            false
         }
         Some(entries) => {
             print!("{}", format_table(&entries));
-            ExitCode::SUCCESS
+            true
         }
     }
 }

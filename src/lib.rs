@@ -79,7 +79,7 @@ pub fn daemon_status_command() -> ExitCode {
 
 /// Watches daemon cache entries in real time.
 #[must_use]
-pub fn watch_command(once: bool) -> ExitCode {
+pub fn watch_command() -> ExitCode {
     let lifecycle = build_daemon_lifecycle();
-    contexts::daemon::interface::cli::watch::run(once, &lifecycle)
+    contexts::daemon::interface::cli::watch::run(&lifecycle)
 }

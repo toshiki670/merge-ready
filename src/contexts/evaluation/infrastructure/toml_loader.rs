@@ -11,7 +11,9 @@ pub struct TomlConfigRepository {
 
 impl TomlConfigRepository {
     pub fn new() -> Self {
-        Self { path: config_path() }
+        Self {
+            path: config_path(),
+        }
     }
 }
 

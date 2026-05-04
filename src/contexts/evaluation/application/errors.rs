@@ -9,13 +9,13 @@ pub struct ErrorToken {
     pub message: String,
 }
 
-/// `RepositoryError` をエラートークンに変換する。`NotFound` は表示不要なため `None` を返す。
+/// `RepositoryError` をエラートークンに変換する。表示不要な variant は `None` を返す。
 pub fn into_token<L: ErrorLogger>(e: RepositoryError, logger: &L) -> Option<ErrorToken> {
     match e {
         RepositoryError::Unauthenticated => Some(ErrorToken {
             message: "authentication required".to_owned(),
         }),
-        RepositoryError::NotFound => None,
+        RepositoryError::NotFound | RepositoryError::NotGithubRepository => None,
         RepositoryError::RateLimited => {
             logger.log(&LogRecord {
                 category: ErrorCategory::RateLimit,

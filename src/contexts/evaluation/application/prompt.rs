@@ -22,7 +22,9 @@ where
         Err(e) => match into_token(e, logger) {
             Some(token) => return Err(token),
             None => {
-                unreachable!("into_token returns None only for NotFound, which is handled above")
+                unreachable!(
+                    "into_token returns None only for NotFound/NotGithubRepository, which are handled above"
+                )
             }
         },
     };

@@ -45,13 +45,29 @@ impl std::fmt::Display for RepoId {
     }
 }
 
+/// `CacheEntry` のフェッチ状態を表す状態機械。
+///
+/// 有効な遷移:
+/// `Loading` → (`update`) → `Ready` → (`mark_refreshing`) → `Refreshing` → (`update`) → `Ready`
+/// `Loading` → (`clear_refresh_lock`) → `PendingRetry` → (`mark_refreshing`) → `Loading`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FetchState {
+    /// 初回リフレッシュ進行中。データ未取得。
+    Loading,
+    /// 初回リフレッシュがタイムアウト。再スケジュール待ち。データ未取得。
+    PendingRetry,
+    /// データ取得済み。リフレッシュ不要。
+    Ready,
+    /// データ取得済み。再リフレッシュ進行中。
+    Refreshing,
+}
+
 /// キャッシュエントリのドメインエンティティ。
 pub struct CacheEntry {
     output: String,
-    has_fetched: bool,
+    fetch_state: FetchState,
     pub(crate) fetched_at: Instant,
     fetched_at_wall: SystemTime,
-    refreshing: bool,
     pub(crate) refresh_started_at: Option<Instant>,
     pub(crate) cwd: PathBuf,
     branch: String,
@@ -70,10 +86,9 @@ impl CacheEntry {
             .unwrap_or_else(Instant::now);
         Self {
             output: String::new(),
-            has_fetched: false,
+            fetch_state: FetchState::Loading,
             fetched_at: past,
             fetched_at_wall: SystemTime::now(),
-            refreshing: true,
             refresh_started_at: Some(Instant::now()),
             cwd,
             branch,
@@ -88,17 +103,19 @@ impl CacheEntry {
     /// バックグラウンドワーカーの取得結果でエントリを更新する。
     pub fn update(&mut self, output: String, refresh_mode: RefreshMode) {
         self.output = output;
-        self.has_fetched = true;
+        self.fetch_state = FetchState::Ready;
         self.fetched_at = Instant::now();
         self.fetched_at_wall = SystemTime::now();
-        self.refreshing = false;
         self.refresh_started_at = None;
         self.refresh_mode = refresh_mode;
     }
 
     /// リフレッシュ開始をマークする。
     pub fn mark_refreshing(&mut self) {
-        self.refreshing = true;
+        self.fetch_state = match self.fetch_state {
+            FetchState::Loading | FetchState::PendingRetry => FetchState::Loading,
+            FetchState::Ready | FetchState::Refreshing => FetchState::Refreshing,
+        };
         self.refresh_started_at = Some(Instant::now());
     }
 
@@ -124,7 +141,10 @@ impl CacheEntry {
 
     /// リフレッシュロックを解除する（タイムアウト時）。
     pub fn clear_refresh_lock(&mut self) {
-        self.refreshing = false;
+        self.fetch_state = match self.fetch_state {
+            FetchState::Loading | FetchState::PendingRetry => FetchState::PendingRetry,
+            FetchState::Ready | FetchState::Refreshing => FetchState::Ready,
+        };
         self.refresh_started_at = None;
     }
 
@@ -135,7 +155,7 @@ impl CacheEntry {
     }
 
     pub fn has_fetched(&self) -> bool {
-        self.has_fetched
+        matches!(self.fetch_state, FetchState::Ready | FetchState::Refreshing)
     }
 
     pub fn cwd(&self) -> &std::path::Path {
@@ -155,7 +175,10 @@ impl CacheEntry {
     }
 
     pub fn is_refreshing(&self) -> bool {
-        self.refreshing
+        matches!(
+            self.fetch_state,
+            FetchState::Loading | FetchState::Refreshing
+        )
     }
 
     pub fn cold_refresh_count(&self) -> u32 {
@@ -429,6 +452,35 @@ mod tests {
         e.clear_refresh_lock();
         assert!(!e.is_refreshing());
         assert!(!e.refresh_lock_expired(120));
+    }
+
+    #[test]
+    fn clear_refresh_lock_from_loading_preserves_not_fetched() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        assert!(!e.has_fetched());
+        e.clear_refresh_lock();
+        assert!(!e.has_fetched(), "PendingRetry は未フェッチを保持する");
+    }
+
+    #[test]
+    fn mark_refreshing_from_pending_retry_returns_to_loading() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        e.clear_refresh_lock(); // Loading → PendingRetry
+        assert!(!e.is_refreshing());
+        assert!(!e.has_fetched());
+        e.mark_refreshing(); // PendingRetry → Loading
+        assert!(e.is_refreshing());
+        assert!(!e.has_fetched());
+    }
+
+    #[test]
+    fn mark_refreshing_from_ready_transitions_to_refreshing_with_fetched() {
+        let mut e = make_entry("out", RefreshMode::Warm);
+        assert!(e.has_fetched());
+        assert!(!e.is_refreshing());
+        e.mark_refreshing(); // Ready → Refreshing
+        assert!(e.is_refreshing());
+        assert!(e.has_fetched(), "Refreshing は取得済みを保持する");
     }
 
     // ── CacheEntry::branch ────────────────────────────────────────────────────

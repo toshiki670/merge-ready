@@ -386,8 +386,15 @@ fn process_query(
             let output = entry.output().to_owned();
             let has_fetched = entry.has_fetched();
             let stored_cwd = entry.cwd().to_path_buf();
-            let need_refresh = !entry.is_refreshing();
-            let refreshing_now = entry.is_refreshing();
+            let refresh_state = if entry.is_refreshing() {
+                RefreshState::Refreshing {
+                    restart_after: restart_after_response,
+                }
+            } else {
+                RefreshState::NeedsRefresh {
+                    restart_after: restart_after_response,
+                }
+            };
             let is_terminal = entry.refresh_mode() == RefreshMode::Terminal;
             // Query を受けたので last_queried_at を更新し Cold カウンタをリセット
             let was_cold = entry.is_cold_or_never_queried(policy.warm_to_cold_secs);
@@ -395,7 +402,7 @@ fn process_query(
                 entry.reset_cold_count();
             }
             entry.record_query();
-            if is_terminal && need_refresh {
+            if is_terminal && matches!(refresh_state, RefreshState::NeedsRefresh { .. }) {
                 // Terminal が stale になったらモードをリセットして再確認
                 entry.reset_to_warm();
             }
@@ -405,9 +412,7 @@ fn process_query(
                     output,
                     has_fetched,
                     stored_cwd,
-                    need_refresh,
-                    refreshing_now,
-                    restart_after_response,
+                    refresh_state,
                 },
                 entries,
             )
@@ -518,14 +523,17 @@ fn env_u64(key: &str, default: u64) -> u64 {
 
 // ── 内部処理ヘルパー ──────────────────────────────────────────────────────────
 
-#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, Copy)]
+enum RefreshState {
+    NeedsRefresh { restart_after: bool },
+    Refreshing { restart_after: bool },
+}
+
 struct StaleQueryParams {
     output: String,
     has_fetched: bool,
     stored_cwd: PathBuf,
-    need_refresh: bool,
-    refreshing_now: bool,
-    restart_after_response: bool,
+    refresh_state: RefreshState,
 }
 
 fn process_stale_query(
@@ -537,52 +545,39 @@ fn process_stale_query(
         output,
         has_fetched,
         stored_cwd,
-        need_refresh,
-        refreshing_now,
-        restart_after_response,
+        refresh_state,
     } = params;
 
-    if output.is_empty() {
-        if refreshing_now && !has_fetched {
-            return ActionResult {
-                response: Response::Output {
-                    output: "? loading".to_owned(),
-                },
-                refresh_repo_id: None,
-                refresh_cwd: None,
-                stop: false,
-                restart_after_response,
-            };
-        }
-        if need_refresh {
+    match (refresh_state, has_fetched) {
+        (RefreshState::Refreshing { restart_after }, false) => ActionResult {
+            response: Response::Output {
+                output: "? loading".to_owned(),
+            },
+            refresh_repo_id: None,
+            refresh_cwd: None,
+            stop: false,
+            restart_after_response: restart_after,
+        },
+        (RefreshState::Refreshing { restart_after }, true) => ActionResult {
+            response: Response::Output { output },
+            refresh_repo_id: None,
+            refresh_cwd: None,
+            stop: false,
+            restart_after_response: restart_after,
+        },
+        (RefreshState::NeedsRefresh { restart_after }, _) => {
             entries
                 .get_mut(repo_id)
                 .expect("entry exists")
                 .mark_refreshing();
+            ActionResult {
+                response: Response::Output { output },
+                refresh_repo_id: Some(repo_id.to_owned()),
+                refresh_cwd: Some(stored_cwd),
+                stop: false,
+                restart_after_response: restart_after,
+            }
         }
-        return ActionResult {
-            response: Response::Output {
-                output: String::new(),
-            },
-            refresh_repo_id: need_refresh.then(|| repo_id.to_owned()),
-            refresh_cwd: need_refresh.then_some(stored_cwd),
-            stop: false,
-            restart_after_response,
-        };
-    }
-
-    if need_refresh {
-        entries
-            .get_mut(repo_id)
-            .expect("entry exists")
-            .mark_refreshing();
-    }
-    ActionResult {
-        response: Response::Output { output },
-        refresh_repo_id: need_refresh.then(|| repo_id.to_owned()),
-        refresh_cwd: need_refresh.then_some(stored_cwd),
-        stop: false,
-        restart_after_response,
     }
 }
 

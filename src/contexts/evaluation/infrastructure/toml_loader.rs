@@ -5,12 +5,19 @@ use crate::contexts::evaluation::domain::display_config::{
     DisplayConfig, DisplayConfigRepository, ErrorConfig, TokenConfig,
 };
 
-pub struct TomlConfigRepository;
+pub struct TomlConfigRepository {
+    path: Option<PathBuf>,
+}
 
-#[allow(clippy::unused_self)]
+impl TomlConfigRepository {
+    pub fn new() -> Self {
+        Self { path: config_path() }
+    }
+}
+
 impl DisplayConfigRepository for TomlConfigRepository {
     fn load(&self) -> DisplayConfig {
-        let Some(path) = config_path() else {
+        let Some(ref path) = self.path else {
             return DisplayConfig::default();
         };
         let Ok(content) = std::fs::read_to_string(path) else {

@@ -30,7 +30,7 @@ fn build_daemon_lifecycle() -> DaemonLifecycle {
             let client = GhClient::new_in(cwd.to_path_buf(), Logger);
             let (output, hint) = contexts::evaluation::interface::prompt::render(
                 &client,
-                &TomlConfigRepository,
+                &TomlConfigRepository::new(),
                 &Logger,
             );
             let refresh_mode = cache_hint_to_refresh_mode(hint);

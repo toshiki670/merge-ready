@@ -12,6 +12,14 @@ pub fn repo_id_from_cwd(cwd: &str) -> Option<String> {
     Some(path_to_id(&format!("{}\0{}", toplevel.display(), branch)))
 }
 
+/// `cwd` から現在のブランチ名だけを返す（`repo_id` ハッシュ不要な用途向け）。
+pub fn branch_from_cwd(cwd: &str) -> String {
+    let start = Path::new(cwd);
+    find_git_dir(start)
+        .and_then(|(_, git_dir)| read_head(&git_dir))
+        .unwrap_or_default()
+}
+
 /// カレントディレクトリから上に向かって `.git` を探す。
 ///
 /// worktree またはサブモジュールの場合 `.git` はファイル（`"gitdir: <path>"` 形式）。

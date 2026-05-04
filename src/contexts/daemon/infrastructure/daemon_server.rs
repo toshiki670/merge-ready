@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use super::paths;
 use super::pid;
-use super::protocol::{RefreshModeDto, Request, Response};
+use super::protocol::{EntryDto, RefreshModeDto, Request, Response};
 use super::repo_id;
 use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode};
 use crate::contexts::daemon::domain::daemon::DaemonError;
@@ -330,6 +330,30 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
                 restart_after_response: false,
             }
         }
+        Request::Entries => {
+            use std::time::UNIX_EPOCH;
+            let dtos: Vec<EntryDto> = s
+                .entries
+                .values()
+                .map(|entry| EntryDto {
+                    cwd: entry.cwd().to_string_lossy().into_owned(),
+                    branch: entry.branch().to_owned(),
+                    output: entry.output().to_owned(),
+                    cached_at_secs: entry
+                        .fetched_at_wall()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                })
+                .collect();
+            ActionResult {
+                response: Response::Entries { entries: dtos },
+                refresh_repo_id: None,
+                refresh_cwd: None,
+                stop: false,
+                restart_after_response: false,
+            }
+        }
     }
 }
 
@@ -388,7 +412,14 @@ fn process_query(
         }
         None => {
             // 初回 Miss → エントリを作成してリフレッシュ予約
-            entries.insert(repo_id.to_owned(), CacheEntry::new(cwd_path.clone(), ttl));
+            let branch = cwd_path
+                .to_str()
+                .map(repo_id::branch_from_cwd)
+                .unwrap_or_default();
+            entries.insert(
+                repo_id.to_owned(),
+                CacheEntry::new(cwd_path.clone(), branch, ttl),
+            );
             ActionResult {
                 response: Response::Output {
                     output: "? loading".to_owned(),
@@ -619,7 +650,7 @@ mod tests {
     use super::*;
 
     fn make_entry(output: &str, refresh_mode: RefreshMode) -> CacheEntry {
-        let mut e = CacheEntry::new(PathBuf::new(), 5);
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
         e.update(output.to_owned(), refresh_mode);
         e.record_query();
         e

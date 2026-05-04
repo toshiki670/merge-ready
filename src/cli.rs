@@ -22,6 +22,8 @@ pub enum Command {
     Config,
     /// Manage the background cache daemon
     Daemon(DaemonArgs),
+    /// Watch daemon cache entries in real time (Ctrl+C to stop)
+    Watch,
 }
 
 #[must_use]
@@ -33,6 +35,7 @@ pub fn run(cli: &Cli) -> ExitCode {
             DaemonCommand::Stop => crate::daemon_stop_command(),
             DaemonCommand::Status => crate::daemon_status_command(),
         },
+        Some(Command::Watch) => crate::watch_command(),
         None => {
             let _ = Cli::command().print_help();
             ExitCode::SUCCESS

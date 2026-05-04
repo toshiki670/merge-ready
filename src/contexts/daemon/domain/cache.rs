@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 /// daemon がキャッシュエントリのリフレッシュ頻度を制御するモード。
 /// evaluation コンテキストの知識（CI 状態・終端状態）を抽象化した daemon 固有の概念。
@@ -50,9 +50,11 @@ pub struct CacheEntry {
     output: String,
     has_fetched: bool,
     pub(crate) fetched_at: Instant,
+    fetched_at_wall: SystemTime,
     refreshing: bool,
     pub(crate) refresh_started_at: Option<Instant>,
     pub(crate) cwd: PathBuf,
+    branch: String,
     refresh_mode: RefreshMode,
     pub(crate) last_queried_at: Option<Instant>,
     pub(crate) cold_refresh_count: u32,
@@ -62,7 +64,7 @@ impl CacheEntry {
     /// 初回ミス時に生成する新規エントリ。即リフレッシュ済み状態でマークする。
     ///
     /// `stale_ttl` は `fetched_at` を TTL 超過済みの過去時刻にセットするために使う。
-    pub fn new(cwd: PathBuf, stale_ttl: u64) -> Self {
+    pub fn new(cwd: PathBuf, branch: String, stale_ttl: u64) -> Self {
         let past = Instant::now()
             .checked_sub(Duration::from_secs(stale_ttl.saturating_add(1)))
             .unwrap_or_else(Instant::now);
@@ -70,9 +72,11 @@ impl CacheEntry {
             output: String::new(),
             has_fetched: false,
             fetched_at: past,
+            fetched_at_wall: SystemTime::now(),
             refreshing: true,
             refresh_started_at: Some(Instant::now()),
             cwd,
+            branch,
             refresh_mode: RefreshMode::Warm,
             last_queried_at: Some(Instant::now()),
             cold_refresh_count: 0,
@@ -86,6 +90,7 @@ impl CacheEntry {
         self.output = output;
         self.has_fetched = true;
         self.fetched_at = Instant::now();
+        self.fetched_at_wall = SystemTime::now();
         self.refreshing = false;
         self.refresh_started_at = None;
         self.refresh_mode = refresh_mode;
@@ -135,6 +140,14 @@ impl CacheEntry {
 
     pub fn cwd(&self) -> &std::path::Path {
         &self.cwd
+    }
+
+    pub fn branch(&self) -> &str {
+        &self.branch
+    }
+
+    pub fn fetched_at_wall(&self) -> SystemTime {
+        self.fetched_at_wall
     }
 
     pub fn refresh_mode(&self) -> RefreshMode {
@@ -204,10 +217,10 @@ pub trait CachePort {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use std::time::{Duration, Instant};
+    use std::time::{Duration, Instant, SystemTime};
 
     fn make_entry(output: &str, refresh_mode: RefreshMode) -> CacheEntry {
-        let mut e = CacheEntry::new(PathBuf::new(), 5);
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
         e.update(output.to_owned(), refresh_mode);
         e.record_query();
         e
@@ -247,19 +260,19 @@ mod tests {
 
     #[test]
     fn new_entry_starts_refreshing() {
-        let e = CacheEntry::new(PathBuf::new(), 5);
+        let e = CacheEntry::new(PathBuf::new(), String::new(), 5);
         assert!(e.is_refreshing());
     }
 
     #[test]
     fn new_entry_has_not_fetched() {
-        let e = CacheEntry::new(PathBuf::new(), 5);
+        let e = CacheEntry::new(PathBuf::new(), String::new(), 5);
         assert!(!e.has_fetched());
     }
 
     #[test]
     fn new_entry_is_stale() {
-        let e = CacheEntry::new(PathBuf::new(), 5);
+        let e = CacheEntry::new(PathBuf::new(), String::new(), 5);
         assert!(!e.is_fresh(5));
     }
 
@@ -267,7 +280,7 @@ mod tests {
 
     #[test]
     fn update_clears_refreshing_and_sets_has_fetched() {
-        let mut e = CacheEntry::new(PathBuf::new(), 5);
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
         e.update("out".to_owned(), RefreshMode::Warm);
         assert!(!e.is_refreshing());
         assert!(e.has_fetched());
@@ -275,7 +288,7 @@ mod tests {
 
     #[test]
     fn update_sets_fresh() {
-        let mut e = CacheEntry::new(PathBuf::new(), 5);
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
         e.update("out".to_owned(), RefreshMode::Warm);
         assert!(e.is_fresh(5));
     }
@@ -354,13 +367,13 @@ mod tests {
 
     #[test]
     fn fresh_lock_is_not_expired() {
-        let e = CacheEntry::new(PathBuf::new(), 5);
+        let e = CacheEntry::new(PathBuf::new(), String::new(), 5);
         assert!(!e.refresh_lock_expired(120));
     }
 
     #[test]
     fn old_lock_is_expired() {
-        let mut e = CacheEntry::new(PathBuf::new(), 5);
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
         e.refresh_started_at = Some(
             Instant::now()
                 .checked_sub(Duration::from_secs(121))
@@ -373,7 +386,7 @@ mod tests {
 
     #[test]
     fn never_queried_is_cold() {
-        let mut e = CacheEntry::new(PathBuf::new(), 5);
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
         e.last_queried_at = None;
         assert!(e.is_cold_or_never_queried(1800));
     }
@@ -411,10 +424,39 @@ mod tests {
 
     #[test]
     fn clear_refresh_lock_resets_refreshing() {
-        let mut e = CacheEntry::new(PathBuf::new(), 5);
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
         assert!(e.is_refreshing());
         e.clear_refresh_lock();
         assert!(!e.is_refreshing());
         assert!(!e.refresh_lock_expired(120));
+    }
+
+    // ── CacheEntry::branch ────────────────────────────────────────────────────
+
+    #[test]
+    fn new_entry_stores_branch() {
+        let e = CacheEntry::new(PathBuf::new(), "feat/123".to_owned(), 5);
+        assert_eq!(e.branch(), "feat/123");
+    }
+
+    // ── CacheEntry::fetched_at_wall ───────────────────────────────────────────
+
+    #[test]
+    fn new_entry_sets_fetched_at_wall() {
+        let before = SystemTime::now();
+        let e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        let after = SystemTime::now();
+        assert!(e.fetched_at_wall() >= before);
+        assert!(e.fetched_at_wall() <= after);
+    }
+
+    #[test]
+    fn update_refreshes_fetched_at_wall() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        let before = SystemTime::now();
+        e.update("out".to_owned(), RefreshMode::Warm);
+        let after = SystemTime::now();
+        assert!(e.fetched_at_wall() >= before);
+        assert!(e.fetched_at_wall() <= after);
     }
 }

@@ -175,7 +175,10 @@ impl CacheEntry {
     }
 
     pub fn is_refreshing(&self) -> bool {
-        matches!(self.fetch_state, FetchState::Loading | FetchState::Refreshing)
+        matches!(
+            self.fetch_state,
+            FetchState::Loading | FetchState::Refreshing
+        )
     }
 
     pub fn cold_refresh_count(&self) -> u32 {

@@ -28,7 +28,7 @@ impl DaemonLifecyclePort for DaemonLifecycle {
             }
             pid::remove();
         }
-        daemon_server::run(&self.on_refresh).map_err(|()| DaemonError::Failure)
+        daemon_server::run(&self.on_refresh)
     }
 
     fn stop(&self) -> bool {

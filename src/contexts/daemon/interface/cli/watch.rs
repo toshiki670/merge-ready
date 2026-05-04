@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -81,16 +82,18 @@ fn format_table(entries: &[EntryView]) -> String {
         .max(header.2.len());
 
     let mut out = String::new();
-    out.push_str(&format!(
-        "{:<w0$}  {:<w1$}  {:<w2$}  {}\n",
+    let _ = writeln!(
+        out,
+        "{:<w0$}  {:<w1$}  {:<w2$}  {}",
         header.0, header.1, header.2, header.3,
-    ));
+    );
     for row in &rows {
         let pad = w2 - visible_len(&row.2) + row.2.len();
-        out.push_str(&format!(
-            "{:<w0$}  {:<w1$}  {:<pad$}  {}\n",
-            row.0, row.1, row.2, row.3,
-        ));
+        let _ = writeln!(
+            out,
+            "{:<w0$}  {:<w1$}  {:<pad$}  {}",
+            row.0, row.1, row.2, row.3
+        );
     }
     out
 }

@@ -3,7 +3,7 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 use super::paths;
-use super::protocol::{RefreshModeDto, Request, Response};
+use super::protocol::{EntryDto, RefreshModeDto, Request, Response};
 use crate::contexts::daemon::domain::cache::{CachePort, RefreshMode, RepoId};
 
 /// デーモンソケットへの接続タイムアウト（ms）
@@ -43,6 +43,13 @@ impl DaemonClient {
                 uptime_secs,
                 version,
             }) => Some((entries, uptime_secs, version)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn entries_raw() -> Option<Vec<EntryDto>> {
+        match Self::send(&Request::Entries) {
+            Ok(Response::Entries { entries }) => Some(entries),
             _ => None,
         }
     }

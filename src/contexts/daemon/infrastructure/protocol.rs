@@ -10,6 +10,15 @@ pub enum RefreshModeDto {
     Terminal,
 }
 
+/// キャッシュエントリの表示用 DTO。
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EntryDto {
+    pub cwd: String,
+    pub branch: String,
+    pub output: String,
+    pub cached_at_secs: u64,
+}
+
 /// デーモンへ送信するリクエスト
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -28,6 +37,7 @@ pub enum Request {
     },
     Stop,
     Status,
+    Entries,
 }
 
 /// デーモンから返却されるレスポンス
@@ -45,4 +55,25 @@ pub enum Response {
         uptime_secs: u64,
         version: String,
     },
+    Entries {
+        entries: Vec<EntryDto>,
+    },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entry_dto_serializes() {
+        let dto = EntryDto {
+            cwd: "/tmp".into(),
+            branch: "main".into(),
+            output: "✓ Ready".into(),
+            cached_at_secs: 1_000,
+        };
+        let json = serde_json::to_string(&dto).unwrap();
+        assert!(json.contains("cached_at_secs"));
+        assert!(json.contains("/tmp"));
+    }
 }

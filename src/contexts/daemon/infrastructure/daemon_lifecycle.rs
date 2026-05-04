@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::contexts::daemon::application::port::{EntryView, WatchPort};
 use crate::contexts::daemon::domain::daemon::{DaemonError, DaemonLifecyclePort, DaemonStatus};
 
 use super::{daemon_client::DaemonClient, daemon_server, pid};
@@ -59,5 +60,20 @@ impl DaemonLifecyclePort for DaemonLifecycle {
 
     fn get_pid(&self) -> Option<u32> {
         pid::read().filter(|&p| pid::is_alive(p))
+    }
+}
+
+impl WatchPort for DaemonLifecycle {
+    fn entries(&self) -> Option<Vec<EntryView>> {
+        DaemonClient::entries_raw().map(|dtos| {
+            dtos.into_iter()
+                .map(|dto| EntryView {
+                    cwd: dto.cwd,
+                    branch: dto.branch,
+                    output: dto.output,
+                    cached_at_secs: dto.cached_at_secs,
+                })
+                .collect()
+        })
     }
 }

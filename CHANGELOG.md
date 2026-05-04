@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-05-04
+### Bug Fixes
+- Daemon_server::run の Result<(), ()> を DaemonError に置き換える ([#235](https://github.com/toshiki670/merge-ready/pull/235)) ([`127adc5`](https://github.com/toshiki670/merge-ready/commit/127adc58de063b8bdccd5208cf385030908c0611))
+- Gh に対応していないリポジトリではメッセージを表示しない ([#236](https://github.com/toshiki670/merge-ready/pull/236)) ([`0a507e3`](https://github.com/toshiki670/merge-ready/commit/0a507e3162844b0d717750596bf81cb5cd0f029d))
+### Features
+- キャッシュエントリの最新ステータスを常時表示する watch コマンドを追加する ([#240](https://github.com/toshiki670/merge-ready/pull/240)) ([`3b27be8`](https://github.com/toshiki670/merge-ready/commit/3b27be8875ba666b33f6e9082269d5864404cf78))
+
+
 ## [0.6.0] - 2026-05-02
 ### Bug Fixes
 - Remove needless pass-by-value allow in cli::run ([#226](https://github.com/toshiki670/merge-ready/pull/226)) ([`2ed55c9`](https://github.com/toshiki670/merge-ready/commit/2ed55c910d6f9a7deb2ed5faf271c07c65305f55))

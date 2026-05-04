@@ -1,9 +1,6 @@
 use std::process::ExitCode;
 
-use clap::{CommandFactory, Parser, Subcommand};
-
-use crate::contexts::daemon::interface::cli::DaemonArgs;
-use crate::contexts::daemon::interface::cli::daemon::DaemonCommand;
+use clap::{Args, CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
@@ -26,16 +23,32 @@ pub enum Command {
     Watch,
 }
 
+#[derive(Args, Clone, Copy)]
+pub struct DaemonArgs {
+    #[command(subcommand)]
+    pub subcommand: DaemonCommand,
+}
+
+#[derive(Subcommand, Clone, Copy)]
+pub enum DaemonCommand {
+    /// Start the background cache daemon
+    Start,
+    /// Stop the running daemon
+    Stop,
+    /// Show daemon status
+    Status,
+}
+
 #[must_use]
 pub fn run(cli: &Cli) -> ExitCode {
     match &cli.command {
-        Some(Command::Config) => crate::config_command(),
+        Some(Command::Config) => merge_ready::config_command(),
         Some(Command::Daemon(args)) => match args.subcommand {
-            DaemonCommand::Start => crate::daemon_start_command(),
-            DaemonCommand::Stop => crate::daemon_stop_command(),
-            DaemonCommand::Status => crate::daemon_status_command(),
+            DaemonCommand::Start => merge_ready::daemon_start_command(),
+            DaemonCommand::Stop => merge_ready::daemon_stop_command(),
+            DaemonCommand::Status => merge_ready::daemon_status_command(),
         },
-        Some(Command::Watch) => crate::watch_command(),
+        Some(Command::Watch) => merge_ready::watch_command(),
         None => {
             let _ = Cli::command().print_help();
             ExitCode::SUCCESS

@@ -3,36 +3,10 @@ use std::process::{ExitCode, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use clap::{Args, Subcommand};
-
 use crate::contexts::daemon::application::lifecycle::{self, Port};
 
 const DAEMON_INNER_ENV: &str = "MERGE_READY_DAEMON_INNER";
 const START_TIMEOUT_SECS: u64 = 2;
-
-#[derive(Subcommand, Clone, Copy)]
-pub enum DaemonCommand {
-    /// Start the background cache daemon
-    Start,
-    /// Stop the running daemon
-    Stop,
-    /// Show daemon status
-    Status,
-}
-
-#[derive(Args, Clone, Copy)]
-pub struct DaemonArgs {
-    #[command(subcommand)]
-    pub subcommand: DaemonCommand,
-}
-
-pub fn run(subcommand: DaemonCommand, port: &impl Port) -> ExitCode {
-    match subcommand {
-        DaemonCommand::Start => start(port),
-        DaemonCommand::Stop => stop(port),
-        DaemonCommand::Status => status(port),
-    }
-}
 
 // Why double-spawn instead of alternatives:
 //
@@ -44,7 +18,7 @@ pub fn run(subcommand: DaemonCommand, port: &impl Port) -> ExitCode {
 // 欠点は setsid() を呼べないため SIGHUP を受ける可能性があること。
 // ただしプロンプト統合の用途では端末クローズ時にデーモンが終了しても
 // 次回 prompt 呼び出し時に lazy_start() が再起動するため実害はない。
-fn start(port: &impl Port) -> ExitCode {
+pub(crate) fn start(port: &impl Port) -> ExitCode {
     if std::env::var(DAEMON_INNER_ENV).is_ok() {
         return match lifecycle::start(port) {
             Ok(()) => ExitCode::SUCCESS,
@@ -117,7 +91,7 @@ fn start(port: &impl Port) -> ExitCode {
     }
 }
 
-fn stop(port: &impl Port) -> ExitCode {
+pub(crate) fn stop(port: &impl Port) -> ExitCode {
     if lifecycle::stop(port) {
         println!("daemon stopped");
     } else {
@@ -126,7 +100,7 @@ fn stop(port: &impl Port) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn status(port: &impl Port) -> ExitCode {
+pub(crate) fn status(port: &impl Port) -> ExitCode {
     match lifecycle::get_status(port) {
         Some(s) => {
             let pid = lifecycle::get_pid(port).map_or_else(|| "-".to_owned(), |p| p.to_string());

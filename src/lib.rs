@@ -1,6 +1,5 @@
 //! merge-ready — Show pull request merge blockers as concise prompt tokens.
 
-pub mod cli;
 pub(crate) mod contexts;
 
 use std::process::ExitCode;
@@ -9,7 +8,6 @@ use crate::contexts::daemon::application::cache as daemon_cache_app;
 use crate::contexts::daemon::domain::cache::{RefreshMode, RepoId};
 use crate::contexts::daemon::infrastructure::daemon_client::DaemonClient;
 use crate::contexts::daemon::infrastructure::daemon_lifecycle::DaemonLifecycle;
-use crate::contexts::daemon::interface::cli::daemon::DaemonCommand;
 use crate::contexts::evaluation::infrastructure::toml_loader::TomlConfigRepository;
 use crate::contexts::evaluation::infrastructure::{gh::GhClient, logger::Logger};
 use crate::contexts::evaluation::interface::prompt::CacheHint;
@@ -58,7 +56,7 @@ pub fn config_command() -> ExitCode {
 pub fn daemon_start_command() -> ExitCode {
     contexts::evaluation::infrastructure::logger::init();
     let lifecycle = build_daemon_lifecycle();
-    contexts::daemon::interface::cli::daemon::run(DaemonCommand::Start, &lifecycle)
+    contexts::daemon::interface::cli::daemon::start(&lifecycle)
 }
 
 /// Stops the running background cache daemon.
@@ -66,7 +64,7 @@ pub fn daemon_start_command() -> ExitCode {
 pub fn daemon_stop_command() -> ExitCode {
     contexts::evaluation::infrastructure::logger::init();
     let lifecycle = build_daemon_lifecycle();
-    contexts::daemon::interface::cli::daemon::run(DaemonCommand::Stop, &lifecycle)
+    contexts::daemon::interface::cli::daemon::stop(&lifecycle)
 }
 
 /// Shows the current status of the background cache daemon.
@@ -74,7 +72,7 @@ pub fn daemon_stop_command() -> ExitCode {
 pub fn daemon_status_command() -> ExitCode {
     contexts::evaluation::infrastructure::logger::init();
     let lifecycle = build_daemon_lifecycle();
-    contexts::daemon::interface::cli::daemon::run(DaemonCommand::Status, &lifecycle)
+    contexts::daemon::interface::cli::daemon::status(&lifecycle)
 }
 
 /// Watches daemon cache entries in real time.

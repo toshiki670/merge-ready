@@ -11,4 +11,6 @@ pub enum RepositoryError {
     RateLimited,
     /// 上記に当てはまらない予期しないエラー
     Unexpected,
+    /// GitHub リポジトリに対応していない（remote なし・GitHub 以外）
+    NotGithubRepository,
 }

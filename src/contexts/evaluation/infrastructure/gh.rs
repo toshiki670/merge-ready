@@ -142,6 +142,9 @@ impl<L: ErrorLogger + Sync> PrRepository for GhClient<L> {
         let pr_view = match self.fetch_pr_view() {
             Ok(v) => v,
             Err(RepositoryError::NotFound) => return Ok(self.resolve_no_pr()),
+            Err(RepositoryError::NotGithubRepository) => {
+                return Ok(PrState::NotApplicable(NotApplicableState::NoRepository));
+            }
             Err(e) => return Err(e),
         };
 
@@ -308,6 +311,7 @@ enum GhError {
     NoPr,
     RateLimited,
     Timeout,
+    NotGithubRepository,
     ApiError(String),
 }
 
@@ -317,6 +321,7 @@ impl From<GhError> for RepositoryError {
             GhError::NotInstalled | GhError::AuthRequired => RepositoryError::Unauthenticated,
             GhError::NoPr => RepositoryError::NotFound,
             GhError::RateLimited => RepositoryError::RateLimited,
+            GhError::NotGithubRepository => RepositoryError::NotGithubRepository,
             GhError::Timeout | GhError::ApiError(_) => RepositoryError::Unexpected,
         }
     }
@@ -392,6 +397,13 @@ fn classify_gh_error(exit_code: i32, stderr: &str) -> GhError {
         GhError::NoPr
     } else if exit_code == 1 && stderr.contains("rate limit") {
         GhError::RateLimited
+    } else if exit_code == 1
+        && (stderr.contains("no git remotes found")
+            || stderr.contains(
+                "none of the git remotes configured for this repository point to a known GitHub host",
+            ))
+    {
+        GhError::NotGithubRepository
     } else {
         GhError::ApiError(stderr.to_owned())
     }

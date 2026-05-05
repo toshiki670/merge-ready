@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.1] - 2026-05-05
+### Bug Fixes
+- Daemon が複数起動する競合と中間プロセス問題を修正する ([#251](https://github.com/toshiki670/merge-ready/pull/251)) ([`bd6a36f`](https://github.com/toshiki670/merge-ready/commit/bd6a36fd0cede80fb9b4603963cf8b8bcc8fbc2e))
+### Features
+- Add completions subcommand via clap_complete ([#254](https://github.com/toshiki670/merge-ready/pull/254)) ([`86da9d8`](https://github.com/toshiki670/merge-ready/commit/86da9d8d318b65e259a46af51a44613a93fbd609))
+
+
 ## [0.7.0] - 2026-05-04
 ### Bug Fixes
 - Daemon_server::run の Result<(), ()> を DaemonError に置き換える ([#235](https://github.com/toshiki670/merge-ready/pull/235)) ([`127adc5`](https://github.com/toshiki670/merge-ready/commit/127adc58de063b8bdccd5208cf385030908c0611))

@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use schema::{
-    CheckBucket, GhCheckItem, GhCompare, GhPrView, GhRepoView, GhRepoViewFull, translate_bucket,
+    CheckBucket, GhCheckItem, GhCompare, GhPrListItem, GhRepoView, GhRepoViewFull, translate_bucket,
 };
 
 use crate::contexts::evaluation::application::port::{ErrorCategory, ErrorLogger, LogRecord};
@@ -65,22 +65,30 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
         RepositoryError::from(e)
     }
 
-    fn fetch_pr_view(&self) -> Result<GhPrView, RepositoryError> {
+    fn fetch_pr_list(&self) -> Result<Option<GhPrListItem>, RepositoryError> {
+        let branch = current_branch(self.cwd.as_deref()).unwrap_or_default();
         let bytes = self
             .run_gh(&[
                 "pr",
-                "view",
+                "list",
+                "--head",
+                &branch,
+                "--state",
+                "all",
+                "--limit",
+                "1",
                 "--json",
-                "state,isDraft,mergeable,mergeStateStatus,reviewDecision,baseRefName,headRefName",
+                "number,state,isDraft,mergeable,mergeStateStatus,reviewDecision,baseRefName,headRefName",
             ])
             .map_err(|e| self.log_and_convert(e))?;
-        serde_json::from_slice(&bytes).map_err(|e| {
+        let items: Vec<GhPrListItem> = serde_json::from_slice(&bytes).map_err(|e| {
             self.logger.log(&LogRecord {
                 category: ErrorCategory::Unknown,
                 detail: Some(e.to_string()),
             });
             RepositoryError::Unexpected
-        })
+        })?;
+        Ok(items.into_iter().next())
     }
 
     fn fetch_ci_state(&self) -> Result<Option<CiState>, RepositoryError> {
@@ -139,9 +147,9 @@ impl<L: ErrorLogger + Sync> PrRepository for GhClient<L> {
             return Ok(PrState::NotApplicable(NotApplicableState::NoRepository));
         }
 
-        let pr_view = match self.fetch_pr_view() {
-            Ok(v) => v,
-            Err(RepositoryError::NotFound) => return Ok(self.resolve_no_pr()),
+        let pr_view = match self.fetch_pr_list() {
+            Ok(Some(v)) => v,
+            Ok(None) | Err(RepositoryError::NotFound) => return Ok(self.resolve_no_pr()),
             Err(RepositoryError::NotGithubRepository) => {
                 return Ok(PrState::NotApplicable(NotApplicableState::NoRepository));
             }

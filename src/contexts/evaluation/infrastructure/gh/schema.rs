@@ -1,7 +1,10 @@
 use serde::Deserialize;
 
 #[derive(Deserialize)]
-pub(super) struct GhPrView {
+pub(super) struct GhPrListItem {
+    // TODO(#256): 複数PR対応の実装時にこのフィールドを活用し、allow を削除すること
+    #[allow(dead_code)]
+    pub(super) number: u64,
     pub(super) state: String,
     #[serde(rename = "isDraft")]
     pub(super) is_draft: bool,

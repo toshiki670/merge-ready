@@ -20,7 +20,13 @@ pub enum CacheHint {
     Terminal,
 }
 
-pub fn render<R, C, L>(repo: &R, config_repo: &C, logger: &L) -> (String, CacheHint)
+/// `render()` の戻り値。
+pub struct RenderResult {
+    pub output: String,
+    pub cache_hint: CacheHint,
+}
+
+pub fn render<R, C, L>(repo: &R, config_repo: &C, logger: &L) -> RenderResult
 where
     R: PrRepository,
     C: DisplayConfigRepository,
@@ -34,16 +40,19 @@ where
                 .map(|item| render_token(item_to_token(item, &config)))
                 .collect::<Vec<_>>()
                 .join(" ");
-            let hint = if is_terminal {
+            let cache_hint = if is_terminal {
                 CacheHint::Terminal
             } else if items.iter().any(|i| matches!(i, DisplayItem::CiPending)) {
                 CacheHint::Hot
             } else {
                 CacheHint::Warm
             };
-            (output, hint)
+            RenderResult { output, cache_hint }
         }
-        Err(token) => (render_error(&token, &config), CacheHint::Warm),
+        Err(token) => RenderResult {
+            output: render_error(&token, &config),
+            cache_hint: CacheHint::Warm,
+        },
     }
 }
 
@@ -108,8 +117,7 @@ mod tests {
     }
 
     fn hint_for(state: PrState) -> CacheHint {
-        let (_, hint) = render(&StubRepo(state), &NoOpConfigRepo, &NoOpLogger);
-        hint
+        render(&StubRepo(state), &NoOpConfigRepo, &NoOpLogger).cache_hint
     }
 
     // ── CacheHint 導出 ──────────────────────────────────────────────────────
@@ -169,8 +177,10 @@ mod tests {
 
     #[test]
     fn fetch_error_returns_warm() {
-        let (_, hint) = render(&ErrRepo, &NoOpConfigRepo, &NoOpLogger);
-        assert_eq!(hint, CacheHint::Warm);
+        assert_eq!(
+            render(&ErrRepo, &NoOpConfigRepo, &NoOpLogger).cache_hint,
+            CacheHint::Warm
+        );
     }
 
     #[test]

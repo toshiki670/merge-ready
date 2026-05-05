@@ -24,8 +24,8 @@ impl MultiRepoEnv {
 
         let gh_script = "#!/bin/sh\n\
             case \"$*\" in\n\
-              *'pr view'*)\n\
-                cat \"$PWD/.gh_pr_view.json\"\n\
+              *'pr list'*)\n\
+                cat \"$PWD/.gh_pr_list.json\"\n\
                 ;;\n\
               *'pr checks'*)\n\
                 printf '[{\"bucket\":\"pass\",\"state\":\"SUCCESS\"}]'\n\
@@ -45,7 +45,10 @@ impl MultiRepoEnv {
             fs::create_dir_all(&git_dir).expect("create .git");
             fs::write(git_dir.join("HEAD"), "ref: refs/heads/feat/my-feature\n")
                 .expect("write HEAD");
-            fs::write(repo.path().join(".gh_pr_view.json"), json).expect("write response json");
+            let inner = json.strip_prefix('{').unwrap_or(json);
+            let list_json = format!(r#"[{{"number":1,{inner}]"#);
+            fs::write(repo.path().join(".gh_pr_list.json"), &list_json)
+                .expect("write response json");
         }
 
         Self {

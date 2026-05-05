@@ -26,13 +26,13 @@ fn build_daemon_lifecycle() -> DaemonLifecycle {
         |repo_id: &str, cwd: &std::path::Path| {
             let repo_id = RepoId::new(repo_id);
             let client = GhClient::new_in(cwd.to_path_buf(), Logger);
-            let (output, hint) = contexts::evaluation::interface::prompt::render(
+            let result = contexts::evaluation::interface::prompt::render(
                 &client,
                 &TomlConfigRepository::new(),
                 &Logger,
             );
-            let refresh_mode = cache_hint_to_refresh_mode(hint);
-            daemon_cache_app::update(&DaemonClient, &repo_id, &output, refresh_mode);
+            let refresh_mode = cache_hint_to_refresh_mode(result.cache_hint);
+            daemon_cache_app::update(&DaemonClient, &repo_id, &result.output, refresh_mode);
         },
     )
 }

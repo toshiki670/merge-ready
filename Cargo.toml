@@ -28,7 +28,6 @@ simplelog = "0.12"
 toml = "1.1.2"
 crossterm = "0.29.0"
 
-
 [lib]
 name = "merge_ready"
 path = "src/lib.rs"

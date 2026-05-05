@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -120,6 +121,7 @@ pub fn run(on_refresh: &RefreshFn) -> Result<(), DaemonError> {
 
     let state = Arc::new(Mutex::new(DaemonState::new()));
     let (exit_tx, exit_rx) = mpsc::channel::<()>();
+    let restart_started = Arc::new(AtomicBool::new(false));
 
     // 定期バックグラウンドリフレッシュ
     // SCHEDULER_TICK_SECS ごとに各エントリのリフレッシュ間隔を個別に評価する
@@ -150,7 +152,10 @@ pub fn run(on_refresh: &RefreshFn) -> Result<(), DaemonError> {
                 let state = Arc::clone(&state);
                 let on_refresh = Arc::clone(on_refresh);
                 let exit_tx = exit_tx.clone();
-                std::thread::spawn(move || handle_client(s, &state, &on_refresh, &exit_tx));
+                let restart_started = Arc::clone(&restart_started);
+                std::thread::spawn(move || {
+                    handle_client(s, &state, &on_refresh, &exit_tx, &restart_started);
+                });
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(Duration::from_millis(10));
@@ -204,6 +209,7 @@ fn handle_client(
     state: &Arc<Mutex<DaemonState>>,
     on_refresh: &RefreshFn,
     exit_tx: &mpsc::Sender<()>,
+    restart_started: &Arc<AtomicBool>,
 ) {
     let mut buf = String::new();
     {
@@ -236,10 +242,15 @@ fn handle_client(
     }
 
     if restart_after_response {
-        std::thread::sleep(Duration::from_millis(RESTART_GRACE_MS));
-        cleanup();
-        spawn_self_as_daemon();
-        let _ = exit_tx.send(());
+        if restart_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            std::thread::sleep(Duration::from_millis(RESTART_GRACE_MS));
+            cleanup();
+            spawn_self_as_daemon();
+            let _ = exit_tx.send(());
+        }
         return;
     }
 
@@ -254,8 +265,10 @@ fn spawn_self_as_daemon() {
     let Ok(exe) = std::env::current_exe() else {
         return;
     };
+    // DAEMON_INNER_ENV を設定して outer wrapper をスキップし、直接 inner として起動する。
     let _ = std::process::Command::new(&exe)
         .args(["daemon", "start"])
+        .env(paths::DAEMON_INNER_ENV, "1")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -773,6 +786,37 @@ mod tests {
         collect_background_refresh_targets(&state);
         let s = state.lock().unwrap();
         assert_eq!(s.entries["repo"].cold_refresh_count(), 4);
+    }
+
+    // ── restart_started AtomicBool ─────────────────────────────────────────────
+
+    #[test]
+    fn restart_executes_only_once_under_concurrent_threads() {
+        use std::sync::atomic::AtomicU32;
+        let restart_started = Arc::new(AtomicBool::new(false));
+        let count = Arc::new(AtomicU32::new(0));
+        let handles: Vec<_> = (0..10)
+            .map(|_| {
+                let rs = Arc::clone(&restart_started);
+                let c = Arc::clone(&count);
+                std::thread::spawn(move || {
+                    if rs
+                        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                        .is_ok()
+                    {
+                        c.fetch_add(1, Ordering::Relaxed);
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        assert_eq!(
+            count.load(Ordering::Relaxed),
+            1,
+            "再起動は1回だけ実行されるはず"
+        );
     }
 
     #[test]

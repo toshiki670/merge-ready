@@ -11,7 +11,7 @@ use super::paths;
 use super::pid;
 use super::protocol::{EntryDto, RefreshModeDto, Request, Response};
 use super::repo_id;
-use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode};
+use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode, RepoId};
 use crate::contexts::daemon::domain::daemon::DaemonError;
 use crate::contexts::daemon::domain::refresh_policy::RefreshPolicy;
 
@@ -62,7 +62,7 @@ impl From<RefreshModeDto> for RefreshMode {
 }
 
 struct DaemonState {
-    entries: HashMap<String, CacheEntry>,
+    entries: HashMap<RepoId, CacheEntry>,
     started_at: Instant,
     policy: RefreshPolicy,
 }
@@ -89,14 +89,14 @@ impl DaemonState {
 struct ActionResult {
     response: Response,
     /// `Some(repo_id)` のとき、ロック解放後にリフレッシュを起動する
-    refresh_repo_id: Option<String>,
+    refresh_repo_id: Option<RepoId>,
     refresh_cwd: Option<PathBuf>,
     stop: bool,
     /// レスポンス返却後に自己再起動する（version mismatch 時）
     restart_after_response: bool,
 }
 
-type RefreshFn = Arc<dyn Fn(&str, &std::path::Path) + Send + Sync + 'static>;
+type RefreshFn = Arc<dyn Fn(&RepoId, &std::path::Path) + Send + Sync + 'static>;
 
 /// デーモンのメインループ。ソケットをバインドして接続を待ち受ける。
 ///
@@ -289,7 +289,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
         } => {
             let version_mismatch = client_version.as_str() != env!("CARGO_PKG_VERSION");
 
-            let Some((repo_id, branch)) = repo_id::repo_info_from_cwd(cwd) else {
+            let Some((repo_id_str, branch)) = repo_id::repo_info_from_cwd(cwd) else {
                 return ActionResult {
                     response: Response::Output {
                         output: String::new(),
@@ -301,6 +301,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
                 };
             };
 
+            let repo_id = RepoId::new(repo_id_str);
             let cwd_path = PathBuf::from(cwd);
             process_query(
                 &repo_id,
@@ -317,7 +318,7 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
             output,
             refresh_mode,
         } => process_update(
-            repo_id,
+            &RepoId::new(repo_id.clone()),
             output,
             RefreshMode::from(*refresh_mode),
             &mut s.entries,
@@ -372,12 +373,12 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
 }
 
 fn process_query(
-    repo_id: &str,
+    repo_id: &RepoId,
     branch: String,
     cwd_path: PathBuf,
     ttl: u64,
     restart_after_response: bool,
-    entries: &mut HashMap<String, CacheEntry>,
+    entries: &mut HashMap<RepoId, CacheEntry>,
     policy: &RefreshPolicy,
 ) -> ActionResult {
     match entries.get_mut(repo_id) {
@@ -451,11 +452,11 @@ fn process_query(
 
 /// リフレッシュ後に `cwd` から `repo_id` を再導出してコールバックを呼ぶ。
 /// ブランチが変わっていれば新しい `repo_id` に対してキャッシュを更新する。
-fn spawn_refresh(stored_repo_id: &str, cwd: &std::path::Path, on_refresh: &RefreshFn) {
+fn spawn_refresh(stored_repo_id: &RepoId, cwd: &std::path::Path, on_refresh: &RefreshFn) {
     let current_repo_id = cwd
         .to_str()
         .and_then(repo_id::repo_id_from_cwd)
-        .unwrap_or_else(|| stored_repo_id.to_owned());
+        .map_or_else(|| stored_repo_id.clone(), RepoId::new);
     let cwd = cwd.to_path_buf();
     let on_refresh = Arc::clone(on_refresh);
     std::thread::spawn(move || on_refresh(&current_repo_id, &cwd));
@@ -550,9 +551,9 @@ struct StaleQueryParams {
 }
 
 fn process_stale_query(
-    repo_id: &str,
+    repo_id: &RepoId,
     params: StaleQueryParams,
-    entries: &mut HashMap<String, CacheEntry>,
+    entries: &mut HashMap<RepoId, CacheEntry>,
 ) -> ActionResult {
     let StaleQueryParams {
         output,
@@ -598,10 +599,10 @@ fn process_stale_query(
 /// 未知の `repo_id` への Update（ブランチ切替直後の再導出 ID など）は無視する。
 /// `cwd: PathBuf::new()` / `last_queried_at: None` の孤立エントリが生まれるのを防ぐ。
 fn process_update(
-    repo_id: &str,
+    repo_id: &RepoId,
     output: &str,
     refresh_mode: RefreshMode,
-    entries: &mut HashMap<String, CacheEntry>,
+    entries: &mut HashMap<RepoId, CacheEntry>,
 ) -> ActionResult {
     if let Some(entry) = entries.get_mut(repo_id) {
         entry.update(output.to_owned(), refresh_mode);
@@ -615,7 +616,7 @@ fn process_update(
     }
 }
 
-fn collect_background_refresh_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(String, PathBuf)> {
+fn collect_background_refresh_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(RepoId, PathBuf)> {
     let mut s = state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -696,24 +697,26 @@ mod tests {
 
     #[test]
     fn process_update_sets_refresh_mode_terminal() {
+        let repo_id = RepoId::new("repo");
         let mut entries = HashMap::new();
         entries.insert(
-            "repo".to_owned(),
+            repo_id.clone(),
             make_entry("✓ Ready for merge", RefreshMode::Warm),
         );
-        process_update("repo", "", RefreshMode::Terminal, &mut entries);
-        assert_eq!(entries["repo"].refresh_mode(), RefreshMode::Terminal);
+        process_update(&repo_id, "", RefreshMode::Terminal, &mut entries);
+        assert_eq!(entries[&repo_id].refresh_mode(), RefreshMode::Terminal);
     }
 
     #[test]
     fn process_update_sets_refresh_mode_hot() {
+        let repo_id = RepoId::new("repo");
         let mut entries = HashMap::new();
         entries.insert(
-            "repo".to_owned(),
+            repo_id.clone(),
             make_entry("✓ Ready for merge", RefreshMode::Warm),
         );
-        process_update("repo", "⧖ Wait for CI", RefreshMode::Hot, &mut entries);
-        assert_eq!(entries["repo"].refresh_mode(), RefreshMode::Hot);
+        process_update(&repo_id, "⧖ Wait for CI", RefreshMode::Hot, &mut entries);
+        assert_eq!(entries[&repo_id].refresh_mode(), RefreshMode::Hot);
     }
 
     #[test]
@@ -721,7 +724,12 @@ mod tests {
         // ブランチ切替後に spawn_refresh が新 repo_id で Update してきた場合、
         // エントリを新規作成せず無視する（孤立エントリ防止）
         let mut entries = HashMap::new();
-        process_update("unknown-repo", "output", RefreshMode::Warm, &mut entries);
+        process_update(
+            &RepoId::new("unknown-repo"),
+            "output",
+            RefreshMode::Warm,
+            &mut entries,
+        );
         assert!(
             entries.is_empty(),
             "未知の repo_id への Update はエントリを作成しないはず"
@@ -730,10 +738,16 @@ mod tests {
 
     #[test]
     fn process_update_clears_terminal_when_pr_reopens() {
+        let repo_id = RepoId::new("repo");
         let mut entries = HashMap::new();
-        entries.insert("repo".to_owned(), make_entry("", RefreshMode::Terminal));
-        process_update("repo", "✓ Ready for merge", RefreshMode::Warm, &mut entries);
-        assert_eq!(entries["repo"].refresh_mode(), RefreshMode::Warm);
+        entries.insert(repo_id.clone(), make_entry("", RefreshMode::Terminal));
+        process_update(
+            &repo_id,
+            "✓ Ready for merge",
+            RefreshMode::Warm,
+            &mut entries,
+        );
+        assert_eq!(entries[&repo_id].refresh_mode(), RefreshMode::Warm);
     }
 
     // ── collect_background_refresh_targets ─────────────────────────────────────
@@ -744,7 +758,7 @@ mod tests {
         {
             let mut s = state.lock().unwrap();
             s.entries.insert(
-                "repo".to_owned(),
+                RepoId::new("repo"),
                 make_stale_entry("✓ Ready for merge", RefreshMode::Terminal, 9999),
             );
         }
@@ -762,7 +776,7 @@ mod tests {
             let mut s = state.lock().unwrap();
             let mut entry = make_stale_entry("⧖ Wait for CI", RefreshMode::Hot, 9999);
             entry.cwd = PathBuf::from("/some/repo");
-            s.entries.insert("repo".to_owned(), entry);
+            s.entries.insert(RepoId::new("repo"), entry);
         }
         let targets = collect_background_refresh_targets(&state);
         assert_eq!(targets.len(), 1);
@@ -770,6 +784,7 @@ mod tests {
 
     #[test]
     fn background_refresh_increments_cold_count() {
+        let repo_id = RepoId::new("repo");
         let state = Arc::new(Mutex::new(DaemonState::new()));
         {
             let mut s = state.lock().unwrap();
@@ -781,11 +796,11 @@ mod tests {
             );
             entry.cold_refresh_count = 3;
             entry.cwd = PathBuf::from("/some/repo");
-            s.entries.insert("repo".to_owned(), entry);
+            s.entries.insert(repo_id.clone(), entry);
         }
         collect_background_refresh_targets(&state);
         let s = state.lock().unwrap();
-        assert_eq!(s.entries["repo"].cold_refresh_count(), 4);
+        assert_eq!(s.entries[&repo_id].cold_refresh_count(), 4);
     }
 
     // ── restart_started AtomicBool ─────────────────────────────────────────────
@@ -830,7 +845,7 @@ mod tests {
                     .checked_sub(Duration::from_secs(entry_max_age_secs() + 1))
                     .unwrap(),
             );
-            s.entries.insert("repo".to_owned(), entry);
+            s.entries.insert(RepoId::new("repo"), entry);
         }
         collect_background_refresh_targets(&state);
         let s = state.lock().unwrap();

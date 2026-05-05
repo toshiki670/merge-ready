@@ -1,18 +1,19 @@
 use std::sync::Arc;
 
 use crate::contexts::daemon::application::port::{EntryView, WatchPort};
+use crate::contexts::daemon::domain::cache::RepoId;
 use crate::contexts::daemon::domain::daemon::{DaemonError, DaemonLifecyclePort, DaemonStatus};
 
 use super::{daemon_client::DaemonClient, daemon_server, pid};
 
-type RefreshCallback = dyn Fn(&str, &std::path::Path) + Send + Sync + 'static;
+type RefreshCallback = dyn Fn(&RepoId, &std::path::Path) + Send + Sync + 'static;
 
 pub struct DaemonLifecycle {
     on_refresh: Arc<RefreshCallback>,
 }
 
 impl DaemonLifecycle {
-    pub fn new(on_refresh: impl Fn(&str, &std::path::Path) + Send + Sync + 'static) -> Self {
+    pub fn new(on_refresh: impl Fn(&RepoId, &std::path::Path) + Send + Sync + 'static) -> Self {
         Self {
             on_refresh: Arc::new(on_refresh),
         }

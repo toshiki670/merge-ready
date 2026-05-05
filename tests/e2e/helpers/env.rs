@@ -46,7 +46,7 @@ impl TestEnv {
         (bin_dir, home_dir, repo_dir)
     }
 
-    /// 正常系: `pr view` / `pr checks` それぞれの JSON を返す `fake gh` を配置する。
+    /// 正常系: `pr list` / `pr checks` それぞれの JSON を返す `fake gh` を配置する。
     pub fn new(pr_view_json: &str, pr_checks_json: Option<&str>) -> Self {
         let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
 
@@ -55,11 +55,14 @@ impl TestEnv {
             None => "printf 'unexpected pr checks call' >&2\nexit 1\n".to_string(),
         };
 
+        let inner = pr_view_json.strip_prefix('{').unwrap_or(pr_view_json);
+        let pr_list_json = format!(r#"[{{"number":1,{inner}]"#);
+
         let script = format!(
             "#!/bin/sh\n\
              case \"$*\" in\n\
-               *'pr view'*)\n\
-                 printf '%s' '{pr_view_json}'\n\
+               *'pr list'*)\n\
+                 printf '%s' '{pr_list_json}'\n\
                  ;;\n\
                *'pr checks'*)\n\
                  {checks_block}\
@@ -95,11 +98,14 @@ impl TestEnv {
             None => "printf 'unexpected pr checks call' >&2\nexit 1\n".to_string(),
         };
 
+        let inner = pr_view_json.strip_prefix('{').unwrap_or(pr_view_json);
+        let pr_list_json = format!(r#"[{{"number":1,{inner}]"#);
+
         let script = format!(
             "#!/bin/sh\n\
              case \"$*\" in\n\
-               *'pr view'*)\n\
-                 printf '%s' '{pr_view_json}'\n\
+               *'pr list'*)\n\
+                 printf '%s' '{pr_list_json}'\n\
                  ;;\n\
                *'pr checks'*)\n\
                  {checks_block}\
@@ -134,11 +140,14 @@ impl TestEnv {
             None => "printf 'unexpected pr checks call' >&2\nexit 1\n".to_string(),
         };
 
+        let inner = pr_view_json.strip_prefix('{').unwrap_or(pr_view_json);
+        let pr_list_json = format!(r#"[{{"number":1,{inner}]"#);
+
         let script = format!(
             "#!/bin/sh\n\
              case \"$*\" in\n\
-               *'pr view'*)\n\
-                 printf '%s' '{pr_view_json}'\n\
+               *'pr list'*)\n\
+                 printf '%s' '{pr_list_json}'\n\
                  ;;\n\
                *'pr checks'*)\n\
                  {checks_block}\
@@ -180,11 +189,15 @@ impl TestEnv {
     /// CI 未設定シナリオ: `gh pr checks` が `"no checks reported"` で `exit 1` を返す。
     pub fn with_no_ci_checks(pr_view_json: &str) -> Self {
         let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
+
+        let inner = pr_view_json.strip_prefix('{').unwrap_or(pr_view_json);
+        let pr_list_json = format!(r#"[{{"number":1,{inner}]"#);
+
         let script = format!(
             "#!/bin/sh\n\
              case \"$*\" in\n\
-               *'pr view'*)\n\
-                 printf '%s' '{pr_view_json}'\n\
+               *'pr list'*)\n\
+                 printf '%s' '{pr_list_json}'\n\
                  ;;\n\
                *'pr checks'*)\n\
                  printf \"%s\" \"no checks reported on the 'test-branch' branch\" >&2\n\
@@ -216,20 +229,20 @@ impl TestEnv {
 
     /// terminal PR シナリオ（呼び出しカウンタ付き）
     ///
-    /// `gh pr view` が closed / merged JSON を返す。カウンタログファイルのパスを返す。
+    /// `gh pr list` が closed / merged JSON を返す。カウンタログファイルのパスを返す。
     pub fn with_terminal_pr_call_log(state: &str) -> (Self, std::path::PathBuf) {
         let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
         let log_path = home_dir.path().join("gh_calls.log");
         let log = log_path.display().to_string();
-        let pr_view_json = format!(
-            r#"{{"state":"{state}","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null}}"#
+        let pr_list_json = format!(
+            r#"[{{"number":1,"state":"{state}","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null}}]"#
         );
         let script = format!(
             "#!/bin/sh\n\
              printf '1' >> \"{log}\"\n\
              case \"$*\" in\n\
-               *'pr view'*)\n\
-                 printf '%s' '{pr_view_json}'\n\
+               *'pr list'*)\n\
+                 printf '%s' '{pr_list_json}'\n\
                  ;;\n\
                *)\n\
                  printf 'unexpected gh call: %s' \"$*\" >&2\n\
@@ -251,15 +264,14 @@ impl TestEnv {
     /// PR なしシナリオ: フィーチャーブランチに PR が存在しない場合を模倣する。
     ///
     /// 現在ブランチ: `feat/my-feature`（デフォルトブランチではない）
-    /// `gh pr view` → "no pull requests found" で exit 1
+    /// `gh pr list` → 空配列 `[]` を返す
     /// `gh repo view --json defaultBranchRef` → main をデフォルトブランチとして返す
     pub fn with_no_pr() -> Self {
         let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
         let script = "#!/bin/sh\n\
                       case \"$*\" in\n\
-                        *'pr view'*)\n\
-                          printf 'no pull requests found' >&2\n\
-                          exit 1\n\
+                        *'pr list'*)\n\
+                          printf '[]'\n\
                           ;;\n\
                         *'repo view'*'defaultBranchRef'*)\n\
                           printf '{\"defaultBranchRef\":{\"name\":\"main\"}}'\n\
@@ -291,15 +303,14 @@ impl TestEnv {
         let script = format!(
             "#!/bin/sh\n\
              case \"$*\" in\n\
-               *'pr view'*)\n\
+               *'pr list'*)\n\
                  count=$(cat \"{count_path}\" 2>/dev/null || printf '0')\n\
                  count=$((count + 1))\n\
                  printf '%d' \"$count\" > \"{count_path}\"\n\
                  if [ \"$count\" -gt 1 ]; then\n\
                      sleep {sleep_arg}\n\
                  fi\n\
-                 printf 'no pull requests found' >&2\n\
-                 exit 1\n\
+                 printf '[]'\n\
                  ;;\n\
                *'repo view'*'defaultBranchRef'*)\n\
                  printf '{{\"defaultBranchRef\":{{\"name\":\"main\"}}}}'\n\
@@ -321,16 +332,15 @@ impl TestEnv {
     /// デフォルトブランチ上シナリオ: 現在ブランチ == デフォルトブランチ、PR なし。
     ///
     /// `branch` に "main" または "master" などを指定する。
-    /// `gh pr view` → "no pull requests found" で exit 1
+    /// `gh pr list` → 空配列 `[]` を返す
     /// `gh repo view --json defaultBranchRef` → `branch` をデフォルトブランチとして返す
     pub fn with_default_branch_no_pr(branch: &str) -> Self {
         let (bin_dir, home_dir, repo_dir) = Self::setup_with_git(branch);
         let script = format!(
             "#!/bin/sh\n\
              case \"$*\" in\n\
-               *'pr view'*)\n\
-                 printf 'no pull requests found' >&2\n\
-                 exit 1\n\
+               *'pr list'*)\n\
+                 printf '[]'\n\
                  ;;\n\
                *'repo view'*'defaultBranchRef'*)\n\
                  printf '{{\"defaultBranchRef\":{{\"name\":\"{branch}\"}}}}'\n\

@@ -273,9 +273,95 @@ fn test_concurrent_prompt_starts_only_one_daemon() {
         .ok();
 }
 
-// ── #16: daemon status の出力フォーマット ────────────────────────────────────
+// ── #16: バージョンミスマッチ並列再起動 ─────────────────────────────────────
 
-/// #16: `daemon status`（起動中）→ "running pid=<数字> entries=<数字> uptime=<数字>s version=<文字列>"
+/// #16: バージョン不一致の状態で複数の `merge-ready-prompt` を並列実行しても、
+/// 新デーモンは 1 プロセスだけ起動する
+#[test]
+fn test_concurrent_version_mismatch_starts_only_one_daemon() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+    let prompt_bin = assert_cmd::cargo::cargo_bin(PROMPT_BIN);
+
+    // バージョン不一致の fake daemon を起動
+    let _old = FakeDaemonHandle::start_versioned(&env, "0.0.0");
+
+    // 10 本の merge-ready-prompt を同時実行してバージョンミスマッチを並列でトリガーする
+    let handles: Vec<_> = (0..10)
+        .map(|_| {
+            let bin = prompt_bin.clone();
+            let path = env.path_env();
+            let home = env.home().to_path_buf();
+            let repo = env.repo_dir.path().to_path_buf();
+            std::thread::spawn(move || {
+                std::process::Command::new(&bin)
+                    .env("PATH", &path)
+                    .env("HOME", &home)
+                    .env("TMPDIR", &home)
+                    .current_dir(&repo)
+                    .output()
+            })
+        })
+        .collect();
+
+    for h in handles {
+        let _ = h.join();
+    }
+
+    // 新 daemon が起動するまでポーリング（最大 5 秒）
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(5000);
+    loop {
+        let out = Command::cargo_bin(BIN)
+            .unwrap()
+            .args(["daemon", "status"])
+            .env("PATH", env.path_env())
+            .env("HOME", env.home())
+            .env("TMPDIR", env.home())
+            .output()
+            .expect("status failed");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        if stdout.contains(&format!("version={}", env!("CARGO_PKG_VERSION"))) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "new daemon did not start within 5s: {stdout}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    // socket ファイルが存在すること（1 daemon だけが bind している）
+    let socket_path = env
+        .home_dir
+        .path()
+        .join(super::super::helpers::daemon_dir_name())
+        .join("daemon.sock");
+    assert!(socket_path.exists(), "daemon socket should exist");
+
+    // 現バージョンの daemon が応答しており、旧バージョンではないこと
+    let mut after = Command::cargo_bin(BIN).unwrap();
+    env.apply(&mut after);
+    after
+        .args(["daemon", "status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "version={}",
+            env!("CARGO_PKG_VERSION")
+        )))
+        .stdout(predicate::str::contains("version=0.0.0").not());
+
+    // クリーンアップ
+    Command::cargo_bin(BIN)
+        .unwrap()
+        .args(["daemon", "stop"])
+        .env("TMPDIR", env.home())
+        .output()
+        .ok();
+}
+
+// ── #17: daemon status の出力フォーマット ────────────────────────────────────
+
+/// #17: `daemon status`（起動中）→ "running pid=<数字> entries=<数字> uptime=<数字>s version=<文字列>"
 #[test]
 fn test_daemon_status_format() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));

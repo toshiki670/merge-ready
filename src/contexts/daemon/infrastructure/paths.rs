@@ -1,5 +1,10 @@
 use std::path::PathBuf;
 
+/// 内側デーモンプロセスを識別する環境変数名。
+/// `interface::cli::daemon` の outer/inner 分岐および
+/// `daemon_server::spawn_self_as_daemon()` で参照する。
+pub const DAEMON_INNER_ENV: &str = "MERGE_READY_DAEMON_INNER";
+
 pub fn socket_path() -> PathBuf {
     base_dir().join("daemon.sock")
 }

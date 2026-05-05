@@ -95,9 +95,12 @@ fn spawn_daemon() {
         .filter(|p| p.exists())
         .unwrap_or_else(|| PathBuf::from("merge-ready"));
 
+    // MERGE_READY_DAEMON_INNER=1 で outer wrapper をスキップして直接 inner として起動する。
+    // この文字列は infrastructure::paths::DAEMON_INNER_ENV と同一でなければならない。
     // fire-and-forget: blocking しない
     let _ = std::process::Command::new(&daemon_exe)
         .args(["daemon", "start"])
+        .env("MERGE_READY_DAEMON_INNER", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

@@ -119,8 +119,6 @@ impl CacheEntry {
         self.refresh_mode = refresh_mode;
     }
 
-    // #239（watch コマンド）実装時に呼び出し元が追加される。その時点でこのアノテーションを削除する。
-    #[allow(dead_code)]
     pub fn pr_outputs(&self) -> &[PrOutput] {
         &self.pr_outputs
     }
@@ -342,6 +340,56 @@ mod tests {
         let mut e = make_entry("out", RefreshMode::Warm);
         e.update(String::new(), vec![], RefreshMode::Terminal);
         assert_eq!(e.refresh_mode(), RefreshMode::Terminal);
+    }
+
+    #[test]
+    fn update_stores_pr_outputs() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        e.update(
+            "combined".to_owned(),
+            vec![
+                PrOutput {
+                    pr_id: 200,
+                    output: "✓ Ready for merge".to_owned(),
+                },
+                PrOutput {
+                    pr_id: 201,
+                    output: "✎ Ready for review".to_owned(),
+                },
+            ],
+            RefreshMode::Warm,
+        );
+
+        assert_eq!(e.pr_outputs().len(), 2);
+        assert_eq!(e.pr_outputs()[0].pr_id, 200);
+        assert_eq!(e.pr_outputs()[0].output, "✓ Ready for merge");
+        assert_eq!(e.pr_outputs()[1].pr_id, 201);
+        assert_eq!(e.pr_outputs()[1].output, "✎ Ready for review");
+    }
+
+    #[test]
+    fn update_replaces_pr_outputs() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        e.update(
+            "old".to_owned(),
+            vec![PrOutput {
+                pr_id: 200,
+                output: "old".to_owned(),
+            }],
+            RefreshMode::Warm,
+        );
+        e.update(
+            "new".to_owned(),
+            vec![PrOutput {
+                pr_id: 201,
+                output: "new".to_owned(),
+            }],
+            RefreshMode::Warm,
+        );
+
+        assert_eq!(e.pr_outputs().len(), 1);
+        assert_eq!(e.pr_outputs()[0].pr_id, 201);
+        assert_eq!(e.pr_outputs()[0].output, "new");
     }
 
     // ── CacheEntry::is_active ─────────────────────────────────────────────────

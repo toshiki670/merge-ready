@@ -65,13 +65,10 @@ where
                 } else {
                     String::new()
                 };
-                let pr_out = display_items
-                    .iter()
-                    .map(|item| render_token(item_to_token(item, &config), Some(&id_str)))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                pr_outputs.push((*pr_id, pr_out.clone()));
-                all_outputs.push(pr_out);
+                let prompt_out = render_display_items(display_items, &config, &id_str);
+                let watch_out = render_display_items(display_items, &config, "");
+                pr_outputs.push((*pr_id, watch_out));
+                all_outputs.push(prompt_out);
             }
 
             let cache_hint = if items.iter().any(|(_, dis)| {
@@ -95,6 +92,18 @@ where
             pr_outputs: vec![],
         },
     }
+}
+
+fn render_display_items(
+    display_items: &[DisplayItem],
+    config: &DisplayConfig,
+    pr_id: &str,
+) -> String {
+    display_items
+        .iter()
+        .map(|item| render_token(item_to_token(item, config), Some(pr_id)))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn item_to_token<'a>(item: &DisplayItem, config: &'a DisplayConfig) -> &'a TokenConfig {
@@ -258,6 +267,25 @@ mod tests {
         assert_eq!(result.pr_outputs.len(), 2);
         assert!(result.output.contains("200"));
         assert!(result.output.contains("201"));
+    }
+
+    #[test]
+    fn multiple_prs_pr_outputs_omit_pr_id_numbers_for_watch() {
+        let result = do_render(|| {
+            Ok(Prompt::PullRequests(vec![
+                PullRequest {
+                    id: PrId::new(200),
+                    state: State::Unblocked(UnblockedState::MergeReady),
+                },
+                PullRequest {
+                    id: PrId::new(201),
+                    state: State::Unblocked(UnblockedState::Draft),
+                },
+            ]))
+        });
+
+        assert_eq!(result.pr_outputs[0].1, "✓ Ready for merge");
+        assert_eq!(result.pr_outputs[1].1, "✎ Ready for review");
     }
 
     #[test]

@@ -103,3 +103,65 @@ fn test_watch_shows_no_entries_when_empty() {
         "unexpected output: {output:?}"
     );
 }
+
+// ── #W4: PR 番号カラム ────────────────────────────────────────────────────────
+
+/// #W4: cache に PR が存在する場合、watch は PR 番号カラムを表示する
+#[test]
+fn test_watch_shows_pr_column_for_cached_pr() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    let output = spawn_watch_and_read(&env, 2, Duration::from_secs(5));
+
+    assert!(output.contains("PR"), "unexpected output: {output:?}");
+    assert!(output.contains("#1"), "unexpected output: {output:?}");
+    assert!(
+        output.contains("✓ Ready for merge"),
+        "unexpected output: {output:?}"
+    );
+}
+
+/// #W5: PR が存在しない場合、watch は PR 番号カラムを空欄にする
+#[test]
+fn test_watch_leaves_pr_column_empty_without_pr() {
+    let env = TestEnv::with_no_pr();
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    let output = spawn_watch_and_read(&env, 2, Duration::from_secs(5));
+
+    assert!(output.contains("PR"), "unexpected output: {output:?}");
+    assert!(
+        output.contains("+ Create PR"),
+        "unexpected output: {output:?}"
+    );
+    assert!(!output.contains('#'), "unexpected output: {output:?}");
+}
+
+/// #W6: 複数 PR がある場合、watch は 1 PR 1 行に展開して表示する
+#[test]
+fn test_watch_expands_multiple_prs_to_rows() {
+    let pr_list_json = r#"[
+        {"number":200,"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null,"baseRefName":"","headRefName":""},
+        {"number":201,"state":"OPEN","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null,"baseRefName":"","headRefName":""}
+    ]"#;
+    let env = TestEnv::with_pr_list(pr_list_json, Some(r#"[]"#));
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    let output = spawn_watch_and_read(&env, 3, Duration::from_secs(5));
+
+    assert!(output.contains("PR"), "unexpected output: {output:?}");
+    assert!(output.contains("#200"), "unexpected output: {output:?}");
+    assert!(output.contains("#201"), "unexpected output: {output:?}");
+    assert!(
+        output.contains("✓ Ready for merge"),
+        "unexpected output: {output:?}"
+    );
+    assert!(
+        output.contains("✎ Ready for review"),
+        "unexpected output: {output:?}"
+    );
+}

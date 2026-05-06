@@ -22,6 +22,8 @@ pub struct PrOutputDto {
 pub struct EntryDto {
     pub cwd: String,
     pub branch: String,
+    #[serde(default)]
+    pub pr_id: Option<u64>,
     pub output: String,
     pub cached_at_secs: u64,
 }
@@ -77,11 +79,13 @@ mod tests {
         let dto = EntryDto {
             cwd: "/tmp".into(),
             branch: "main".into(),
+            pr_id: Some(123),
             output: "✓ Ready".into(),
             cached_at_secs: 1_000,
         };
         let json = serde_json::to_string(&dto).unwrap();
         assert!(json.contains("cached_at_secs"));
+        assert!(json.contains("pr_id"));
         assert!(json.contains("/tmp"));
     }
 }

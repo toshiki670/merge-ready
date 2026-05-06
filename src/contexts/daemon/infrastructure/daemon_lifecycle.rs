@@ -22,14 +22,6 @@ impl DaemonLifecycle {
 
 impl DaemonLifecyclePort for DaemonLifecycle {
     fn start(&self) -> Result<(), DaemonError> {
-        if let Some(p) = pid::read() {
-            if pid::is_alive(p) {
-                log::error!("daemon is already running (pid {p})");
-                eprintln!("merge-ready daemon is already running (pid {p})");
-                return Err(DaemonError::AlreadyRunning);
-            }
-            pid::remove();
-        }
         daemon_server::run(&self.on_refresh)
     }
 

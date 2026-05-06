@@ -110,8 +110,6 @@ pub fn run(on_refresh: &RefreshFn) -> Result<(), DaemonError> {
 
     let listener = bind_socket(&socket_path)?;
 
-    pid::write(std::process::id());
-
     // 外側プロセスへ起動完了を通知する（stdout pipe 経由）
     {
         use std::io::Write;
@@ -172,13 +170,34 @@ pub fn run(on_refresh: &RefreshFn) -> Result<(), DaemonError> {
 }
 
 fn bind_socket(socket_path: &std::path::Path) -> Result<UnixListener, DaemonError> {
+    let startup_lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(paths::lock_path())
+        .map_err(|e| {
+            log::error!("failed to open daemon lock file: {e}");
+            eprintln!("merge-ready daemon: failed to open lock file: {e}");
+            DaemonError::Failure
+        })?;
+    startup_lock.lock().map_err(|e| {
+        log::error!("failed to lock daemon startup: {e}");
+        eprintln!("merge-ready daemon: failed to acquire startup lock: {e}");
+        DaemonError::Failure
+    })?;
+
     match pid::read() {
         Some(p) if pid::is_alive(p) => {
             log::error!("daemon is already running (pid {p})");
             eprintln!("merge-ready daemon is already running (pid {p})");
             return Err(DaemonError::AlreadyRunning);
         }
-        _ => {
+        Some(_) => {
+            pid::remove();
+            let _ = std::fs::remove_file(socket_path);
+        }
+        None => {
             let _ = std::fs::remove_file(socket_path);
         }
     }
@@ -186,7 +205,10 @@ fn bind_socket(socket_path: &std::path::Path) -> Result<UnixListener, DaemonErro
     let mut retries = 0;
     loop {
         match UnixListener::bind(socket_path) {
-            Ok(l) => return Ok(l),
+            Ok(l) => {
+                pid::write(std::process::id());
+                return Ok(l);
+            }
             Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
                 if retries >= BIND_RETRY_MAX {
                     log::error!("socket already in use after retries, giving up");

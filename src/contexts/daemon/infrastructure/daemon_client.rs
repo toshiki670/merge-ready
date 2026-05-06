@@ -3,8 +3,8 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 use super::paths;
-use super::protocol::{EntryDto, RefreshModeDto, Request, Response};
-use crate::contexts::daemon::domain::cache::{CachePort, RefreshMode, RepoId};
+use super::protocol::{EntryDto, PrOutputDto, RefreshModeDto, Request, Response};
+use crate::contexts::daemon::domain::cache::{CachePort, PrOutput, RefreshMode, RepoId};
 
 /// デーモンソケットへの接続タイムアウト（ms）
 const READ_TIMEOUT_MS: u64 = 500;
@@ -22,11 +22,25 @@ impl From<RefreshMode> for RefreshModeDto {
 }
 
 impl CachePort for DaemonClient {
-    fn update(&self, repo_id: &RepoId, output: &str, refresh_mode: RefreshMode) {
+    fn update(
+        &self,
+        repo_id: &RepoId,
+        output: &str,
+        refresh_mode: RefreshMode,
+        pr_outputs: Vec<PrOutput>,
+    ) {
+        let pr_outputs_dto = pr_outputs
+            .into_iter()
+            .map(|p| PrOutputDto {
+                pr_id: p.pr_id,
+                output: p.output,
+            })
+            .collect();
         let _ = Self::send(&Request::Update {
             repo_id: repo_id.as_str().to_owned(),
             output: output.to_owned(),
             refresh_mode: RefreshModeDto::from(refresh_mode),
+            pr_outputs: pr_outputs_dto,
         });
     }
 }

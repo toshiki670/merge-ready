@@ -61,6 +61,20 @@ Example output:
 - `⧖ Wait for status` - GitHub is calculating merge status
 - `? loading` - cache miss; daemon is fetching in the background
 
+### Multiple Pull Requests
+
+When a branch has **multiple open pull requests**, all statuses are displayed in PR-number ascending order, each suffixed with `#<number>`:
+
+```text
+✓ Ready for merge #200 ✎ Ready for review #201
+```
+
+When there is only one open pull request, the `#<number>` suffix is omitted:
+
+```text
+✓ Ready for merge
+```
+
 ## Background Daemon
 
 `merge-ready` uses a background daemon to cache GitHub API results and serve prompt queries with near-zero latency.
@@ -211,6 +225,49 @@ The `[error]` section uses `$message` instead of `$label`. The message is set au
 |-------|-------------|---------|
 | `symbol` | Leading symbol | `"✗"` |
 | `format` | Output template | `"$symbol $message"` |
+
+### Format Variables
+
+The following variables are available in `format` templates:
+
+| Variable | Description | Available in |
+|----------|-------------|--------------|
+| `$symbol` | Leading symbol | all tokens |
+| `$label` | Status text | PR state tokens, `no_pull_request` |
+| `$pr_id` | PR number string; empty `""` when only one open PR exists | PR state tokens (12 types) |
+| `$message` | Error message | `[error]` only |
+
+`$pr_id` is not present in `no_pull_request` or `[error]` tokens. Writing `$pr_id` in those format strings leaves the literal text `$pr_id` in the output.
+
+### Conditional Format Strings
+
+The `format` field supports a `(...)` syntax that hides the block when all variables inside are empty. This follows [Starship's conditional format strings](https://starship.rs/config/#conditional-format-strings).
+
+```toml
+# `( #$pr_id)` is shown only when $pr_id is non-empty (i.e., multiple PRs on the branch)
+[merge_ready]
+format = "$symbol $label( #$pr_id)"
+```
+
+| `$pr_id` value | Output |
+|----------------|--------|
+| `"200"` (multiple PRs) | `✓ Ready for merge #200` |
+| `""` (single PR) | `✓ Ready for merge` |
+
+Rules:
+
+- All variables in `(...)` are empty → block is hidden
+- At least one variable is non-empty → block is rendered normally
+- No variables in `(...)` → block is always hidden
+
+Conditional blocks can also appear inside a `[text](style)` block:
+
+```toml
+[merge_ready]
+format = "[$symbol $label( #$pr_id)](bold green)"
+```
+
+This applies the style to the whole output while still hiding `( #$pr_id)` when `$pr_id` is empty.
 
 ### Style Strings
 

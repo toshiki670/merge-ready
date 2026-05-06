@@ -85,7 +85,7 @@ mod tests {
 
     fn make_entry(output: &str, refresh_mode: RefreshMode) -> CacheEntry {
         let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
-        e.update(output.to_owned(), refresh_mode);
+        e.update(output.to_owned(), vec![], refresh_mode);
         e.record_query();
         e
     }

@@ -77,6 +77,7 @@ fn test_draft_pr_shows_ready_for_review() {
 #[case::pr_closed(CLOSED_PR)]
 #[case::pr_merged(MERGED_PR)]
 fn test_non_open_pr_shows_nothing(#[case] pr_json: &str) {
+    // CLOSED/MERGED state は pr checks を呼ばずに早期 return するため None で OK
     let env = TestEnv::new(pr_json, None);
     assert_prompt_empty(&env);
 }

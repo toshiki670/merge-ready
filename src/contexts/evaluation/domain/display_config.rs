@@ -114,7 +114,7 @@ fn eval_segment(seg: &Segment, vars: &[(&str, &str)]) -> String {
         Segment::Text(t) => substitute_vars(t, vars),
         Segment::Styled { content, style_str } => StyleSpec::parse(style_str)
             .to_ansi_style()
-            .paint(substitute_vars(content, vars))
+            .paint(eval_segments(&parse_segments(content), vars))
             .to_string(),
         Segment::Conditional(inner) => eval_conditional(inner, vars),
     }

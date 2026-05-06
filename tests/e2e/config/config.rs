@@ -34,9 +34,9 @@ fn assert_prompt_with_config(env: &TestEnv, expected: &str) {
 
 /// #42 設定なし / #43 symbol / #44 label / #45 format / #46 全フィールド / #48 不正 TOML
 #[rstest]
-#[case::no_config(None, "✓ Ready for merge #")]
-#[case::custom_symbol(Some("[merge_ready]\nsymbol = \"★\""), "★ Ready for merge #")]
-#[case::custom_label(Some("[merge_ready]\nlabel = \"OK!\""), "✓ OK! #")]
+#[case::no_config(None, "✓ Ready for merge")]
+#[case::custom_symbol(Some("[merge_ready]\nsymbol = \"★\""), "★ Ready for merge")]
+#[case::custom_label(Some("[merge_ready]\nlabel = \"OK!\""), "✓ OK!")]
 #[case::custom_format(
     Some("[merge_ready]\nformat = \"[$symbol] $label\""),
     "[✓] Ready for merge"
@@ -45,7 +45,7 @@ fn assert_prompt_with_config(env: &TestEnv, expected: &str) {
     Some("[merge_ready]\nsymbol = \"✅\"\nlabel = \"lgtm\"\nformat = \"$label $symbol\""),
     "lgtm ✅"
 )]
-#[case::invalid_toml(Some("this is not valid toml ][[["), "✓ Ready for merge #")]
+#[case::invalid_toml(Some("this is not valid toml ][[["), "✓ Ready for merge")]
 fn test_config_prompt(#[case] config: Option<&str>, #[case] expected: &str) {
     let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
     if let Some(cfg) = config {
@@ -61,7 +61,7 @@ fn test_config_prompt(#[case] config: Option<&str>, #[case] expected: &str) {
 fn test_partial_config_other_tokens_use_defaults() {
     let env = TestEnv::new(CONFLICT_JSON, Some(CHECKS_PASS_JSON));
     env.write_config("[conflict]\nsymbol = \"✘\"");
-    assert_prompt_with_config(&env, "✘ Resolve conflict #");
+    assert_prompt_with_config(&env, "✘ Resolve conflict");
 }
 
 // ── #49–50: XDG_CONFIG_HOME ───────────────────────────────────────────────────
@@ -93,7 +93,7 @@ fn test_xdg_config_home_is_used() {
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
-        .stdout("★ Ready for merge #")
+        .stdout("★ Ready for merge")
         .stderr("");
 }
 
@@ -125,7 +125,7 @@ fn test_xdg_config_home_takes_precedence_over_home() {
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
-        .stdout("★ Ready for merge #")
+        .stdout("★ Ready for merge")
         .stderr("");
 }
 

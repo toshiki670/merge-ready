@@ -23,10 +23,7 @@ fn test_review_changes_requested() {
 
     let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
-    cmd.assert()
-        .success()
-        .stdout("⚠ Resolve review #")
-        .stderr("");
+    cmd.assert().success().stdout("⚠ Resolve review").stderr("");
 }
 
 /// #31: `reviewDecision == REVIEW_REQUIRED` → `@ Assign reviewer`
@@ -43,6 +40,6 @@ fn test_review_required() {
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
-        .stdout("@ Assign reviewer #")
+        .stdout("@ Assign reviewer")
         .stderr("");
 }

@@ -237,8 +237,8 @@ mod tests {
             }]))
         });
         assert_eq!(result.pr_outputs.len(), 1);
-        assert!(result.output.contains('#'));
-        assert!(!result.output.contains("200"));
+        assert!(!result.output.contains('#'));
+        assert_eq!(result.output, "✓ Ready for merge");
     }
 
     #[test]

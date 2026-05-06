@@ -3,8 +3,8 @@ use serde::Serialize;
 use super::format_parser::{Segment, parse_segments};
 use super::style_spec::StyleSpec;
 
-/// PR 状態トークン 12 種のデフォルトフォーマット。`$pr_id` を含む。
-const DEFAULT_PR_FORMAT: &str = "$symbol $label #$pr_id";
+/// PR 状態トークン 12 種のデフォルトフォーマット。`( #$pr_id)` は複数 PR 時のみ展開される。
+const DEFAULT_PR_FORMAT: &str = "$symbol $label( #$pr_id)";
 /// `no_pull_request` / `error` トークンのデフォルトフォーマット。
 const DEFAULT_FORMAT: &str = "$symbol $label";
 const DEFAULT_ERROR_FORMAT: &str = "$symbol $message";
@@ -70,16 +70,14 @@ pub struct TokenConfig {
 }
 
 /// `pr_id` が `Some` の場合は `$pr_id` を置換する。`None` の場合は `$pr_id` を literal のまま残す。
+/// `(...)` ブロック内の変数がすべて空の場合、そのブロックは出力されない。
 #[must_use]
 pub fn render_token(token: &TokenConfig, pr_id: Option<&str>) -> String {
-    let mut substituted = token
-        .format
-        .replace("$symbol", &token.symbol)
-        .replace("$label", &token.label);
+    let mut vars: Vec<(&str, &str)> = vec![("symbol", &token.symbol), ("label", &token.label)];
     if let Some(id) = pr_id {
-        substituted = substituted.replace("$pr_id", id);
+        vars.push(("pr_id", id));
     }
-    render_segments(&substituted)
+    render_with_vars(&token.format, &vars)
 }
 
 #[derive(Serialize)]
@@ -99,24 +97,115 @@ impl Default for ErrorConfig {
 
 #[must_use]
 pub fn render_error_token(config: &ErrorConfig, message: &str) -> String {
-    let substituted = config
-        .format
-        .replace("$symbol", &config.symbol)
-        .replace("$message", message);
-    render_segments(&substituted)
+    let vars: Vec<(&str, &str)> = vec![("symbol", &config.symbol), ("message", message)];
+    render_with_vars(&config.format, &vars)
 }
 
-fn render_segments(s: &str) -> String {
-    parse_segments(s)
-        .into_iter()
-        .map(|seg| match seg {
-            Segment::Text(t) => t,
-            Segment::Styled { content, style_str } => StyleSpec::parse(&style_str)
-                .to_ansi_style()
-                .paint(content)
-                .to_string(),
-        })
-        .collect()
+fn render_with_vars(format: &str, vars: &[(&str, &str)]) -> String {
+    eval_segments(&parse_segments(format), vars)
+}
+
+fn eval_segments(segs: &[Segment], vars: &[(&str, &str)]) -> String {
+    segs.iter().map(|s| eval_segment(s, vars)).collect()
+}
+
+fn eval_segment(seg: &Segment, vars: &[(&str, &str)]) -> String {
+    match seg {
+        Segment::Text(t) => substitute_vars(t, vars),
+        Segment::Styled { content, style_str } => StyleSpec::parse(style_str)
+            .to_ansi_style()
+            .paint(eval_segments(&parse_segments(content), vars))
+            .to_string(),
+        Segment::Conditional(inner) => eval_conditional(inner, vars),
+    }
+}
+
+/// `(...)` ブロックの評価: 内包する変数がすべて空（またはマップにない）場合は非表示。
+fn eval_conditional(inner: &[Segment], vars: &[(&str, &str)]) -> String {
+    let refs = collect_var_refs(inner);
+    if refs.is_empty() {
+        return String::new();
+    }
+    let all_empty = refs.iter().all(|name| {
+        vars.iter()
+            .find(|(k, _)| k == name)
+            .is_none_or(|(_, v)| v.is_empty())
+    });
+    if all_empty {
+        String::new()
+    } else {
+        eval_segments(inner, vars)
+    }
+}
+
+/// Segment ツリーから `$varname` 参照を収集する。
+fn collect_var_refs(segs: &[Segment]) -> Vec<&str> {
+    let mut refs = Vec::new();
+    for seg in segs {
+        let text = match seg {
+            Segment::Text(t) => t.as_str(),
+            Segment::Styled { content, .. } => content.as_str(),
+            Segment::Conditional(inner) => {
+                refs.extend(collect_var_refs(inner));
+                continue;
+            }
+        };
+        extract_var_names(text, &mut refs);
+    }
+    refs
+}
+
+fn extract_var_names<'a>(s: &'a str, out: &mut Vec<&'a str>) {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'$' {
+            let start = i + 1;
+            let end = bytes[start..]
+                .iter()
+                .position(|&b| !b.is_ascii_alphanumeric() && b != b'_')
+                .map_or(bytes.len(), |pos| start + pos);
+            if end > start {
+                out.push(&s[start..end]);
+            }
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+}
+
+/// `$varname` を vars で置換する。マップにない変数はリテラルのまま残す。
+fn substitute_vars(s: &str, vars: &[(&str, &str)]) -> String {
+    let bytes = s.as_bytes();
+    let mut result = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'$' {
+            let start = i + 1;
+            let end = bytes[start..]
+                .iter()
+                .position(|&b| !b.is_ascii_alphanumeric() && b != b'_')
+                .map_or(bytes.len(), |pos| start + pos);
+            if end > start {
+                let name = &s[start..end];
+                if let Some((_, val)) = vars.iter().find(|(k, _)| *k == name) {
+                    result.push_str(val);
+                } else {
+                    result.push('$');
+                    result.push_str(name);
+                }
+                i = end;
+            } else {
+                result.push('$');
+                i += 1;
+            }
+        } else {
+            result.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    result
 }
 
 #[cfg(test)]
@@ -290,6 +379,48 @@ mod tests {
             .replace("$symbol", &tok.symbol)
             .replace("$label", &tok.label);
         assert_eq!(render_token(&tok, None), expected);
+    }
+
+    // ── Conditional ブロックのテスト ──────────────────────────────────────
+
+    #[test]
+    fn render_token_conditional_shown_when_pr_id_nonempty() {
+        let tok = TokenConfig {
+            symbol: "✓".to_owned(),
+            label: "Ready for merge".to_owned(),
+            format: "$symbol $label( #$pr_id)".to_owned(),
+        };
+        assert_eq!(render_token(&tok, Some("200")), "✓ Ready for merge #200");
+    }
+
+    #[test]
+    fn render_token_conditional_hidden_when_pr_id_empty() {
+        let tok = TokenConfig {
+            symbol: "✓".to_owned(),
+            label: "Ready for merge".to_owned(),
+            format: "$symbol $label( #$pr_id)".to_owned(),
+        };
+        assert_eq!(render_token(&tok, Some("")), "✓ Ready for merge");
+    }
+
+    #[test]
+    fn render_token_conditional_hidden_when_pr_id_none() {
+        let tok = TokenConfig {
+            symbol: "✓".to_owned(),
+            label: "Ready for merge".to_owned(),
+            format: "$symbol $label( #$pr_id)".to_owned(),
+        };
+        assert_eq!(render_token(&tok, None), "✓ Ready for merge");
+    }
+
+    #[test]
+    fn render_token_conditional_no_vars_always_hidden() {
+        let tok = TokenConfig {
+            symbol: "✓".to_owned(),
+            label: "Ready".to_owned(),
+            format: "$symbol $label( static text)".to_owned(),
+        };
+        assert_eq!(render_token(&tok, Some("200")), "✓ Ready");
     }
 
     // ── $pr_id 置換のテスト ────────────────────────────────────────────────

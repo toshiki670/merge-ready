@@ -37,14 +37,14 @@ fn assert_prompt(env: &TestEnv, expected: &str) {
 /// #26 `fail` + `action_required` 混在 → `✗ Fix CI failure`（`Run CI action` は抑制）
 /// #29 `Fix CI failure` + `Resolve review` → 両方をスペース区切りで出力
 #[rstest]
-#[case::ci_fail_failure(BLOCKED_NO_REVIEW, FAIL_JSON, "✗ Fix CI failure #")]
-#[case::ci_fail_cancelled(BLOCKED_NO_REVIEW, CANCEL_JSON, "✗ Fix CI failure #")]
-#[case::ci_action(BLOCKED_NO_REVIEW, ACTION_REQUIRED_JSON, "⚠ Run CI action #")]
-#[case::ci_fail_wins_over_ci_action(BLOCKED_NO_REVIEW, FAIL_AND_ACTION_JSON, "✗ Fix CI failure #")]
+#[case::ci_fail_failure(BLOCKED_NO_REVIEW, FAIL_JSON, "✗ Fix CI failure")]
+#[case::ci_fail_cancelled(BLOCKED_NO_REVIEW, CANCEL_JSON, "✗ Fix CI failure")]
+#[case::ci_action(BLOCKED_NO_REVIEW, ACTION_REQUIRED_JSON, "⚠ Run CI action")]
+#[case::ci_fail_wins_over_ci_action(BLOCKED_NO_REVIEW, FAIL_AND_ACTION_JSON, "✗ Fix CI failure")]
 #[case::ci_fail_and_review(
     BLOCKED_CHANGES_REQUESTED,
     FAIL_JSON,
-    "✗ Fix CI failure # ⚠ Resolve review #"
+    "✗ Fix CI failure ⚠ Resolve review"
 )]
 fn test_ci_check_prompt(#[case] pr_json: &str, #[case] checks_json: &str, #[case] expected: &str) {
     let env = TestEnv::new(pr_json, Some(checks_json));
@@ -56,8 +56,8 @@ fn test_ci_check_prompt(#[case] pr_json: &str, #[case] checks_json: &str, #[case
 /// #27 `no checks reported` + review なし → `✓ Ready for merge`
 /// #28 `no checks reported` + review あり → `⚠ Resolve review`
 #[rstest]
-#[case::merge_ready(APPROVED_CLEAN, "✓ Ready for merge #")]
-#[case::review(BLOCKED_CHANGES_REQUESTED, "⚠ Resolve review #")]
+#[case::merge_ready(APPROVED_CLEAN, "✓ Ready for merge")]
+#[case::review(BLOCKED_CHANGES_REQUESTED, "⚠ Resolve review")]
 fn test_no_ci_checks_prompt(#[case] pr_json: &str, #[case] expected: &str) {
     let env = TestEnv::with_no_ci_checks(pr_json);
     assert_prompt(&env, expected);

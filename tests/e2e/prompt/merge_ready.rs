@@ -33,7 +33,7 @@ fn test_merge_ready() {
         r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}"#,
         Some(r#"[{"bucket":"pass","state":"SUCCESS"}]"#),
     );
-    assert_prompt(&env, "✓ Ready for merge #");
+    assert_prompt(&env, "✓ Ready for merge");
 }
 
 // ── #16: 全ブロッカーが成立 ──────────────────────────────────────────────────
@@ -45,8 +45,5 @@ fn test_all_conditions_block_merge_ready() {
         r#"{"state":"OPEN","isDraft":false,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","reviewDecision":"CHANGES_REQUESTED"}"#,
         Some(r#"[{"bucket":"fail","state":"FAILURE"}]"#),
     );
-    assert_prompt(
-        &env,
-        "✗ Resolve conflict # ✗ Fix CI failure # ⚠ Resolve review #",
-    );
+    assert_prompt(&env, "✗ Resolve conflict ✗ Fix CI failure ⚠ Resolve review");
 }

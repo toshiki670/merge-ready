@@ -36,17 +36,13 @@ fn assert_prompt(env: &TestEnv, expected: &str) {
 /// #21 `Resolve conflict` + `Fix CI failure` → 両方をスペース区切りで出力
 /// #22 `Resolve conflict` + `Resolve review` → 両方をスペース区切りで出力
 #[rstest]
-#[case::conflict(CONFLICTING_DIRTY, PASS_JSON, "✗ Resolve conflict #")]
-#[case::conflict_wins_over_update_branch(CONFLICTING_BEHIND, PASS_JSON, "✗ Resolve conflict #")]
-#[case::conflict_and_ci_fail(
-    CONFLICTING_DIRTY,
-    FAIL_JSON,
-    "✗ Resolve conflict # ✗ Fix CI failure #"
-)]
+#[case::conflict(CONFLICTING_DIRTY, PASS_JSON, "✗ Resolve conflict")]
+#[case::conflict_wins_over_update_branch(CONFLICTING_BEHIND, PASS_JSON, "✗ Resolve conflict")]
+#[case::conflict_and_ci_fail(CONFLICTING_DIRTY, FAIL_JSON, "✗ Resolve conflict ✗ Fix CI failure")]
 #[case::conflict_and_review(
     CONFLICTING_DIRTY_CHANGES,
     PASS_JSON,
-    "✗ Resolve conflict # ⚠ Resolve review #"
+    "✗ Resolve conflict ⚠ Resolve review"
 )]
 fn test_conflict_prompt(#[case] pr_json: &str, #[case] checks_json: &str, #[case] expected: &str) {
     let env = TestEnv::new(pr_json, Some(checks_json));
@@ -59,7 +55,7 @@ fn test_conflict_prompt(#[case] pr_json: &str, #[case] checks_json: &str, #[case
 #[test]
 fn test_update_branch() {
     let env = TestEnv::with_behind_by(MERGEABLE_BLOCKED, Some(PASS_JSON), 1);
-    assert_prompt(&env, "✗ Update branch #");
+    assert_prompt(&env, "✗ Update branch");
 }
 
 // ── #19: sync-unknown ────────────────────────────────────────────────────────
@@ -68,5 +64,5 @@ fn test_update_branch() {
 #[test]
 fn test_compare_api_error() {
     let env = TestEnv::with_compare_error(MERGEABLE_BLOCKED, Some(PASS_JSON));
-    assert_prompt(&env, "? Check branch sync #");
+    assert_prompt(&env, "? Check branch sync");
 }

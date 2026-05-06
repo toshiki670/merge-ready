@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.2] - 2026-05-06
+### Bug Fixes
+- Daemon 起動レースを防ぐ ([#266](https://github.com/toshiki670/merge-ready/pull/266)) ([`c385de5`](https://github.com/toshiki670/merge-ready/commit/c385de574bda1d3b255b76821855f994d721429e))
+### Features
+- #256 1ブランチに複数PRがある場合に全PRの状態を並べて表示する ([#262](https://github.com/toshiki670/merge-ready/pull/262)) ([`ccdf9bb`](https://github.com/toshiki670/merge-ready/commit/ccdf9bb84e2741c2a183b8a3549a10fd43946921))
+- #260 conditional format strings のサポート ([#263](https://github.com/toshiki670/merge-ready/pull/263)) ([`ccf8764`](https://github.com/toshiki670/merge-ready/commit/ccf8764234e2c0be62dfb2ded1ca207c220f481c))
+- Watch のエントリ一覧に PR 番号を表示する ([#268](https://github.com/toshiki670/merge-ready/pull/268)) ([`0d91165`](https://github.com/toshiki670/merge-ready/commit/0d9116514c85073b4b79dda5c0e6835cd9697a0d))
+
+
 ## [0.7.1] - 2026-05-05
 ### Bug Fixes
 - Daemon が複数起動する競合と中間プロセス問題を修正する ([#251](https://github.com/toshiki670/merge-ready/pull/251)) ([`bd6a36f`](https://github.com/toshiki670/merge-ready/commit/bd6a36fd0cede80fb9b4603963cf8b8bcc8fbc2e))

@@ -12,14 +12,12 @@ use schema::{
 
 use crate::contexts::evaluation::application::port::{ErrorCategory, ErrorLogger, LogRecord};
 use crate::contexts::evaluation::domain::error::RepositoryError;
-use crate::contexts::evaluation::domain::pr_state::blocked::branch_sync::BranchSyncState;
-use crate::contexts::evaluation::domain::pr_state::blocked::ci::CiState;
-use crate::contexts::evaluation::domain::pr_state::blocked::review::ReviewState;
-use crate::contexts::evaluation::domain::pr_state::not_applicable::NotApplicableState;
-use crate::contexts::evaluation::domain::pr_state::unblocked::UnblockedState;
-use crate::contexts::evaluation::domain::pr_state::{
-    PrEntry, PrId, PrRepository, PrState, evaluate,
-};
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::branch_sync::BranchSyncState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::ci::CiState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::review::ReviewState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::evaluate;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::unblocked::UnblockedState;
+use crate::contexts::evaluation::domain::prompt::{PrId, PrRepository, Prompt, PullRequest, State};
 use crate::contexts::evaluation::infrastructure::git::{current_branch, is_git_repo};
 
 // ── GhClient ────────────────────────────────────────────────────────────────
@@ -85,26 +83,24 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
         branch == self.default_branch()
     }
 
-    fn fetch_pr_list(&self) -> Result<Vec<GhPrListItem>, RepositoryError> {
+    fn fetch_pr_list(&self) -> Result<Vec<GhPrListItem>, GhError> {
         let branch = current_branch(self.cwd.as_deref()).unwrap_or_default();
-        let bytes = self
-            .run_gh(&[
-                "pr",
-                "list",
-                "--head",
-                &branch,
-                "--state",
-                "all",
-                "--json",
-                "number,state,isDraft,mergeable,mergeStateStatus,reviewDecision,baseRefName,headRefName",
-            ])
-            .map_err(|e| self.log_and_convert(e))?;
+        let bytes = self.run_gh(&[
+            "pr",
+            "list",
+            "--head",
+            &branch,
+            "--state",
+            "all",
+            "--json",
+            "number,state,isDraft,mergeable,mergeStateStatus,reviewDecision,baseRefName,headRefName",
+        ])?;
         let mut items: Vec<GhPrListItem> = serde_json::from_slice(&bytes).map_err(|e| {
             self.logger.log(&LogRecord {
                 category: ErrorCategory::Unknown,
                 detail: Some(e.to_string()),
             });
-            RepositoryError::Unexpected
+            GhError::ApiError(e.to_string())
         })?;
         items.sort_by_key(|i| i.number);
         Ok(items)
@@ -130,8 +126,8 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
         Ok(aggregate_ci(&buckets))
     }
 
-    fn evaluate_single_pr(&self, pr_view: &GhPrListItem) -> Result<PrEntry, RepositoryError> {
-        let pr_id = PrId::new(pr_view.number);
+    fn evaluate_single_pr(&self, pr_view: &GhPrListItem) -> Result<PullRequest, RepositoryError> {
+        let id = PrId::new(pr_view.number);
 
         // branch_sync と ci を並列取得
         let (branch_sync, ci_result) = std::thread::scope(|s| {
@@ -160,9 +156,9 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
             pr_view.merge_state_status.as_str(),
             "MERGE_STATE_UNKNOWN" | "UNKNOWN"
         ) {
-            return Ok(PrEntry {
-                pr_id,
-                state: PrState::NotApplicable(NotApplicableState::Calculating),
+            return Ok(PullRequest {
+                id,
+                state: State::Calculating,
             });
         }
 
@@ -170,56 +166,42 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
         let unblocked = translate_unblocked(pr_view.is_draft, &pr_view.merge_state_status);
         let state = evaluate(branch_sync, ci, review, unblocked);
 
-        Ok(PrEntry { pr_id, state })
+        Ok(PullRequest { id, state })
     }
 }
 
 // ── PrRepository 実装 ────────────────────────────────────────────────────────
 
 impl<L: ErrorLogger + Sync> PrRepository for GhClient<L> {
-    fn fetch(&self) -> Result<Vec<PrEntry>, RepositoryError> {
+    fn fetch(&self) -> Result<Prompt, RepositoryError> {
         if !is_git_repo(self.cwd.as_deref()) {
-            return Ok(vec![]);
+            return Ok(Prompt::NoRepository);
         }
 
         let all_prs = match self.fetch_pr_list() {
             Ok(list) => list,
-            Err(RepositoryError::NotFound) => return Ok(vec![]),
-            Err(e) => return Err(e),
+            Err(GhError::NoPr) => return Ok(Prompt::NoPullRequest),
+            Err(GhError::NotGithubRepository) => return Ok(Prompt::UnsupportedRepository),
+            Err(e) => return Err(self.log_and_convert(e)),
         };
 
         // PR が一度も作られていない場合
         if all_prs.is_empty() {
             if self.is_default_branch() {
-                return Err(RepositoryError::NotGithubRepository);
+                return Ok(Prompt::DefaultBranch);
             }
-            return Ok(vec![]);
+            return Ok(Prompt::NoPullRequest);
         }
 
-        let open_prs: Vec<&GhPrListItem> =
-            all_prs.iter().filter(|p| p.state == "OPEN").collect();
+        let open_prs: Vec<&GhPrListItem> = all_prs.iter().filter(|p| p.state == "OPEN").collect();
 
-        // オープン PR がなく全て MERGED/CLOSED → ターミナル状態
+        // オープン PR がなく全て MERGED/CLOSED → ターミナル状態（空 Vec で表現）
         if open_prs.is_empty() {
-            let entries = all_prs
-                .iter()
-                .map(|pr| {
-                    let state = if pr.state == "MERGED" {
-                        PrState::NotApplicable(NotApplicableState::Merged)
-                    } else {
-                        PrState::NotApplicable(NotApplicableState::Closed)
-                    };
-                    PrEntry {
-                        pr_id: PrId::new(pr.number),
-                        state,
-                    }
-                })
-                .collect();
-            return Ok(entries);
+            return Ok(Prompt::PullRequests(vec![]));
         }
 
         // オープン PR のみを evaluate
-        let results: Vec<Result<PrEntry, RepositoryError>> = std::thread::scope(|s| {
+        let results: Vec<Result<PullRequest, RepositoryError>> = std::thread::scope(|s| {
             let handles: Vec<_> = open_prs
                 .iter()
                 .map(|pr_view| s.spawn(|| self.evaluate_single_pr(pr_view)))
@@ -230,7 +212,8 @@ impl<L: ErrorLogger + Sync> PrRepository for GhClient<L> {
                 .collect()
         });
 
-        results.into_iter().collect()
+        let prs: Result<Vec<PullRequest>, RepositoryError> = results.into_iter().collect();
+        Ok(Prompt::PullRequests(prs?))
     }
 }
 
@@ -363,10 +346,11 @@ impl From<GhError> for RepositoryError {
     fn from(e: GhError) -> Self {
         match e {
             GhError::NotInstalled | GhError::AuthRequired => RepositoryError::Unauthenticated,
-            GhError::NoPr => RepositoryError::NotFound,
             GhError::RateLimited => RepositoryError::RateLimited,
-            GhError::NotGithubRepository => RepositoryError::NotGithubRepository,
-            GhError::Timeout | GhError::ApiError(_) => RepositoryError::Unexpected,
+            GhError::NoPr
+            | GhError::NotGithubRepository
+            | GhError::Timeout
+            | GhError::ApiError(_) => RepositoryError::Unexpected,
         }
     }
 }

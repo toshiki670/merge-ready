@@ -1,11 +1,10 @@
-use crate::contexts::evaluation::domain::pr_state::NotApplicableState;
-use crate::contexts::evaluation::domain::pr_state::PrState;
-use crate::contexts::evaluation::domain::pr_state::blocked::BlockedState;
-use crate::contexts::evaluation::domain::pr_state::blocked::GenericBlockedState;
-use crate::contexts::evaluation::domain::pr_state::blocked::branch_sync::BranchSyncState;
-use crate::contexts::evaluation::domain::pr_state::blocked::ci::CiState;
-use crate::contexts::evaluation::domain::pr_state::blocked::review::ReviewState;
-use crate::contexts::evaluation::domain::pr_state::unblocked::UnblockedState;
+use crate::contexts::evaluation::domain::prompt::State;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::BlockedState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::GenericBlockedState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::branch_sync::BranchSyncState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::ci::CiState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::review::ReviewState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::unblocked::UnblockedState;
 
 pub enum DisplayItem {
     Conflict,
@@ -22,15 +21,12 @@ pub enum DisplayItem {
     BlockedUnknown,
 }
 
-pub fn from_pr_state(state: PrState) -> Vec<DisplayItem> {
+pub fn from_state(state: State) -> Vec<DisplayItem> {
     match state {
-        PrState::Blocked(blocked) => from_blocked(blocked),
-        PrState::Unblocked(UnblockedState::MergeReady) => vec![DisplayItem::MergeReady],
-        PrState::Unblocked(UnblockedState::Draft) => vec![DisplayItem::Draft],
-        PrState::NotApplicable(NotApplicableState::Calculating) => {
-            vec![DisplayItem::StatusCalculating]
-        }
-        PrState::NotApplicable(_) => vec![],
+        State::Blocked(blocked) => from_blocked(blocked),
+        State::Unblocked(UnblockedState::MergeReady) => vec![DisplayItem::MergeReady],
+        State::Unblocked(UnblockedState::Draft) => vec![DisplayItem::Draft],
+        State::Calculating => vec![DisplayItem::StatusCalculating],
     }
 }
 
@@ -67,25 +63,25 @@ fn from_blocked(blocked: BlockedState) -> Vec<DisplayItem> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::evaluation::domain::pr_state::blocked::BlockedState;
+    use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::BlockedState;
 
     #[test]
     fn draft_maps_to_draft() {
-        let items = from_pr_state(PrState::Unblocked(UnblockedState::Draft));
+        let items = from_state(State::Unblocked(UnblockedState::Draft));
         assert_eq!(items.len(), 1);
         assert!(matches!(items[0], DisplayItem::Draft));
     }
 
     #[test]
     fn merge_ready_maps_to_merge_ready() {
-        let items = from_pr_state(PrState::Unblocked(UnblockedState::MergeReady));
+        let items = from_state(State::Unblocked(UnblockedState::MergeReady));
         assert_eq!(items.len(), 1);
         assert!(matches!(items[0], DisplayItem::MergeReady));
     }
 
     #[test]
     fn calculating_maps_to_status_calculating() {
-        let items = from_pr_state(PrState::NotApplicable(NotApplicableState::Calculating));
+        let items = from_state(State::Calculating);
         assert_eq!(items.len(), 1);
         assert!(matches!(items[0], DisplayItem::StatusCalculating));
     }
@@ -98,7 +94,7 @@ mod tests {
             review: None,
             generic: None,
         };
-        let items = from_pr_state(PrState::Blocked(blocked));
+        let items = from_state(State::Blocked(blocked));
         assert_eq!(items.len(), 1);
         assert!(matches!(items[0], DisplayItem::Conflict));
     }
@@ -111,17 +107,10 @@ mod tests {
             review: Some(ReviewState::ReviewRequired),
             generic: None,
         };
-        let items = from_pr_state(PrState::Blocked(blocked));
+        let items = from_state(State::Blocked(blocked));
         assert_eq!(items.len(), 3);
         assert!(matches!(items[0], DisplayItem::Conflict));
         assert!(matches!(items[1], DisplayItem::CiFail));
         assert!(matches!(items[2], DisplayItem::ReviewRequired));
-    }
-
-    #[test]
-    fn not_applicable_non_calculating_produces_empty() {
-        use crate::contexts::evaluation::domain::pr_state::NotApplicableState;
-        let items = from_pr_state(PrState::NotApplicable(NotApplicableState::Merged));
-        assert!(items.is_empty());
     }
 }

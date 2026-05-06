@@ -9,24 +9,23 @@ pub struct ErrorToken {
     pub message: String,
 }
 
-/// `RepositoryError` をエラートークンに変換する。表示不要な variant は `None` を返す。
-pub fn into_token<L: ErrorLogger>(e: RepositoryError, logger: &L) -> Option<ErrorToken> {
+/// `RepositoryError` をエラートークンに変換する。
+pub fn into_token<L: ErrorLogger>(e: RepositoryError, logger: &L) -> ErrorToken {
     match e {
-        RepositoryError::Unauthenticated => Some(ErrorToken {
+        RepositoryError::Unauthenticated => ErrorToken {
             message: "authentication required".to_owned(),
-        }),
-        RepositoryError::NotFound | RepositoryError::NotGithubRepository => None,
+        },
         RepositoryError::RateLimited => {
             logger.log(&LogRecord {
                 category: ErrorCategory::RateLimit,
                 detail: None,
             });
-            Some(ErrorToken {
+            ErrorToken {
                 message: "rate limited".to_owned(),
-            })
+            }
         }
-        RepositoryError::Unexpected => Some(ErrorToken {
+        RepositoryError::Unexpected => ErrorToken {
             message: "unexpected error".to_owned(),
-        }),
+        },
     }
 }

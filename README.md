@@ -144,7 +144,7 @@ All fields are optional — omitting any field falls back to the default shown b
 [merge_ready]
 symbol = "✓"
 label = "Ready for merge"
-format = "[$symbol $label](bold green)"
+format = "[$symbol $label( #$pr_id)](bold green)"
 
 [no_pull_request]
 symbol = "+"
@@ -154,57 +154,57 @@ format = "[$symbol $label](cyan)"
 [conflict]
 symbol = "✗"
 label = "Resolve conflict"
-format = "[$symbol $label](bold red)"
+format = "[$symbol $label( #$pr_id)](bold red)"
 
 [update_branch]
 symbol = "✗"
 label = "Update branch"
-format = "[$symbol $label](yellow)"
+format = "[$symbol $label( #$pr_id)](yellow)"
 
 # [sync_unknown]
 # symbol = "?"
 # label = "Check branch sync"
-# format = "[$symbol $label](yellow)"
+# format = "[$symbol $label( #$pr_id)](yellow)"
 
 [ci_fail]
 symbol = "✗"
 label = "Fix CI failure"
-format = "[$symbol $label](bold red)"
+format = "[$symbol $label( #$pr_id)](bold red)"
 
 # [ci_action]
 # symbol = "⚠"
 # label = "Run CI action"
-# format = "[$symbol $label](yellow)"
+# format = "[$symbol $label( #$pr_id)](yellow)"
 
 [ci_pending]
 symbol = "⧖"
 label = "Wait for CI"
-format = "[$symbol $label](cyan)"
+format = "[$symbol $label( #$pr_id)](cyan)"
 
 [changes_requested]
 symbol = "⚠"
 label = "Resolve review"
-format = "[$symbol $label](yellow)"
+format = "[$symbol $label( #$pr_id)](yellow)"
 
 [review_required]
 symbol = "@"
 label = "Assign reviewer"
-format = "[$symbol $label](cyan)"
+format = "[$symbol $label( #$pr_id)](cyan)"
 
 [draft]
 symbol = "✎"
 label = "Ready for review"
-format = "[$symbol $label](dimmed)"
+format = "[$symbol $label( #$pr_id)](dimmed)"
 
 # [status_calculating]
 # symbol = "⧖"
 # label = "Wait for status"
-# format = "[$symbol $label](dimmed)"
+# format = "[$symbol $label( #$pr_id)](dimmed)"
 
 # [blocked_unknown]
 # symbol = "?"
 # label = "Check merge blocker"
-# format = "[$symbol $label](yellow)"
+# format = "[$symbol $label( #$pr_id)](yellow)"
 
 [error]
 symbol = "✗"

@@ -13,6 +13,25 @@ const PROMPT_BIN: &str = "merge-ready-prompt";
 const OPEN_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
 const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
 
+fn assert_prompt_succeeded(output: &std::process::Output) {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "prompt failed: status={:?}, stdout={stdout:?}, stderr={stderr:?}",
+        output.status.code(),
+    );
+    assert!(
+        stderr.is_empty(),
+        "prompt stderr should be empty: {stderr:?}"
+    );
+    assert!(
+        stdout == "? loading" || stdout == "✓ Ready for merge",
+        "unexpected prompt stdout: {stdout:?}",
+    );
+}
+
 // ── #7: daemon start ─────────────────────────────────────────────────────────
 
 /// #7: `daemon start` → "daemon started" を出力して exit 0
@@ -242,9 +261,13 @@ fn test_concurrent_prompt_starts_only_one_daemon() {
         })
         .collect();
 
-    // 全スレッド完了を待つ
+    // 全スレッド完了を待ち、各 prompt が競合中も正常終了することを確認
     for h in handles {
-        let _ = h.join();
+        let output = h
+            .join()
+            .expect("prompt thread panicked")
+            .expect("run prompt");
+        assert_prompt_succeeded(&output);
     }
 
     // daemon が正確に 1 プロセス起動していることを確認
@@ -304,7 +327,11 @@ fn test_concurrent_version_mismatch_starts_only_one_daemon() {
         .collect();
 
     for h in handles {
-        let _ = h.join();
+        let output = h
+            .join()
+            .expect("prompt thread panicked")
+            .expect("run prompt");
+        assert_prompt_succeeded(&output);
     }
 
     // 新 daemon が起動するまでポーリング（最大 5 秒）

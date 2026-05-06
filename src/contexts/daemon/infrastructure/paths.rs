@@ -13,6 +13,10 @@ pub fn pid_path() -> PathBuf {
     base_dir().join("daemon.pid")
 }
 
+pub fn lock_path() -> PathBuf {
+    base_dir().join("daemon.lock")
+}
+
 pub fn base_dir() -> PathBuf {
     std::env::temp_dir().join(dir_name())
 }

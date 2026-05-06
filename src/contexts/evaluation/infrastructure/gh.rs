@@ -17,7 +17,7 @@ use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::c
 use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::review::ReviewState;
 use crate::contexts::evaluation::domain::prompt::pull_request::state::evaluate;
 use crate::contexts::evaluation::domain::prompt::pull_request::state::unblocked::UnblockedState;
-use crate::contexts::evaluation::domain::prompt::{PrId, PrRepository, Prompt, PullRequest, State};
+use crate::contexts::evaluation::domain::prompt::{PrId, PromptRepository, Prompt, PullRequest, State};
 use crate::contexts::evaluation::infrastructure::git::{current_branch, is_git_repo};
 
 // ── GhClient ────────────────────────────────────────────────────────────────
@@ -170,9 +170,9 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
     }
 }
 
-// ── PrRepository 実装 ────────────────────────────────────────────────────────
+// ── PromptRepository 実装 ────────────────────────────────────────────────────────
 
-impl<L: ErrorLogger + Sync> PrRepository for GhClient<L> {
+impl<L: ErrorLogger + Sync> PromptRepository for GhClient<L> {
     fn fetch(&self) -> Result<Prompt, RepositoryError> {
         if !is_git_repo(self.cwd.as_deref()) {
             return Ok(Prompt::NoRepository);

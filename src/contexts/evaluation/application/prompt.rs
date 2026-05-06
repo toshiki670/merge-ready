@@ -4,13 +4,13 @@ use display_item::DisplayItem;
 
 use super::errors::{ErrorToken, into_token};
 use super::port::ErrorLogger;
-use crate::contexts::evaluation::domain::prompt::{PrId, PrRepository, Prompt};
+use crate::contexts::evaluation::domain::prompt::{PrId, PromptRepository, Prompt};
 
 /// PR 状態を取得するユースケース。
 /// インフラエラーをロギングして `ErrorToken` に変換し、ドメイン状態はそのまま返す。
 pub fn fetch<R, L>(repo: &R, logger: &L) -> Result<Prompt, ErrorToken>
 where
-    R: PrRepository,
+    R: PromptRepository,
     L: ErrorLogger,
 {
     repo.fetch().map_err(|e| into_token(e, logger))
@@ -30,7 +30,7 @@ mod tests {
     use super::*;
     use crate::contexts::evaluation::domain::error::RepositoryError;
     use crate::contexts::evaluation::domain::prompt::{
-        PrId, PrRepository, Prompt, PullRequest, State,
+        PrId, PromptRepository, Prompt, PullRequest, State,
         pull_request::state::unblocked::UnblockedState,
     };
 
@@ -40,7 +40,7 @@ mod tests {
     }
 
     struct StubRepo(fn() -> Result<Prompt, RepositoryError>);
-    impl PrRepository for StubRepo {
+    impl PromptRepository for StubRepo {
         fn fetch(&self) -> Result<Prompt, RepositoryError> {
             (self.0)()
         }

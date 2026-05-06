@@ -6,7 +6,7 @@ use crate::contexts::evaluation::application::prompt::{fetch, to_display_items};
 use crate::contexts::evaluation::domain::display_config::{
     DisplayConfig, DisplayConfigRepository, TokenConfig, render_error_token, render_token,
 };
-use crate::contexts::evaluation::domain::prompt::{PrId, PromptRepository, Prompt};
+use crate::contexts::evaluation::domain::prompt::{PrId, Prompt, PromptRepository};
 
 /// daemon のキャッシュ更新頻度を制御するヒント。
 /// evaluation ドメインの知識（CI 状態・終端状態）を daemon に伝える interface 層の出力型。
@@ -124,7 +124,7 @@ mod tests {
     use crate::contexts::evaluation::domain::display_config::DisplayConfig;
     use crate::contexts::evaluation::domain::error::RepositoryError;
     use crate::contexts::evaluation::domain::prompt::{
-        PrId, PromptRepository, Prompt, PullRequest, State,
+        PrId, Prompt, PromptRepository, PullRequest, State,
         pull_request::state::blocked::{BlockedState, ci::CiState},
         pull_request::state::unblocked::UnblockedState,
     };

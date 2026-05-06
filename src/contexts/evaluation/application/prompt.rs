@@ -4,7 +4,7 @@ use display_item::DisplayItem;
 
 use super::errors::{ErrorToken, into_token};
 use super::port::ErrorLogger;
-use crate::contexts::evaluation::domain::prompt::{PrId, PromptRepository, Prompt};
+use crate::contexts::evaluation::domain::prompt::{PrId, Prompt, PromptRepository};
 
 /// PR 状態を取得するユースケース。
 /// インフラエラーをロギングして `ErrorToken` に変換し、ドメイン状態はそのまま返す。
@@ -30,7 +30,7 @@ mod tests {
     use super::*;
     use crate::contexts::evaluation::domain::error::RepositoryError;
     use crate::contexts::evaluation::domain::prompt::{
-        PrId, PromptRepository, Prompt, PullRequest, State,
+        PrId, Prompt, PromptRepository, PullRequest, State,
         pull_request::state::unblocked::UnblockedState,
     };
 

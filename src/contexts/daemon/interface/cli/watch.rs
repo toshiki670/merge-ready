@@ -49,53 +49,95 @@ fn format_table(entries: &[EntryView]) -> String {
         return "no entries cached\n".to_owned();
     }
 
-    let header = ("CWD", "BRANCH", "STATUS", "CACHED AT");
-    let rows: Vec<(String, String, String, String)> = entries
-        .iter()
-        .map(|e| {
-            (
-                e.cwd.clone(),
-                e.branch.clone(),
-                e.output.clone(),
-                format_cached_at(e.cached_at_secs),
-            )
-        })
-        .collect();
-
-    let w0 = rows
-        .iter()
-        .map(|r| r.0.len())
-        .max()
-        .unwrap_or(0)
-        .max(header.0.len());
-    let w1 = rows
-        .iter()
-        .map(|r| r.1.len())
-        .max()
-        .unwrap_or(0)
-        .max(header.1.len());
-    let w2 = rows
-        .iter()
-        .map(|r| visible_len(&r.2))
-        .max()
-        .unwrap_or(0)
-        .max(header.2.len());
+    let header = TableRow {
+        cwd: "CWD".to_owned(),
+        branch: "BRANCH".to_owned(),
+        pr: "PR".to_owned(),
+        status: "STATUS".to_owned(),
+        cached_at: "CACHED AT".to_owned(),
+    };
+    let rows: Vec<TableRow> = entries.iter().map(TableRow::from_entry).collect();
+    let widths = TableWidths::from_rows(&header, &rows);
 
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "{:<w0$}  {:<w1$}  {:<w2$}  {}",
-        header.0, header.1, header.2, header.3,
+        "{:<cwd_width$}  {:<branch_width$}  {:<pr_width$}  {:<status_width$}  {}",
+        header.cwd,
+        header.branch,
+        header.pr,
+        header.status,
+        header.cached_at,
+        cwd_width = widths.cwd,
+        branch_width = widths.branch,
+        pr_width = widths.pr,
+        status_width = widths.status,
     );
     for row in &rows {
-        let pad = w2 - visible_len(&row.2) + row.2.len();
+        let status_pad = widths.status - visible_len(&row.status) + row.status.len();
         let _ = writeln!(
             out,
-            "{:<w0$}  {:<w1$}  {:<pad$}  {}",
-            row.0, row.1, row.2, row.3
+            "{:<cwd_width$}  {:<branch_width$}  {:<pr_width$}  {:<status_pad$}  {}",
+            row.cwd,
+            row.branch,
+            row.pr,
+            row.status,
+            row.cached_at,
+            cwd_width = widths.cwd,
+            branch_width = widths.branch,
+            pr_width = widths.pr,
         );
     }
     out
+}
+
+struct TableRow {
+    cwd: String,
+    branch: String,
+    pr: String,
+    status: String,
+    cached_at: String,
+}
+
+impl TableRow {
+    fn from_entry(entry: &EntryView) -> Self {
+        Self {
+            cwd: entry.cwd.clone(),
+            branch: entry.branch.clone(),
+            pr: format_pr_id(entry.pr_id),
+            status: entry.output.clone(),
+            cached_at: format_cached_at(entry.cached_at_secs),
+        }
+    }
+}
+
+struct TableWidths {
+    cwd: usize,
+    branch: usize,
+    pr: usize,
+    status: usize,
+}
+
+impl TableWidths {
+    fn from_rows(header: &TableRow, rows: &[TableRow]) -> Self {
+        Self {
+            cwd: max_width(rows.iter().map(|row| row.cwd.len()), header.cwd.len()),
+            branch: max_width(rows.iter().map(|row| row.branch.len()), header.branch.len()),
+            pr: max_width(rows.iter().map(|row| row.pr.len()), header.pr.len()),
+            status: max_width(
+                rows.iter().map(|row| visible_len(&row.status)),
+                header.status.len(),
+            ),
+        }
+    }
+}
+
+fn max_width(widths: impl Iterator<Item = usize>, header_width: usize) -> usize {
+    widths.max().unwrap_or(0).max(header_width)
+}
+
+fn format_pr_id(pr_id: Option<u64>) -> String {
+    pr_id.map_or_else(String::new, |id| format!("#{id}"))
 }
 
 fn visible_len(s: &str) -> usize {
@@ -135,7 +177,13 @@ fn format_cached_at(cached_at_secs: u64) -> String {
 mod tests {
     use super::*;
 
-    fn make_view(cwd: &str, branch: &str, output: &str, age_secs: u64) -> EntryView {
+    fn make_view(
+        cwd: &str,
+        branch: &str,
+        pr_id: Option<u64>,
+        output: &str,
+        age_secs: u64,
+    ) -> EntryView {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -143,6 +191,7 @@ mod tests {
         EntryView {
             cwd: cwd.to_owned(),
             branch: branch.to_owned(),
+            pr_id,
             output: output.to_owned(),
             cached_at_secs: now.saturating_sub(age_secs),
         }
@@ -156,22 +205,67 @@ mod tests {
 
     #[test]
     fn format_table_shows_header() {
-        let view = make_view("/repo", "main", "✓ Ready", 5);
+        let view = make_view("/repo", "main", Some(123), "✓ Ready", 5);
         let table = format_table(&[view]);
         assert!(table.contains("CWD"));
         assert!(table.contains("BRANCH"));
+        assert!(table.contains("PR"));
         assert!(table.contains("STATUS"));
         assert!(table.contains("CACHED AT"));
     }
 
     #[test]
     fn format_table_shows_all_columns() {
-        let view = make_view("/repo/myapp", "feat/123", "✓ Ready for merge", 10);
+        let view = make_view(
+            "/repo/myapp",
+            "feat/123",
+            Some(123),
+            "✓ Ready for merge",
+            10,
+        );
         let table = format_table(&[view]);
         assert!(table.contains("/repo/myapp"));
         assert!(table.contains("feat/123"));
+        assert!(table.contains("#123"));
         assert!(table.contains("✓ Ready for merge"));
         assert!(table.contains("ago"));
+    }
+
+    #[test]
+    fn format_table_leaves_pr_column_empty_without_pr_id() {
+        let view = make_view("/repo/myapp", "chore/deps", None, "+ Create PR", 10);
+        let table = format_table(&[view]);
+
+        assert!(table.contains("PR"));
+        assert!(!table.contains('#'));
+        assert!(table.contains("+ Create PR"));
+    }
+
+    #[test]
+    fn format_table_shows_multiple_pr_rows() {
+        let rows = vec![
+            make_view(
+                "/repo/myapp",
+                "feat/multi",
+                Some(200),
+                "✓ Ready for merge #200",
+                10,
+            ),
+            make_view(
+                "/repo/myapp",
+                "feat/multi",
+                Some(201),
+                "✎ Ready for review #201",
+                10,
+            ),
+        ];
+
+        let table = format_table(&rows);
+
+        assert!(table.contains("#200"));
+        assert!(table.contains("#201"));
+        assert!(table.contains("✓ Ready for merge #200"));
+        assert!(table.contains("✎ Ready for review #201"));
     }
 
     #[test]

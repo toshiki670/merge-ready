@@ -63,6 +63,7 @@ impl WatchPort for DaemonLifecycle {
                 .map(|dto| EntryView {
                     cwd: dto.cwd,
                     branch: dto.branch,
+                    pr_id: dto.pr_id,
                     output: dto.output,
                     cached_at_secs: dto.cached_at_secs,
                 })

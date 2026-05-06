@@ -1,4 +1,5 @@
 mod cache_hit;
+mod multiple_prs;
 mod default_branch;
 mod initial_load;
 mod multi_repo;

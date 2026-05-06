@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.2] - 2026-05-06
+### Features
+- #256 1ブランチに複数PRがある場合に全PRの状態を並べて表示する ([#262](https://github.com/toshiki670/merge-ready/pull/262)) ([`ccdf9bb`](https://github.com/toshiki670/merge-ready/commit/ccdf9bb84e2741c2a183b8a3549a10fd43946921))
+- #260 conditional format strings のサポート ([#263](https://github.com/toshiki670/merge-ready/pull/263)) ([`ccf8764`](https://github.com/toshiki670/merge-ready/commit/ccf8764234e2c0be62dfb2ded1ca207c220f481c))
+
+
 ## [0.7.1] - 2026-05-05
 ### Bug Fixes
 - Daemon が複数起動する競合と中間プロセス問題を修正する ([#251](https://github.com/toshiki670/merge-ready/pull/251)) ([`bd6a36f`](https://github.com/toshiki670/merge-ready/commit/bd6a36fd0cede80fb9b4603963cf8b8bcc8fbc2e))

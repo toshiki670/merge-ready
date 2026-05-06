@@ -85,7 +85,7 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
         branch == self.default_branch()
     }
 
-    fn fetch_open_pr_list(&self) -> Result<Vec<GhPrListItem>, RepositoryError> {
+    fn fetch_pr_list(&self) -> Result<Vec<GhPrListItem>, RepositoryError> {
         let branch = current_branch(self.cwd.as_deref()).unwrap_or_default();
         let bytes = self
             .run_gh(&[
@@ -94,7 +94,7 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
                 "--head",
                 &branch,
                 "--state",
-                "open",
+                "all",
                 "--json",
                 "number,state,isDraft,mergeable,mergeStateStatus,reviewDecision,baseRefName,headRefName",
             ])
@@ -132,23 +132,6 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
 
     fn evaluate_single_pr(&self, pr_view: &GhPrListItem) -> Result<PrEntry, RepositoryError> {
         let pr_id = PrId::new(pr_view.number);
-
-        // --state open でフィルタ済みだが、defensive に state を確認してターミナル状態を早期検出する
-        match pr_view.state.as_str() {
-            "MERGED" => {
-                return Ok(PrEntry {
-                    pr_id,
-                    state: PrState::NotApplicable(NotApplicableState::Merged),
-                });
-            }
-            s if !s.is_empty() && s != "OPEN" => {
-                return Ok(PrEntry {
-                    pr_id,
-                    state: PrState::NotApplicable(NotApplicableState::Closed),
-                });
-            }
-            _ => {}
-        }
 
         // branch_sync と ci を並列取得
         let (branch_sync, ci_result) = std::thread::scope(|s| {
@@ -199,24 +182,45 @@ impl<L: ErrorLogger + Sync> PrRepository for GhClient<L> {
             return Ok(vec![]);
         }
 
-        let pr_list = match self.fetch_open_pr_list() {
-            Ok(list) if !list.is_empty() => list,
-            Ok(_empty) => {
-                // PR なし: デフォルトブランチ上は表示不要
-                if self.is_default_branch() {
-                    return Err(RepositoryError::NotGithubRepository);
-                }
-                return Ok(vec![]);
-            }
-            Err(RepositoryError::NotFound) => {
-                return Ok(vec![]);
-            }
+        let all_prs = match self.fetch_pr_list() {
+            Ok(list) => list,
+            Err(RepositoryError::NotFound) => return Ok(vec![]),
             Err(e) => return Err(e),
         };
 
-        // 各 PR を並列で evaluate
+        // PR が一度も作られていない場合
+        if all_prs.is_empty() {
+            if self.is_default_branch() {
+                return Err(RepositoryError::NotGithubRepository);
+            }
+            return Ok(vec![]);
+        }
+
+        let open_prs: Vec<&GhPrListItem> =
+            all_prs.iter().filter(|p| p.state == "OPEN").collect();
+
+        // オープン PR がなく全て MERGED/CLOSED → ターミナル状態
+        if open_prs.is_empty() {
+            let entries = all_prs
+                .iter()
+                .map(|pr| {
+                    let state = if pr.state == "MERGED" {
+                        PrState::NotApplicable(NotApplicableState::Merged)
+                    } else {
+                        PrState::NotApplicable(NotApplicableState::Closed)
+                    };
+                    PrEntry {
+                        pr_id: PrId::new(pr.number),
+                        state,
+                    }
+                })
+                .collect();
+            return Ok(entries);
+        }
+
+        // オープン PR のみを evaluate
         let results: Vec<Result<PrEntry, RepositoryError>> = std::thread::scope(|s| {
-            let handles: Vec<_> = pr_list
+            let handles: Vec<_> = open_prs
                 .iter()
                 .map(|pr_view| s.spawn(|| self.evaluate_single_pr(pr_view)))
                 .collect();

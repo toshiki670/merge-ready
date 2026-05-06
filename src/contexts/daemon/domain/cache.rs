@@ -119,6 +119,7 @@ impl CacheEntry {
         self.refresh_mode = refresh_mode;
     }
 
+    // #239（watch コマンド）実装時に呼び出し元が追加される。その時点でこのアノテーションを削除する。
     #[allow(dead_code)]
     pub fn pr_outputs(&self) -> &[PrOutput] {
         &self.pr_outputs

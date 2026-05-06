@@ -621,6 +621,7 @@ name = "merge-ready"
 version = "0.7.2"
 dependencies = [
  "assert_cmd",
+ "bitflags",
  "clap",
  "clap_complete",
  "criterion",

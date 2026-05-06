@@ -10,6 +10,13 @@ pub enum RefreshModeDto {
     Terminal,
 }
 
+/// PR 単体のレンダリング済み出力 DTO。watch 表示用。
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PrOutputDto {
+    pub pr_id: u64,
+    pub output: String,
+}
+
 /// キャッシュエントリの表示用 DTO。
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EntryDto {
@@ -34,6 +41,7 @@ pub enum Request {
         repo_id: String,
         output: String,
         refresh_mode: RefreshModeDto,
+        pr_outputs: Vec<PrOutputDto>,
     },
     Stop,
     Status,

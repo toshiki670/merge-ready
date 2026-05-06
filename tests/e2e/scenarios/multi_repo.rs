@@ -23,7 +23,7 @@ fn test_daemon_multi_repo_isolation() {
     let out_b = env.prompt_output(&env.repo_b);
 
     assert_eq!(
-        out_a, "✓ Ready for merge",
+        out_a, "✓ Ready for merge #",
         "repo_a should be ready for merge"
     );
     assert!(

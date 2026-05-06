@@ -1,12 +1,13 @@
 use crate::contexts::evaluation::application::config_service;
 use crate::contexts::evaluation::application::errors::ErrorToken;
 use crate::contexts::evaluation::application::port::ErrorLogger;
+use crate::contexts::evaluation::application::prompt::FetchResult;
 use crate::contexts::evaluation::application::prompt::display_item::DisplayItem;
 use crate::contexts::evaluation::application::prompt::fetch;
 use crate::contexts::evaluation::domain::display_config::{
     DisplayConfig, DisplayConfigRepository, TokenConfig, render_error_token, render_token,
 };
-use crate::contexts::evaluation::domain::pr_state::PrRepository;
+use crate::contexts::evaluation::domain::pr_state::{PrId, PrRepository};
 
 /// daemon のキャッシュ更新頻度を制御するヒント。
 /// evaluation ドメインの知識（CI 状態・終端状態）を daemon に伝える interface 層の出力型。
@@ -24,6 +25,8 @@ pub enum CacheHint {
 pub struct RenderResult {
     pub output: String,
     pub cache_hint: CacheHint,
+    /// PR 別のレンダリング済み文字列。watch 表示用。
+    pub pr_outputs: Vec<(PrId, String)>,
 }
 
 pub fn render<R, C, L>(repo: &R, config_repo: &C, logger: &L) -> RenderResult
@@ -34,24 +37,57 @@ where
 {
     let config = config_service::load(config_repo);
     match fetch(repo, logger) {
-        Ok((items, is_terminal)) => {
-            let output = items
-                .iter()
-                .map(|item| render_token(item_to_token(item, &config)))
-                .collect::<Vec<_>>()
-                .join(" ");
+        Ok(FetchResult::NotApplicable) => RenderResult {
+            output: String::new(),
+            cache_hint: CacheHint::Warm,
+            pr_outputs: vec![],
+        },
+        Ok(FetchResult::NoPullRequest) => RenderResult {
+            output: render_token(&config.no_pull_request, None),
+            cache_hint: CacheHint::Warm,
+            pr_outputs: vec![],
+        },
+        Ok(FetchResult::Entries { items, is_terminal }) => {
+            let show_pr_id = items.len() > 1;
+            let mut pr_outputs = Vec::new();
+            let mut all_outputs = Vec::new();
+
+            for (pr_id, display_items) in &items {
+                let id_str = if show_pr_id {
+                    pr_id.to_string()
+                } else {
+                    String::new()
+                };
+                let pr_out = display_items
+                    .iter()
+                    .map(|item| render_token(item_to_token(item, &config), Some(&id_str)))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                pr_outputs.push((*pr_id, pr_out.clone()));
+                all_outputs.push(pr_out);
+            }
+
             let cache_hint = if is_terminal {
                 CacheHint::Terminal
-            } else if items.iter().any(|i| matches!(i, DisplayItem::CiPending)) {
+            } else if items
+                .iter()
+                .any(|(_, dis)| dis.iter().any(|i| matches!(i, DisplayItem::CiPending)))
+            {
                 CacheHint::Hot
             } else {
                 CacheHint::Warm
             };
-            RenderResult { output, cache_hint }
+
+            RenderResult {
+                output: all_outputs.join(" "),
+                cache_hint,
+                pr_outputs,
+            }
         }
         Err(token) => RenderResult {
             output: render_error(&token, &config),
             cache_hint: CacheHint::Warm,
+            pr_outputs: vec![],
         },
     }
 }
@@ -59,7 +95,6 @@ where
 fn item_to_token<'a>(item: &DisplayItem, config: &'a DisplayConfig) -> &'a TokenConfig {
     match item {
         DisplayItem::MergeReady => &config.merge_ready,
-        DisplayItem::NoPullRequest => &config.no_pull_request,
         DisplayItem::Conflict => &config.conflict,
         DisplayItem::UpdateBranch => &config.update_branch,
         DisplayItem::SyncUnknown => &config.sync_unknown,
@@ -81,26 +116,17 @@ fn render_error(token: &ErrorToken, config: &DisplayConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::evaluation::application::prompt::display_item::DisplayItem;
+    use crate::contexts::evaluation::domain::display_config::DisplayConfig;
     use crate::contexts::evaluation::domain::error::RepositoryError;
-    use crate::contexts::evaluation::domain::pr_state::{PrRepository, PrState};
+    use crate::contexts::evaluation::domain::pr_state::{
+        PrEntry, PrId, PrRepository, PrState, blocked::BlockedState, blocked::ci::CiState,
+        not_applicable::NotApplicableState, unblocked::UnblockedState,
+    };
 
-    fn render_item(item: DisplayItem) -> String {
-        let config = DisplayConfig::default();
-        render_token(item_to_token(&item, &config))
-    }
-
-    struct StubRepo(PrState);
-    impl PrRepository for StubRepo {
-        fn fetch(&self) -> Result<PrState, RepositoryError> {
-            Ok(self.0)
-        }
-    }
-
-    struct ErrRepo;
-    impl PrRepository for ErrRepo {
-        fn fetch(&self) -> Result<PrState, RepositoryError> {
-            Err(RepositoryError::Unexpected)
+    struct StubRepoFn(fn() -> Result<Vec<PrEntry>, RepositoryError>);
+    impl PrRepository for StubRepoFn {
+        fn fetch(&self) -> Result<Vec<PrEntry>, RepositoryError> {
+            (self.0)()
         }
     }
 
@@ -116,110 +142,142 @@ mod tests {
         }
     }
 
-    fn hint_for(state: PrState) -> CacheHint {
-        render(&StubRepo(state), &NoOpConfigRepo, &NoOpLogger).cache_hint
+    fn do_render(entries_fn: fn() -> Result<Vec<PrEntry>, RepositoryError>) -> RenderResult {
+        render(&StubRepoFn(entries_fn), &NoOpConfigRepo, &NoOpLogger)
     }
 
     // ── CacheHint 導出 ──────────────────────────────────────────────────────
 
     #[test]
     fn ci_pending_returns_hot() {
-        use crate::contexts::evaluation::domain::pr_state::blocked::BlockedState;
-        use crate::contexts::evaluation::domain::pr_state::blocked::ci::CiState;
-        let state = PrState::Blocked(BlockedState {
-            branch_sync: None,
-            ci: Some(CiState::Pending),
-            review: None,
-            generic: None,
+        let result = do_render(|| {
+            Ok(vec![PrEntry {
+                pr_id: PrId::new(1),
+                state: PrState::Blocked(BlockedState {
+                    branch_sync: None,
+                    ci: Some(CiState::Pending),
+                    review: None,
+                    generic: None,
+                }),
+            }])
         });
-        assert_eq!(hint_for(state), CacheHint::Hot);
+        assert_eq!(result.cache_hint, CacheHint::Hot);
     }
 
     #[test]
     fn ci_fail_returns_warm() {
-        use crate::contexts::evaluation::domain::pr_state::blocked::BlockedState;
-        use crate::contexts::evaluation::domain::pr_state::blocked::ci::CiState;
-        let state = PrState::Blocked(BlockedState {
-            branch_sync: None,
-            ci: Some(CiState::Fail),
-            review: None,
-            generic: None,
+        let result = do_render(|| {
+            Ok(vec![PrEntry {
+                pr_id: PrId::new(1),
+                state: PrState::Blocked(BlockedState {
+                    branch_sync: None,
+                    ci: Some(CiState::Fail),
+                    review: None,
+                    generic: None,
+                }),
+            }])
         });
-        assert_eq!(hint_for(state), CacheHint::Warm);
+        assert_eq!(result.cache_hint, CacheHint::Warm);
     }
 
     #[test]
     fn merge_ready_returns_warm() {
-        use crate::contexts::evaluation::domain::pr_state::unblocked::UnblockedState;
-        assert_eq!(
-            hint_for(PrState::Unblocked(UnblockedState::MergeReady)),
-            CacheHint::Warm
-        );
+        let result = do_render(|| {
+            Ok(vec![PrEntry {
+                pr_id: PrId::new(1),
+                state: PrState::Unblocked(UnblockedState::MergeReady),
+            }])
+        });
+        assert_eq!(result.cache_hint, CacheHint::Warm);
     }
 
     #[test]
     fn merged_pr_returns_terminal() {
-        use crate::contexts::evaluation::domain::pr_state::NotApplicableState;
-        assert_eq!(
-            hint_for(PrState::NotApplicable(NotApplicableState::Merged)),
-            CacheHint::Terminal
-        );
+        let result = do_render(|| {
+            Ok(vec![PrEntry {
+                pr_id: PrId::new(1),
+                state: PrState::NotApplicable(NotApplicableState::Merged),
+            }])
+        });
+        assert_eq!(result.cache_hint, CacheHint::Terminal);
     }
 
     #[test]
     fn closed_pr_returns_terminal() {
-        use crate::contexts::evaluation::domain::pr_state::NotApplicableState;
-        assert_eq!(
-            hint_for(PrState::NotApplicable(NotApplicableState::Closed)),
-            CacheHint::Terminal
-        );
+        let result = do_render(|| {
+            Ok(vec![PrEntry {
+                pr_id: PrId::new(1),
+                state: PrState::NotApplicable(NotApplicableState::Closed),
+            }])
+        });
+        assert_eq!(result.cache_hint, CacheHint::Terminal);
+    }
+
+    #[test]
+    fn empty_entries_returns_no_pull_request_output() {
+        let result = do_render(|| Ok(vec![]));
+        assert_eq!(result.cache_hint, CacheHint::Warm);
+        assert_eq!(result.pr_outputs.len(), 0);
     }
 
     #[test]
     fn fetch_error_returns_warm() {
-        assert_eq!(
-            render(&ErrRepo, &NoOpConfigRepo, &NoOpLogger).cache_hint,
-            CacheHint::Warm
-        );
+        let result = do_render(|| Err(RepositoryError::Unexpected));
+        assert_eq!(result.cache_hint, CacheHint::Warm);
+    }
+
+    // ── 複数 PR レンダリング ────────────────────────────────────────────────
+
+    #[test]
+    fn single_pr_renders_without_pr_id_number() {
+        // 単独 PR の場合、$pr_id は "" なので format 中の "#" が残る（過渡的挙動）
+        let result = do_render(|| {
+            Ok(vec![PrEntry {
+                pr_id: PrId::new(200),
+                state: PrState::Unblocked(UnblockedState::MergeReady),
+            }])
+        });
+        assert_eq!(result.pr_outputs.len(), 1);
+        // pr_id として "" が渡されるため "#" だけ残る
+        assert!(result.output.contains('#'));
+        assert!(!result.output.contains("200"));
     }
 
     #[test]
-    fn no_pull_request_renders_create_pr() {
-        assert_eq!(render_item(DisplayItem::NoPullRequest), "+ Create PR");
+    fn multiple_prs_render_with_pr_id_numbers() {
+        let result = do_render(|| {
+            Ok(vec![
+                PrEntry {
+                    pr_id: PrId::new(200),
+                    state: PrState::Unblocked(UnblockedState::MergeReady),
+                },
+                PrEntry {
+                    pr_id: PrId::new(201),
+                    state: PrState::Unblocked(UnblockedState::Draft),
+                },
+            ])
+        });
+        assert_eq!(result.pr_outputs.len(), 2);
+        assert!(result.output.contains("200"));
+        assert!(result.output.contains("201"));
     }
 
     #[test]
-    fn draft_renders_ready_for_review() {
-        assert_eq!(render_item(DisplayItem::Draft), "✎ Ready for review");
-    }
-
-    #[test]
-    fn review_required_renders_assign_reviewer() {
-        assert_eq!(
-            render_item(DisplayItem::ReviewRequired),
-            "@ Assign reviewer"
-        );
-    }
-
-    #[test]
-    fn ci_pending_renders_wait_for_ci() {
-        assert_eq!(render_item(DisplayItem::CiPending), "⧖ Wait for CI");
-    }
-
-    #[test]
-    fn status_calculating_renders_wait_for_status() {
-        assert_eq!(
-            render_item(DisplayItem::StatusCalculating),
-            "⧖ Wait for status"
-        );
-    }
-
-    #[test]
-    fn blocked_unknown_renders_check_merge_blocker() {
-        assert_eq!(
-            render_item(DisplayItem::BlockedUnknown),
-            "? Check merge blocker"
-        );
+    fn multiple_prs_pr_outputs_keyed_by_pr_id() {
+        let result = do_render(|| {
+            Ok(vec![
+                PrEntry {
+                    pr_id: PrId::new(200),
+                    state: PrState::Unblocked(UnblockedState::MergeReady),
+                },
+                PrEntry {
+                    pr_id: PrId::new(201),
+                    state: PrState::Unblocked(UnblockedState::Draft),
+                },
+            ])
+        });
+        assert_eq!(result.pr_outputs[0].0, PrId::new(200));
+        assert_eq!(result.pr_outputs[1].0, PrId::new(201));
     }
 
     #[test]

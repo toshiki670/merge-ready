@@ -3,6 +3,9 @@ use serde::Serialize;
 use super::format_parser::{Segment, parse_segments};
 use super::style_spec::StyleSpec;
 
+/// PR 状態トークン 12 種のデフォルトフォーマット。`$pr_id` を含む。
+const DEFAULT_PR_FORMAT: &str = "$symbol $label #$pr_id";
+/// `no_pull_request` / `error` トークンのデフォルトフォーマット。
 const DEFAULT_FORMAT: &str = "$symbol $label";
 const DEFAULT_ERROR_FORMAT: &str = "$symbol $message";
 
@@ -26,25 +29,30 @@ pub struct DisplayConfig {
 
 impl Default for DisplayConfig {
     fn default() -> Self {
+        let pr_tok = |symbol: &str, label: &str| TokenConfig {
+            symbol: symbol.to_owned(),
+            label: label.to_owned(),
+            format: DEFAULT_PR_FORMAT.to_owned(),
+        };
         let tok = |symbol: &str, label: &str| TokenConfig {
             symbol: symbol.to_owned(),
             label: label.to_owned(),
             format: DEFAULT_FORMAT.to_owned(),
         };
         Self {
-            merge_ready: tok("✓", "Ready for merge"),
+            merge_ready: pr_tok("✓", "Ready for merge"),
             no_pull_request: tok("+", "Create PR"),
-            conflict: tok("✗", "Resolve conflict"),
-            update_branch: tok("✗", "Update branch"),
-            sync_unknown: tok("?", "Check branch sync"),
-            ci_fail: tok("✗", "Fix CI failure"),
-            ci_action: tok("⚠", "Run CI action"),
-            ci_pending: tok("⧖", "Wait for CI"),
-            changes_requested: tok("⚠", "Resolve review"),
-            review_required: tok("@", "Assign reviewer"),
-            draft: tok("✎", "Ready for review"),
-            status_calculating: tok("⧖", "Wait for status"),
-            blocked_unknown: tok("?", "Check merge blocker"),
+            conflict: pr_tok("✗", "Resolve conflict"),
+            update_branch: pr_tok("✗", "Update branch"),
+            sync_unknown: pr_tok("?", "Check branch sync"),
+            ci_fail: pr_tok("✗", "Fix CI failure"),
+            ci_action: pr_tok("⚠", "Run CI action"),
+            ci_pending: pr_tok("⧖", "Wait for CI"),
+            changes_requested: pr_tok("⚠", "Resolve review"),
+            review_required: pr_tok("@", "Assign reviewer"),
+            draft: pr_tok("✎", "Ready for review"),
+            status_calculating: pr_tok("⧖", "Wait for status"),
+            blocked_unknown: pr_tok("?", "Check merge blocker"),
             error: ErrorConfig::default(),
         }
     }
@@ -61,12 +69,16 @@ pub struct TokenConfig {
     pub format: String,
 }
 
+/// `pr_id` が `Some` の場合は `$pr_id` を置換する。`None` の場合は `$pr_id` を literal のまま残す。
 #[must_use]
-pub fn render_token(token: &TokenConfig) -> String {
-    let substituted = token
+pub fn render_token(token: &TokenConfig, pr_id: Option<&str>) -> String {
+    let mut substituted = token
         .format
         .replace("$symbol", &token.symbol)
         .replace("$label", &token.label);
+    if let Some(id) = pr_id {
+        substituted = substituted.replace("$pr_id", id);
+    }
     render_segments(&substituted)
 }
 
@@ -190,7 +202,7 @@ mod tests {
             label: "Ready".to_owned(),
             format: "$symbol $label".to_owned(),
         };
-        assert_eq!(render_token(&tok), "✓ Ready");
+        assert_eq!(render_token(&tok, None), "✓ Ready");
     }
 
     #[test]
@@ -200,7 +212,7 @@ mod tests {
             label: "Ready".to_owned(),
             format: "[$symbol](bold green) $label".to_owned(),
         };
-        let out = render_token(&tok);
+        let out = render_token(&tok, None);
         assert!(out.contains("\x1b["), "expected ANSI codes in: {out:?}");
         assert!(out.contains("✓"));
         assert!(out.contains("Ready"));
@@ -213,7 +225,7 @@ mod tests {
             label: "Ready".to_owned(),
             format: "[$symbol $label](green)".to_owned(),
         };
-        let out = render_token(&tok);
+        let out = render_token(&tok, None);
         assert!(
             out.contains("✓ Ready"),
             "placeholder must be substituted: {out:?}"
@@ -248,7 +260,7 @@ mod tests {
             label: "Ready".to_owned(),
             format: "[$symbol](bold green) $label".to_owned(),
         };
-        let out = render_token(&tok);
+        let out = render_token(&tok, None);
         let reset = "\x1b[0m";
         let reset_pos = out
             .find(reset)
@@ -277,6 +289,49 @@ mod tests {
             .format
             .replace("$symbol", &tok.symbol)
             .replace("$label", &tok.label);
-        assert_eq!(render_token(&tok), expected);
+        assert_eq!(render_token(&tok, None), expected);
+    }
+
+    // ── $pr_id 置換のテスト ────────────────────────────────────────────────
+
+    #[test]
+    fn render_token_pr_id_substituted_when_some() {
+        let tok = TokenConfig {
+            symbol: "✓".to_owned(),
+            label: "Ready for merge".to_owned(),
+            format: "$symbol $label #$pr_id".to_owned(),
+        };
+        assert_eq!(render_token(&tok, Some("200")), "✓ Ready for merge #200");
+    }
+
+    #[test]
+    fn render_token_pr_id_empty_string_leaves_hash() {
+        let tok = TokenConfig {
+            symbol: "✓".to_owned(),
+            label: "Ready for merge".to_owned(),
+            format: "$symbol $label #$pr_id".to_owned(),
+        };
+        assert_eq!(render_token(&tok, Some("")), "✓ Ready for merge #");
+    }
+
+    #[test]
+    fn render_token_pr_id_not_substituted_when_none() {
+        let tok = TokenConfig {
+            symbol: "+".to_owned(),
+            label: "Create PR".to_owned(),
+            format: "$symbol $label".to_owned(),
+        };
+        assert_eq!(render_token(&tok, None), "+ Create PR");
+    }
+
+    #[test]
+    fn render_token_pr_id_literal_remains_when_none() {
+        let tok = TokenConfig {
+            symbol: "+".to_owned(),
+            label: "Create PR".to_owned(),
+            format: "$symbol $label $pr_id".to_owned(),
+        };
+        // None を渡すと $pr_id は literal のまま残る
+        assert_eq!(render_token(&tok, None), "+ Create PR $pr_id");
     }
 }

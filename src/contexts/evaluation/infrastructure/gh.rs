@@ -17,7 +17,9 @@ use crate::contexts::evaluation::domain::pr_state::blocked::ci::CiState;
 use crate::contexts::evaluation::domain::pr_state::blocked::review::ReviewState;
 use crate::contexts::evaluation::domain::pr_state::not_applicable::NotApplicableState;
 use crate::contexts::evaluation::domain::pr_state::unblocked::UnblockedState;
-use crate::contexts::evaluation::domain::pr_state::{PrRepository, PrState, evaluate};
+use crate::contexts::evaluation::domain::pr_state::{
+    PrEntry, PrId, PrRepository, PrState, evaluate,
+};
 use crate::contexts::evaluation::infrastructure::git::{current_branch, is_git_repo};
 
 // ── GhClient ────────────────────────────────────────────────────────────────
@@ -65,7 +67,25 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
         RepositoryError::from(e)
     }
 
-    fn fetch_pr_list(&self) -> Result<Option<GhPrListItem>, RepositoryError> {
+    fn default_branch(&self) -> String {
+        match self.run_gh(&["repo", "view", "--json", "defaultBranchRef"]) {
+            Ok(bytes) => match serde_json::from_slice::<GhRepoViewFull>(&bytes) {
+                Ok(v) => v.default_branch_ref.name,
+                Err(_) => String::new(),
+            },
+            Err(_) => String::new(),
+        }
+    }
+
+    fn is_default_branch(&self) -> bool {
+        let branch = current_branch(self.cwd.as_deref()).unwrap_or_default();
+        if branch.is_empty() {
+            return false;
+        }
+        branch == self.default_branch()
+    }
+
+    fn fetch_open_pr_list(&self) -> Result<Vec<GhPrListItem>, RepositoryError> {
         let branch = current_branch(self.cwd.as_deref()).unwrap_or_default();
         let bytes = self
             .run_gh(&[
@@ -74,25 +94,25 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
                 "--head",
                 &branch,
                 "--state",
-                "all",
-                "--limit",
-                "1",
+                "open",
                 "--json",
                 "number,state,isDraft,mergeable,mergeStateStatus,reviewDecision,baseRefName,headRefName",
             ])
             .map_err(|e| self.log_and_convert(e))?;
-        let items: Vec<GhPrListItem> = serde_json::from_slice(&bytes).map_err(|e| {
+        let mut items: Vec<GhPrListItem> = serde_json::from_slice(&bytes).map_err(|e| {
             self.logger.log(&LogRecord {
                 category: ErrorCategory::Unknown,
                 detail: Some(e.to_string()),
             });
             RepositoryError::Unexpected
         })?;
-        Ok(items.into_iter().next())
+        items.sort_by_key(|i| i.number);
+        Ok(items)
     }
 
-    fn fetch_ci_state(&self) -> Result<Option<CiState>, RepositoryError> {
-        let bytes = match self.run_gh(&["pr", "checks", "--json", "bucket,state"]) {
+    fn fetch_ci_state_for(&self, pr_number: u64) -> Result<Option<CiState>, RepositoryError> {
+        let pr_num_str = pr_number.to_string();
+        let bytes = match self.run_gh(&["pr", "checks", &pr_num_str, "--json", "bucket,state"]) {
             Ok(b) => b,
             Err(GhError::ApiError(msg)) if msg.contains("no checks reported") => {
                 return Ok(None);
@@ -110,70 +130,39 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
         Ok(aggregate_ci(&buckets))
     }
 
-    fn resolve_no_pr(&self) -> PrState {
-        if self.is_default_branch() {
-            PrState::NotApplicable(NotApplicableState::DefaultBranch)
-        } else {
-            PrState::NoPr
-        }
-    }
+    fn evaluate_single_pr(&self, pr_view: &GhPrListItem) -> Result<PrEntry, RepositoryError> {
+        let pr_id = PrId::new(pr_view.number);
 
-    fn is_default_branch(&self) -> bool {
-        let Some(current) = current_branch(self.cwd.as_deref()) else {
-            return false;
-        };
-        let Some(default) = self.default_branch() else {
-            return false;
-        };
-        current == default
-    }
-
-    fn default_branch(&self) -> Option<String> {
-        let bytes = run_gh(
-            &["repo", "view", "--json", "defaultBranchRef"],
-            self.cwd.as_deref(),
-        )
-        .ok()?;
-        let repo: GhRepoViewFull = serde_json::from_slice(&bytes).ok()?;
-        Some(repo.default_branch_ref.name)
-    }
-}
-
-// ── PrRepository 実装 ────────────────────────────────────────────────────────
-
-impl<L: ErrorLogger + Sync> PrRepository for GhClient<L> {
-    fn fetch(&self) -> Result<PrState, RepositoryError> {
-        if !is_git_repo(self.cwd.as_deref()) {
-            return Ok(PrState::NotApplicable(NotApplicableState::NoRepository));
-        }
-
-        let pr_view = match self.fetch_pr_list() {
-            Ok(Some(v)) => v,
-            Ok(None) | Err(RepositoryError::NotFound) => return Ok(self.resolve_no_pr()),
-            Err(RepositoryError::NotGithubRepository) => {
-                return Ok(PrState::NotApplicable(NotApplicableState::NoRepository));
-            }
-            Err(e) => return Err(e),
-        };
-
+        // --state open でフィルタ済みだが、defensive に state を確認してターミナル状態を早期検出する
         match pr_view.state.as_str() {
-            "MERGED" => return Ok(PrState::NotApplicable(NotApplicableState::Merged)),
-            s if s != "OPEN" => return Ok(PrState::NotApplicable(NotApplicableState::Closed)),
+            "MERGED" => {
+                return Ok(PrEntry {
+                    pr_id,
+                    state: PrState::NotApplicable(NotApplicableState::Merged),
+                });
+            }
+            s if !s.is_empty() && s != "OPEN" => {
+                return Ok(PrEntry {
+                    pr_id,
+                    state: PrState::NotApplicable(NotApplicableState::Closed),
+                });
+            }
             _ => {}
         }
 
-        // branch_sync は Compare API（追加 gh 呼び出し）、ci は pr checks（別 gh 呼び出し）なので並列化
+        // branch_sync と ci を並列取得
         let (branch_sync, ci_result) = std::thread::scope(|s| {
             let cwd = self.cwd.as_deref();
             let base = pr_view.base_ref_name.as_str();
             let head = pr_view.head_ref_name.as_str();
             let mergeable = pr_view.mergeable.as_str();
+            let pr_number = pr_view.number;
 
             let sync_handle = s.spawn(move || {
                 let behind_by = fetch_behind_by(base, head, cwd);
                 translate_sync(mergeable, behind_by)
             });
-            let ci_handle = s.spawn(|| self.fetch_ci_state());
+            let ci_handle = s.spawn(move || self.fetch_ci_state_for(pr_number));
 
             (
                 sync_handle.join().expect("sync thread panicked"),
@@ -188,13 +177,56 @@ impl<L: ErrorLogger + Sync> PrRepository for GhClient<L> {
             pr_view.merge_state_status.as_str(),
             "MERGE_STATE_UNKNOWN" | "UNKNOWN"
         ) {
-            return Ok(PrState::NotApplicable(NotApplicableState::Calculating));
+            return Ok(PrEntry {
+                pr_id,
+                state: PrState::NotApplicable(NotApplicableState::Calculating),
+            });
         }
 
         let review = translate_review(pr_view.review_decision.as_deref());
         let unblocked = translate_unblocked(pr_view.is_draft, &pr_view.merge_state_status);
+        let state = evaluate(branch_sync, ci, review, unblocked);
 
-        Ok(evaluate(branch_sync, ci, review, unblocked))
+        Ok(PrEntry { pr_id, state })
+    }
+}
+
+// ── PrRepository 実装 ────────────────────────────────────────────────────────
+
+impl<L: ErrorLogger + Sync> PrRepository for GhClient<L> {
+    fn fetch(&self) -> Result<Vec<PrEntry>, RepositoryError> {
+        if !is_git_repo(self.cwd.as_deref()) {
+            return Ok(vec![]);
+        }
+
+        let pr_list = match self.fetch_open_pr_list() {
+            Ok(list) if !list.is_empty() => list,
+            Ok(_empty) => {
+                // PR なし: デフォルトブランチ上は表示不要
+                if self.is_default_branch() {
+                    return Err(RepositoryError::NotGithubRepository);
+                }
+                return Ok(vec![]);
+            }
+            Err(RepositoryError::NotFound) => {
+                return Ok(vec![]);
+            }
+            Err(e) => return Err(e),
+        };
+
+        // 各 PR を並列で evaluate
+        let results: Vec<Result<PrEntry, RepositoryError>> = std::thread::scope(|s| {
+            let handles: Vec<_> = pr_list
+                .iter()
+                .map(|pr_view| s.spawn(|| self.evaluate_single_pr(pr_view)))
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().expect("pr evaluation thread panicked"))
+                .collect()
+        });
+
+        results.into_iter().collect()
     }
 }
 

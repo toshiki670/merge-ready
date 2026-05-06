@@ -1,14 +1,14 @@
 /// PR の評価が対象外となる理由
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NotApplicableState {
+    // is_terminal() / entries_are_terminal() の判定とテストで使用する。
+    // gh pr list --state open では返されないが、将来の拡張のために保持している。
+    #[allow(dead_code)]
     /// PR がマージ済み
     Merged,
+    #[allow(dead_code)]
     /// PR がクローズ済み（マージなし）
     Closed,
-    /// main / master など、PR を作る対象でないブランチでの実行
-    DefaultBranch,
-    /// Git リポジトリ外での実行
-    NoRepository,
     /// GitHub がマージ状態を計算中（過渡的な状態）
     Calculating,
 }

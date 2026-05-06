@@ -13,11 +13,45 @@ pub use not_applicable::NotApplicableState;
 
 use super::error::RepositoryError;
 
+/// PR 番号を表す値オブジェクト。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PrId(u64);
+
+impl PrId {
+    #[must_use]
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
+
+    #[must_use]
+    pub fn as_u64(self) -> u64 {
+        self.0
+    }
+}
+
+impl std::fmt::Display for PrId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// PR 番号と評価状態のペア。
+pub struct PrEntry {
+    pub pr_id: PrId,
+    pub state: PrState,
+}
+
+/// PR エントリ群が全て終端状態（マージ済み・クローズ済み）かどうかを返す。
+///
+/// 空リストは「PRが後から作成される可能性がある」ため false。
+#[must_use]
+pub fn entries_are_terminal(entries: &[PrEntry]) -> bool {
+    !entries.is_empty() && entries.iter().all(|e| e.state.is_terminal())
+}
+
 /// PR の評価状態（排他的）
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrState {
-    /// PR 未作成
-    NoPr,
     /// PR 作成済み・blocker あり
     Blocked(BlockedState),
     /// PR 作成済み・blocker なし
@@ -42,7 +76,7 @@ impl PrState {
 pub trait PrRepository {
     /// # Errors
     /// Returns `RepositoryError` if the PR state cannot be fetched.
-    fn fetch(&self) -> Result<PrState, RepositoryError>;
+    fn fetch(&self) -> Result<Vec<PrEntry>, RepositoryError>;
 }
 
 /// PR の評価状態を決定するビジネスルール
@@ -151,5 +185,54 @@ mod tests {
             panic!("expected Blocked");
         };
         assert_eq!(blocked.generic, None);
+    }
+
+    // ── PrId ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn pr_id_display() {
+        assert_eq!(PrId::new(42).to_string(), "42");
+    }
+
+    #[test]
+    fn pr_id_as_u64() {
+        assert_eq!(PrId::new(200).as_u64(), 200);
+    }
+
+    // ── entries_are_terminal ────────────────────────────────────────────────
+
+    #[test]
+    fn empty_entries_are_not_terminal() {
+        assert!(!entries_are_terminal(&[]));
+    }
+
+    #[test]
+    fn all_merged_entries_are_terminal() {
+        let entries = vec![
+            PrEntry {
+                pr_id: PrId::new(1),
+                state: PrState::NotApplicable(NotApplicableState::Merged),
+            },
+            PrEntry {
+                pr_id: PrId::new(2),
+                state: PrState::NotApplicable(NotApplicableState::Closed),
+            },
+        ];
+        assert!(entries_are_terminal(&entries));
+    }
+
+    #[test]
+    fn mixed_entries_are_not_terminal() {
+        let entries = vec![
+            PrEntry {
+                pr_id: PrId::new(1),
+                state: PrState::NotApplicable(NotApplicableState::Merged),
+            },
+            PrEntry {
+                pr_id: PrId::new(2),
+                state: PrState::Unblocked(UnblockedState::MergeReady),
+            },
+        ];
+        assert!(!entries_are_terminal(&entries));
     }
 }

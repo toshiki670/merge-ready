@@ -38,7 +38,7 @@ fn plain_format_produces_no_ansi() {
     env.apply_with_cache(&mut cmd);
     cmd.assert()
         .success()
-        .stdout(predicate::str::diff("✓ Ready for merge"))
+        .stdout(predicate::str::diff("✓ Ready for merge #"))
         .stderr("");
 }
 

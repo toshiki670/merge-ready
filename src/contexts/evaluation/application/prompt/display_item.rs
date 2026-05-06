@@ -17,7 +17,6 @@ pub enum DisplayItem {
     ChangesRequested,
     ReviewRequired,
     MergeReady,
-    NoPullRequest,
     Draft,
     StatusCalculating,
     BlockedUnknown,
@@ -28,7 +27,6 @@ pub fn from_pr_state(state: PrState) -> Vec<DisplayItem> {
         PrState::Blocked(blocked) => from_blocked(blocked),
         PrState::Unblocked(UnblockedState::MergeReady) => vec![DisplayItem::MergeReady],
         PrState::Unblocked(UnblockedState::Draft) => vec![DisplayItem::Draft],
-        PrState::NoPr => vec![DisplayItem::NoPullRequest],
         PrState::NotApplicable(NotApplicableState::Calculating) => {
             vec![DisplayItem::StatusCalculating]
         }
@@ -70,13 +68,6 @@ fn from_blocked(blocked: BlockedState) -> Vec<DisplayItem> {
 mod tests {
     use super::*;
     use crate::contexts::evaluation::domain::pr_state::blocked::BlockedState;
-
-    #[test]
-    fn no_pr_maps_to_no_pull_request() {
-        let items = from_pr_state(PrState::NoPr);
-        assert_eq!(items.len(), 1);
-        assert!(matches!(items[0], DisplayItem::NoPullRequest));
-    }
 
     #[test]
     fn draft_maps_to_draft() {

@@ -5,7 +5,7 @@ pub(crate) mod contexts;
 use std::process::ExitCode;
 
 use crate::contexts::daemon::application::cache as daemon_cache_app;
-use crate::contexts::daemon::domain::cache::{RefreshMode, RepoId};
+use crate::contexts::daemon::domain::cache::{PrOutput, RefreshMode, RepoId};
 use crate::contexts::daemon::infrastructure::daemon_client::DaemonClient;
 use crate::contexts::daemon::infrastructure::daemon_lifecycle::DaemonLifecycle;
 use crate::contexts::evaluation::infrastructure::toml_loader::TomlConfigRepository;
@@ -31,7 +31,21 @@ fn build_daemon_lifecycle() -> DaemonLifecycle {
                 &Logger,
             );
             let refresh_mode = cache_hint_to_refresh_mode(result.cache_hint);
-            daemon_cache_app::update(&DaemonClient, repo_id, &result.output, refresh_mode);
+            let pr_outputs = result
+                .pr_outputs
+                .into_iter()
+                .map(|(pr_id, output)| PrOutput {
+                    pr_id: pr_id.as_u64(),
+                    output,
+                })
+                .collect();
+            daemon_cache_app::update(
+                &DaemonClient,
+                repo_id,
+                &result.output,
+                refresh_mode,
+                pr_outputs,
+            );
         },
     )
 }

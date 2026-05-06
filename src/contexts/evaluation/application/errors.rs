@@ -4,7 +4,7 @@ pub use super::port::ErrorLogger;
 use super::port::{ErrorCategory, LogRecord};
 
 /// エラー時に表示するトークン。メッセージはエラー発生箇所で定義される。
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ErrorToken {
     pub message: String,
 }

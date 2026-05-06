@@ -217,6 +217,45 @@ impl TestEnv {
         }
     }
 
+    /// 複数 PR シナリオ: `pr_list_json` に複数エントリを含む JSON 配列を直接指定する。
+    ///
+    /// `pr_list_json` は `[{...}, {...}]` 形式の完全な JSON 配列。
+    /// `gh pr checks` はすべての PR 番号に対して同じ `pr_checks_json` を返す。
+    pub fn with_pr_list(pr_list_json: &str, pr_checks_json: Option<&str>) -> Self {
+        let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");
+
+        let checks_block = match pr_checks_json {
+            Some(j) => format!("printf '%s' '{j}'\n"),
+            None => "printf 'unexpected pr checks call' >&2\nexit 1\n".to_string(),
+        };
+
+        let script = format!(
+            "#!/bin/sh\n\
+             case \"$*\" in\n\
+               *'pr list'*)\n\
+                 printf '%s' '{pr_list_json}'\n\
+                 ;;\n\
+               *'pr checks'*)\n\
+                 {checks_block}\
+                 ;;\n\
+               *'api'*'compare'*)\n\
+                 printf '{{\"behind_by\":0}}'\n\
+                 ;;\n\
+               *)\n\
+                 printf 'unknown gh command: %s' \"$*\" >&2\n\
+                 exit 127\n\
+                 ;;\n\
+             esac\n"
+        );
+
+        write_executable(bin_dir.path().join("gh"), &script);
+        Self {
+            bin_dir,
+            home_dir,
+            repo_dir,
+        }
+    }
+
     /// `gh` バイナリが `PATH` に存在しないシナリオ
     pub fn without_gh() -> Self {
         let (bin_dir, home_dir, repo_dir) = Self::setup_with_git("feat/my-feature");

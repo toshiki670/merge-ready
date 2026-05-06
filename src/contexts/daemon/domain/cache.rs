@@ -62,9 +62,16 @@ enum FetchState {
     Refreshing,
 }
 
+/// PR 単体のレンダリング済み出力。watch 表示用。
+pub struct PrOutput {
+    pub pr_id: u64,
+    pub output: String,
+}
+
 /// キャッシュエントリのドメインエンティティ。
 pub struct CacheEntry {
     output: String,
+    pr_outputs: Vec<PrOutput>,
     fetch_state: FetchState,
     pub(crate) fetched_at: Instant,
     fetched_at_wall: SystemTime,
@@ -86,6 +93,7 @@ impl CacheEntry {
             .unwrap_or_else(Instant::now);
         Self {
             output: String::new(),
+            pr_outputs: Vec::new(),
             fetch_state: FetchState::Loading,
             fetched_at: past,
             fetched_at_wall: SystemTime::now(),
@@ -101,13 +109,20 @@ impl CacheEntry {
     // ── 状態遷移 ──────────────────────────────────────────────────────────────
 
     /// バックグラウンドワーカーの取得結果でエントリを更新する。
-    pub fn update(&mut self, output: String, refresh_mode: RefreshMode) {
+    pub fn update(&mut self, output: String, pr_outputs: Vec<PrOutput>, refresh_mode: RefreshMode) {
         self.output = output;
+        self.pr_outputs = pr_outputs;
         self.fetch_state = FetchState::Ready;
         self.fetched_at = Instant::now();
         self.fetched_at_wall = SystemTime::now();
         self.refresh_started_at = None;
         self.refresh_mode = refresh_mode;
+    }
+
+    // #239（watch コマンド）実装時に呼び出し元が追加される。その時点でこのアノテーションを削除する。
+    #[allow(dead_code)]
+    pub fn pr_outputs(&self) -> &[PrOutput] {
+        &self.pr_outputs
     }
 
     /// リフレッシュ開始をマークする。
@@ -233,7 +248,13 @@ impl CacheEntry {
 /// キャッシュの更新ポート
 pub trait CachePort {
     /// キャッシュを更新する。失敗は静かに無視する。
-    fn update(&self, repo_id: &RepoId, output: &str, refresh_mode: RefreshMode);
+    fn update(
+        &self,
+        repo_id: &RepoId,
+        output: &str,
+        refresh_mode: RefreshMode,
+        pr_outputs: Vec<PrOutput>,
+    );
 }
 
 #[cfg(test)]
@@ -244,7 +265,7 @@ mod tests {
 
     fn make_entry(output: &str, refresh_mode: RefreshMode) -> CacheEntry {
         let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
-        e.update(output.to_owned(), refresh_mode);
+        e.update(output.to_owned(), vec![], refresh_mode);
         e.record_query();
         e
     }
@@ -304,7 +325,7 @@ mod tests {
     #[test]
     fn update_clears_refreshing_and_sets_has_fetched() {
         let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
-        e.update("out".to_owned(), RefreshMode::Warm);
+        e.update("out".to_owned(), vec![], RefreshMode::Warm);
         assert!(!e.is_refreshing());
         assert!(e.has_fetched());
     }
@@ -312,14 +333,14 @@ mod tests {
     #[test]
     fn update_sets_fresh() {
         let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
-        e.update("out".to_owned(), RefreshMode::Warm);
+        e.update("out".to_owned(), vec![], RefreshMode::Warm);
         assert!(e.is_fresh(5));
     }
 
     #[test]
     fn update_sets_refresh_mode() {
         let mut e = make_entry("out", RefreshMode::Warm);
-        e.update(String::new(), RefreshMode::Terminal);
+        e.update(String::new(), vec![], RefreshMode::Terminal);
         assert_eq!(e.refresh_mode(), RefreshMode::Terminal);
     }
 
@@ -506,7 +527,7 @@ mod tests {
     fn update_refreshes_fetched_at_wall() {
         let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
         let before = SystemTime::now();
-        e.update("out".to_owned(), RefreshMode::Warm);
+        e.update("out".to_owned(), vec![], RefreshMode::Warm);
         let after = SystemTime::now();
         assert!(e.fetched_at_wall() >= before);
         assert!(e.fetched_at_wall() <= after);

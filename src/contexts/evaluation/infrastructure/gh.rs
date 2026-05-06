@@ -12,12 +12,14 @@ use schema::{
 
 use crate::contexts::evaluation::application::port::{ErrorCategory, ErrorLogger, LogRecord};
 use crate::contexts::evaluation::domain::error::RepositoryError;
-use crate::contexts::evaluation::domain::pr_state::blocked::branch_sync::BranchSyncState;
-use crate::contexts::evaluation::domain::pr_state::blocked::ci::CiState;
-use crate::contexts::evaluation::domain::pr_state::blocked::review::ReviewState;
-use crate::contexts::evaluation::domain::pr_state::not_applicable::NotApplicableState;
-use crate::contexts::evaluation::domain::pr_state::unblocked::UnblockedState;
-use crate::contexts::evaluation::domain::pr_state::{PrRepository, PrState, evaluate};
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::branch_sync::BranchSyncState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::ci::CiState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::review::ReviewState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::evaluate;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::unblocked::UnblockedState;
+use crate::contexts::evaluation::domain::prompt::{
+    PrId, Prompt, PromptRepository, PullRequest, State,
+};
 use crate::contexts::evaluation::infrastructure::git::{current_branch, is_git_repo};
 
 // ── GhClient ────────────────────────────────────────────────────────────────
@@ -65,34 +67,50 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
         RepositoryError::from(e)
     }
 
-    fn fetch_pr_list(&self) -> Result<Option<GhPrListItem>, RepositoryError> {
+    fn default_branch(&self) -> String {
+        match self.run_gh(&["repo", "view", "--json", "defaultBranchRef"]) {
+            Ok(bytes) => match serde_json::from_slice::<GhRepoViewFull>(&bytes) {
+                Ok(v) => v.default_branch_ref.name,
+                Err(_) => String::new(),
+            },
+            Err(_) => String::new(),
+        }
+    }
+
+    fn is_default_branch(&self) -> bool {
         let branch = current_branch(self.cwd.as_deref()).unwrap_or_default();
-        let bytes = self
-            .run_gh(&[
-                "pr",
-                "list",
-                "--head",
-                &branch,
-                "--state",
-                "all",
-                "--limit",
-                "1",
-                "--json",
-                "number,state,isDraft,mergeable,mergeStateStatus,reviewDecision,baseRefName,headRefName",
-            ])
-            .map_err(|e| self.log_and_convert(e))?;
-        let items: Vec<GhPrListItem> = serde_json::from_slice(&bytes).map_err(|e| {
+        if branch.is_empty() {
+            return false;
+        }
+        branch == self.default_branch()
+    }
+
+    fn fetch_pr_list(&self) -> Result<Vec<GhPrListItem>, GhError> {
+        let branch = current_branch(self.cwd.as_deref()).unwrap_or_default();
+        let bytes = self.run_gh(&[
+            "pr",
+            "list",
+            "--head",
+            &branch,
+            "--state",
+            "all",
+            "--json",
+            "number,state,isDraft,mergeable,mergeStateStatus,reviewDecision,baseRefName,headRefName",
+        ])?;
+        let mut items: Vec<GhPrListItem> = serde_json::from_slice(&bytes).map_err(|e| {
             self.logger.log(&LogRecord {
                 category: ErrorCategory::Unknown,
                 detail: Some(e.to_string()),
             });
-            RepositoryError::Unexpected
+            GhError::ApiError(e.to_string())
         })?;
-        Ok(items.into_iter().next())
+        items.sort_by_key(|i| i.number);
+        Ok(items)
     }
 
-    fn fetch_ci_state(&self) -> Result<Option<CiState>, RepositoryError> {
-        let bytes = match self.run_gh(&["pr", "checks", "--json", "bucket,state"]) {
+    fn fetch_ci_state_for(&self, pr_number: u64) -> Result<Option<CiState>, RepositoryError> {
+        let pr_num_str = pr_number.to_string();
+        let bytes = match self.run_gh(&["pr", "checks", &pr_num_str, "--json", "bucket,state"]) {
             Ok(b) => b,
             Err(GhError::ApiError(msg)) if msg.contains("no checks reported") => {
                 return Ok(None);
@@ -110,70 +128,22 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
         Ok(aggregate_ci(&buckets))
     }
 
-    fn resolve_no_pr(&self) -> PrState {
-        if self.is_default_branch() {
-            PrState::NotApplicable(NotApplicableState::DefaultBranch)
-        } else {
-            PrState::NoPr
-        }
-    }
+    fn evaluate_single_pr(&self, pr_view: &GhPrListItem) -> Result<PullRequest, RepositoryError> {
+        let id = PrId::new(pr_view.number);
 
-    fn is_default_branch(&self) -> bool {
-        let Some(current) = current_branch(self.cwd.as_deref()) else {
-            return false;
-        };
-        let Some(default) = self.default_branch() else {
-            return false;
-        };
-        current == default
-    }
-
-    fn default_branch(&self) -> Option<String> {
-        let bytes = run_gh(
-            &["repo", "view", "--json", "defaultBranchRef"],
-            self.cwd.as_deref(),
-        )
-        .ok()?;
-        let repo: GhRepoViewFull = serde_json::from_slice(&bytes).ok()?;
-        Some(repo.default_branch_ref.name)
-    }
-}
-
-// ── PrRepository 実装 ────────────────────────────────────────────────────────
-
-impl<L: ErrorLogger + Sync> PrRepository for GhClient<L> {
-    fn fetch(&self) -> Result<PrState, RepositoryError> {
-        if !is_git_repo(self.cwd.as_deref()) {
-            return Ok(PrState::NotApplicable(NotApplicableState::NoRepository));
-        }
-
-        let pr_view = match self.fetch_pr_list() {
-            Ok(Some(v)) => v,
-            Ok(None) | Err(RepositoryError::NotFound) => return Ok(self.resolve_no_pr()),
-            Err(RepositoryError::NotGithubRepository) => {
-                return Ok(PrState::NotApplicable(NotApplicableState::NoRepository));
-            }
-            Err(e) => return Err(e),
-        };
-
-        match pr_view.state.as_str() {
-            "MERGED" => return Ok(PrState::NotApplicable(NotApplicableState::Merged)),
-            s if s != "OPEN" => return Ok(PrState::NotApplicable(NotApplicableState::Closed)),
-            _ => {}
-        }
-
-        // branch_sync は Compare API（追加 gh 呼び出し）、ci は pr checks（別 gh 呼び出し）なので並列化
+        // branch_sync と ci を並列取得
         let (branch_sync, ci_result) = std::thread::scope(|s| {
             let cwd = self.cwd.as_deref();
             let base = pr_view.base_ref_name.as_str();
             let head = pr_view.head_ref_name.as_str();
             let mergeable = pr_view.mergeable.as_str();
+            let pr_number = pr_view.number;
 
             let sync_handle = s.spawn(move || {
                 let behind_by = fetch_behind_by(base, head, cwd);
                 translate_sync(mergeable, behind_by)
             });
-            let ci_handle = s.spawn(|| self.fetch_ci_state());
+            let ci_handle = s.spawn(move || self.fetch_ci_state_for(pr_number));
 
             (
                 sync_handle.join().expect("sync thread panicked"),
@@ -188,13 +158,64 @@ impl<L: ErrorLogger + Sync> PrRepository for GhClient<L> {
             pr_view.merge_state_status.as_str(),
             "MERGE_STATE_UNKNOWN" | "UNKNOWN"
         ) {
-            return Ok(PrState::NotApplicable(NotApplicableState::Calculating));
+            return Ok(PullRequest {
+                id,
+                state: State::Calculating,
+            });
         }
 
         let review = translate_review(pr_view.review_decision.as_deref());
         let unblocked = translate_unblocked(pr_view.is_draft, &pr_view.merge_state_status);
+        let state = evaluate(branch_sync, ci, review, unblocked);
 
-        Ok(evaluate(branch_sync, ci, review, unblocked))
+        Ok(PullRequest { id, state })
+    }
+}
+
+// ── PromptRepository 実装 ────────────────────────────────────────────────────────
+
+impl<L: ErrorLogger + Sync> PromptRepository for GhClient<L> {
+    fn fetch(&self) -> Result<Prompt, RepositoryError> {
+        if !is_git_repo(self.cwd.as_deref()) {
+            return Ok(Prompt::NoRepository);
+        }
+
+        let all_prs = match self.fetch_pr_list() {
+            Ok(list) => list,
+            Err(GhError::NoPr) => return Ok(Prompt::NoPullRequest),
+            Err(GhError::NotGithubRepository) => return Ok(Prompt::UnsupportedRepository),
+            Err(e) => return Err(self.log_and_convert(e)),
+        };
+
+        // PR が一度も作られていない場合
+        if all_prs.is_empty() {
+            if self.is_default_branch() {
+                return Ok(Prompt::DefaultBranch);
+            }
+            return Ok(Prompt::NoPullRequest);
+        }
+
+        let open_prs: Vec<&GhPrListItem> = all_prs.iter().filter(|p| p.state == "OPEN").collect();
+
+        // オープン PR がなく全て MERGED/CLOSED → ターミナル状態（空 Vec で表現）
+        if open_prs.is_empty() {
+            return Ok(Prompt::PullRequests(vec![]));
+        }
+
+        // オープン PR のみを evaluate
+        let results: Vec<Result<PullRequest, RepositoryError>> = std::thread::scope(|s| {
+            let handles: Vec<_> = open_prs
+                .iter()
+                .map(|pr_view| s.spawn(|| self.evaluate_single_pr(pr_view)))
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().expect("pr evaluation thread panicked"))
+                .collect()
+        });
+
+        let prs: Result<Vec<PullRequest>, RepositoryError> = results.into_iter().collect();
+        Ok(Prompt::PullRequests(prs?))
     }
 }
 
@@ -327,10 +348,11 @@ impl From<GhError> for RepositoryError {
     fn from(e: GhError) -> Self {
         match e {
             GhError::NotInstalled | GhError::AuthRequired => RepositoryError::Unauthenticated,
-            GhError::NoPr => RepositoryError::NotFound,
             GhError::RateLimited => RepositoryError::RateLimited,
-            GhError::NotGithubRepository => RepositoryError::NotGithubRepository,
-            GhError::Timeout | GhError::ApiError(_) => RepositoryError::Unexpected,
+            GhError::NoPr
+            | GhError::NotGithubRepository
+            | GhError::Timeout
+            | GhError::ApiError(_) => RepositoryError::Unexpected,
         }
     }
 }

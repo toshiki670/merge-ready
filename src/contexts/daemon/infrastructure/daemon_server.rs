@@ -9,9 +9,9 @@ use std::time::{Duration, Instant};
 
 use super::paths;
 use super::pid;
-use super::protocol::{EntryDto, RefreshModeDto, Request, Response};
+use super::protocol::{EntryDto, PrOutputDto, RefreshModeDto, Request, Response};
 use super::repo_id;
-use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode, RepoId};
+use crate::contexts::daemon::domain::cache::{CacheEntry, PrOutput, RefreshMode, RepoId};
 use crate::contexts::daemon::domain::daemon::DaemonError;
 use crate::contexts::daemon::domain::refresh_policy::RefreshPolicy;
 
@@ -317,10 +317,12 @@ fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
             repo_id,
             output,
             refresh_mode,
+            pr_outputs,
         } => process_update(
             &RepoId::new(repo_id.clone()),
             output,
             RefreshMode::from(*refresh_mode),
+            pr_outputs,
             &mut s.entries,
         ),
         Request::Stop => ActionResult {
@@ -602,10 +604,18 @@ fn process_update(
     repo_id: &RepoId,
     output: &str,
     refresh_mode: RefreshMode,
+    pr_outputs_dto: &[PrOutputDto],
     entries: &mut HashMap<RepoId, CacheEntry>,
 ) -> ActionResult {
     if let Some(entry) = entries.get_mut(repo_id) {
-        entry.update(output.to_owned(), refresh_mode);
+        let pr_outputs = pr_outputs_dto
+            .iter()
+            .map(|p| PrOutput {
+                pr_id: p.pr_id,
+                output: p.output.clone(),
+            })
+            .collect();
+        entry.update(output.to_owned(), pr_outputs, refresh_mode);
     }
     ActionResult {
         response: Response::Ok,
@@ -658,7 +668,7 @@ mod tests {
 
     fn make_entry(output: &str, refresh_mode: RefreshMode) -> CacheEntry {
         let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
-        e.update(output.to_owned(), refresh_mode);
+        e.update(output.to_owned(), vec![], refresh_mode);
         e.record_query();
         e
     }
@@ -703,7 +713,7 @@ mod tests {
             repo_id.clone(),
             make_entry("✓ Ready for merge", RefreshMode::Warm),
         );
-        process_update(&repo_id, "", RefreshMode::Terminal, &mut entries);
+        process_update(&repo_id, "", RefreshMode::Terminal, &[], &mut entries);
         assert_eq!(entries[&repo_id].refresh_mode(), RefreshMode::Terminal);
     }
 
@@ -715,7 +725,13 @@ mod tests {
             repo_id.clone(),
             make_entry("✓ Ready for merge", RefreshMode::Warm),
         );
-        process_update(&repo_id, "⧖ Wait for CI", RefreshMode::Hot, &mut entries);
+        process_update(
+            &repo_id,
+            "⧖ Wait for CI",
+            RefreshMode::Hot,
+            &[],
+            &mut entries,
+        );
         assert_eq!(entries[&repo_id].refresh_mode(), RefreshMode::Hot);
     }
 
@@ -728,6 +744,7 @@ mod tests {
             &RepoId::new("unknown-repo"),
             "output",
             RefreshMode::Warm,
+            &[],
             &mut entries,
         );
         assert!(
@@ -745,6 +762,7 @@ mod tests {
             &repo_id,
             "✓ Ready for merge",
             RefreshMode::Warm,
+            &[],
             &mut entries,
         );
         assert_eq!(entries[&repo_id].refresh_mode(), RefreshMode::Warm);

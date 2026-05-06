@@ -27,6 +27,7 @@ serde_json = "1.0.149"
 simplelog = "0.12"
 toml = "1.1.2"
 crossterm = "0.29.0"
+bitflags = "2.11.1"
 
 [lib]
 name = "merge_ready"

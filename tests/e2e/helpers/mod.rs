@@ -1,6 +1,7 @@
 mod daemon_handle;
 mod env;
 mod multi_repo;
+mod repo;
 
 pub use daemon_handle::{DaemonHandle, FakeDaemonHandle};
 pub use env::TestEnv;

@@ -1,0 +1,474 @@
+use std::path::PathBuf;
+use std::time::{Duration, Instant, SystemTime};
+
+use super::RefreshMode;
+
+/// `CacheEntry` のフェッチ状態を表す状態機械。
+///
+/// 有効な遷移:
+/// `Loading` → (`update`) → `Ready` → (`mark_refreshing`) → `Refreshing` → (`update`) → `Ready`
+/// `Loading` → (`clear_refresh_lock`) → `PendingRetry` → (`mark_refreshing`) → `Loading`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FetchState {
+    /// 初回リフレッシュ進行中。データ未取得。
+    Loading,
+    /// 初回リフレッシュがタイムアウト。再スケジュール待ち。データ未取得。
+    PendingRetry,
+    /// データ取得済み。リフレッシュ不要。
+    Ready,
+    /// データ取得済み。再リフレッシュ進行中。
+    Refreshing,
+}
+
+/// PR 単体のレンダリング済み出力。watch 表示用。
+pub struct PrOutput {
+    pub pr_id: u64,
+    pub output: String,
+}
+
+/// キャッシュエントリのドメインエンティティ。
+pub struct CacheEntry {
+    output: String,
+    pr_outputs: Vec<PrOutput>,
+    fetch_state: FetchState,
+    pub(crate) fetched_at: Instant,
+    fetched_at_wall: SystemTime,
+    pub(crate) refresh_started_at: Option<Instant>,
+    pub(crate) cwd: PathBuf,
+    branch: String,
+    refresh_mode: RefreshMode,
+    pub(crate) last_queried_at: Option<Instant>,
+    pub(crate) cold_refresh_count: u32,
+}
+
+impl CacheEntry {
+    /// 初回ミス時に生成する新規エントリ。即リフレッシュ済み状態でマークする。
+    ///
+    /// `stale_ttl` は `fetched_at` を TTL 超過済みの過去時刻にセットするために使う。
+    pub fn new(cwd: PathBuf, branch: String, stale_ttl: u64) -> Self {
+        let past = Instant::now()
+            .checked_sub(Duration::from_secs(stale_ttl.saturating_add(1)))
+            .unwrap_or_else(Instant::now);
+        Self {
+            output: String::new(),
+            pr_outputs: Vec::new(),
+            fetch_state: FetchState::Loading,
+            fetched_at: past,
+            fetched_at_wall: SystemTime::now(),
+            refresh_started_at: Some(Instant::now()),
+            cwd,
+            branch,
+            refresh_mode: RefreshMode::Warm,
+            last_queried_at: Some(Instant::now()),
+            cold_refresh_count: 0,
+        }
+    }
+
+    /// バックグラウンドワーカーの取得結果でエントリを更新する。
+    pub fn update(&mut self, output: String, pr_outputs: Vec<PrOutput>, refresh_mode: RefreshMode) {
+        self.output = output;
+        self.pr_outputs = pr_outputs;
+        self.fetch_state = FetchState::Ready;
+        self.fetched_at = Instant::now();
+        self.fetched_at_wall = SystemTime::now();
+        self.refresh_started_at = None;
+        self.refresh_mode = refresh_mode;
+    }
+
+    pub fn pr_outputs(&self) -> &[PrOutput] {
+        &self.pr_outputs
+    }
+
+    /// リフレッシュ開始をマークする。
+    pub fn mark_refreshing(&mut self) {
+        self.fetch_state = match self.fetch_state {
+            FetchState::Loading | FetchState::PendingRetry => FetchState::Loading,
+            FetchState::Ready | FetchState::Refreshing => FetchState::Refreshing,
+        };
+        self.refresh_started_at = Some(Instant::now());
+    }
+
+    /// Query 受付時刻を記録する（Cold 判定・Hot 昇格の基準）。
+    pub fn record_query(&mut self) {
+        self.last_queried_at = Some(Instant::now());
+    }
+
+    /// Cold カウンタをリセットする（Query で Warm に戻ったとき）。
+    pub fn reset_cold_count(&mut self) {
+        self.cold_refresh_count = 0;
+    }
+
+    /// Cold カウンタをインクリメントする（Cold モードでリフレッシュするとき）。
+    pub fn increment_cold_count(&mut self) {
+        self.cold_refresh_count = self.cold_refresh_count.saturating_add(1);
+    }
+
+    /// Terminal → Warm にリセットする（PR 再オープン検知時）。
+    pub fn reset_to_warm(&mut self) {
+        self.refresh_mode = RefreshMode::Warm;
+    }
+
+    /// リフレッシュロックを解除する（タイムアウト時）。
+    pub fn clear_refresh_lock(&mut self) {
+        self.fetch_state = match self.fetch_state {
+            FetchState::Loading | FetchState::PendingRetry => FetchState::PendingRetry,
+            FetchState::Ready | FetchState::Refreshing => FetchState::Ready,
+        };
+        self.refresh_started_at = None;
+    }
+
+    pub fn output(&self) -> &str {
+        &self.output
+    }
+
+    pub fn has_fetched(&self) -> bool {
+        matches!(self.fetch_state, FetchState::Ready | FetchState::Refreshing)
+    }
+
+    pub fn cwd(&self) -> &std::path::Path {
+        &self.cwd
+    }
+
+    pub fn branch(&self) -> &str {
+        &self.branch
+    }
+
+    pub fn fetched_at_wall(&self) -> SystemTime {
+        self.fetched_at_wall
+    }
+
+    pub fn refresh_mode(&self) -> RefreshMode {
+        self.refresh_mode
+    }
+
+    pub fn is_refreshing(&self) -> bool {
+        matches!(
+            self.fetch_state,
+            FetchState::Loading | FetchState::Refreshing
+        )
+    }
+
+    pub fn cold_refresh_count(&self) -> u32 {
+        self.cold_refresh_count
+    }
+
+    /// 出力が存在し Terminal でないとき active とみなす（バックグラウンドリフレッシュ対象）。
+    pub fn is_active(&self) -> bool {
+        !self.output.is_empty() && self.refresh_mode != RefreshMode::Terminal
+    }
+
+    /// `fetched_at` から `ttl` 秒以内なら fresh とみなす。
+    pub fn is_fresh(&self, ttl: u64) -> bool {
+        self.fetched_at.elapsed().as_secs() <= ttl
+    }
+
+    /// `last_queried_at` から `max_age_secs` 以上経過したエントリを削除対象とみなす。
+    pub fn is_expired(&self, max_age_secs: u64) -> bool {
+        self.last_queried_at
+            .is_some_and(|t| t.elapsed().as_secs() >= max_age_secs)
+    }
+
+    /// リフレッシュ開始から `timeout_secs` 以上経過したらロック切れとみなす。
+    pub fn refresh_lock_expired(&self, timeout_secs: u64) -> bool {
+        self.refresh_started_at
+            .is_some_and(|started| started.elapsed().as_secs() >= timeout_secs)
+    }
+
+    /// `last_queried_at` が未設定、または `warm_to_cold_secs` 以上経過していれば Cold とみなす。
+    ///
+    /// `record_query()` を呼ぶ前に評価すること（呼び後は必ず false になる）。
+    pub fn is_cold_or_never_queried(&self, warm_to_cold_secs: u64) -> bool {
+        self.last_queried_at
+            .is_none_or(|t| t.elapsed().as_secs() >= warm_to_cold_secs)
+    }
+
+    /// `last_queried_at` が `recent_secs` 以内なら recent とみなす（Hot 昇格判定）。
+    pub fn has_recent_query(&self, recent_secs: u64) -> bool {
+        self.last_queried_at
+            .is_some_and(|t| t.elapsed().as_secs() <= recent_secs)
+    }
+
+    /// `last_queried_at` が `warm_to_cold_secs` 以上経過しているか（queried 前提版、never queried は false）。
+    pub fn is_cold(&self, warm_to_cold_secs: u64) -> bool {
+        self.last_queried_at
+            .is_some_and(|t| t.elapsed().as_secs() >= warm_to_cold_secs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant, SystemTime};
+
+    fn make_entry(output: &str, refresh_mode: RefreshMode) -> CacheEntry {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        e.update(output.to_owned(), vec![], refresh_mode);
+        e.record_query();
+        e
+    }
+
+    fn make_stale_entry(output: &str, refresh_mode: RefreshMode, age_secs: u64) -> CacheEntry {
+        let mut e = make_entry(output, refresh_mode);
+        e.fetched_at = Instant::now()
+            .checked_sub(Duration::from_secs(age_secs))
+            .unwrap_or_else(Instant::now);
+        e
+    }
+
+    #[test]
+    fn new_entry_starts_refreshing() {
+        let e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        assert!(e.is_refreshing());
+    }
+
+    #[test]
+    fn new_entry_has_not_fetched() {
+        let e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        assert!(!e.has_fetched());
+    }
+
+    #[test]
+    fn new_entry_is_stale() {
+        let e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        assert!(!e.is_fresh(5));
+    }
+
+    #[test]
+    fn update_clears_refreshing_and_sets_has_fetched() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        e.update("out".to_owned(), vec![], RefreshMode::Warm);
+        assert!(!e.is_refreshing());
+        assert!(e.has_fetched());
+    }
+
+    #[test]
+    fn update_sets_fresh() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        e.update("out".to_owned(), vec![], RefreshMode::Warm);
+        assert!(e.is_fresh(5));
+    }
+
+    #[test]
+    fn update_sets_refresh_mode() {
+        let mut e = make_entry("out", RefreshMode::Warm);
+        e.update(String::new(), vec![], RefreshMode::Terminal);
+        assert_eq!(e.refresh_mode(), RefreshMode::Terminal);
+    }
+
+    #[test]
+    fn update_stores_pr_outputs() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        e.update(
+            "combined".to_owned(),
+            vec![
+                PrOutput {
+                    pr_id: 200,
+                    output: "✓ Ready for merge".to_owned(),
+                },
+                PrOutput {
+                    pr_id: 201,
+                    output: "✎ Ready for review".to_owned(),
+                },
+            ],
+            RefreshMode::Warm,
+        );
+
+        assert_eq!(e.pr_outputs().len(), 2);
+        assert_eq!(e.pr_outputs()[0].pr_id, 200);
+        assert_eq!(e.pr_outputs()[0].output, "✓ Ready for merge");
+        assert_eq!(e.pr_outputs()[1].pr_id, 201);
+        assert_eq!(e.pr_outputs()[1].output, "✎ Ready for review");
+    }
+
+    #[test]
+    fn update_replaces_pr_outputs() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        e.update(
+            "old".to_owned(),
+            vec![PrOutput {
+                pr_id: 200,
+                output: "old".to_owned(),
+            }],
+            RefreshMode::Warm,
+        );
+        e.update(
+            "new".to_owned(),
+            vec![PrOutput {
+                pr_id: 201,
+                output: "new".to_owned(),
+            }],
+            RefreshMode::Warm,
+        );
+
+        assert_eq!(e.pr_outputs().len(), 1);
+        assert_eq!(e.pr_outputs()[0].pr_id, 201);
+        assert_eq!(e.pr_outputs()[0].output, "new");
+    }
+
+    #[test]
+    fn active_when_non_empty_and_warm() {
+        assert!(make_entry("✓ Ready", RefreshMode::Warm).is_active());
+    }
+
+    #[test]
+    fn active_when_hot() {
+        assert!(make_entry("⧖ CI", RefreshMode::Hot).is_active());
+    }
+
+    #[test]
+    fn inactive_when_empty_output() {
+        assert!(!make_entry("", RefreshMode::Warm).is_active());
+    }
+
+    #[test]
+    fn inactive_when_terminal() {
+        assert!(!make_entry("✓ Ready", RefreshMode::Terminal).is_active());
+    }
+
+    #[test]
+    fn reset_to_warm_from_terminal() {
+        let mut e = make_entry("out", RefreshMode::Terminal);
+        e.reset_to_warm();
+        assert_eq!(e.refresh_mode(), RefreshMode::Warm);
+    }
+
+    #[test]
+    fn increment_and_reset_cold_count() {
+        let mut e = make_entry("out", RefreshMode::Warm);
+        assert_eq!(e.cold_refresh_count(), 0);
+        e.increment_cold_count();
+        e.increment_cold_count();
+        assert_eq!(e.cold_refresh_count(), 2);
+        e.reset_cold_count();
+        assert_eq!(e.cold_refresh_count(), 0);
+    }
+
+    #[test]
+    fn recently_queried_entry_is_not_expired() {
+        let e = make_entry("out", RefreshMode::Warm);
+        assert!(!e.is_expired(3600));
+    }
+
+    #[test]
+    fn old_query_entry_is_expired() {
+        let mut e = make_entry("out", RefreshMode::Warm);
+        e.last_queried_at = Some(
+            Instant::now()
+                .checked_sub(Duration::from_secs(3601))
+                .unwrap(),
+        );
+        assert!(e.is_expired(3600));
+    }
+
+    #[test]
+    fn fresh_lock_is_not_expired() {
+        let e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        assert!(!e.refresh_lock_expired(120));
+    }
+
+    #[test]
+    fn old_lock_is_expired() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        e.refresh_started_at = Some(
+            Instant::now()
+                .checked_sub(Duration::from_secs(121))
+                .unwrap(),
+        );
+        assert!(e.refresh_lock_expired(120));
+    }
+
+    #[test]
+    fn never_queried_is_cold() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        e.last_queried_at = None;
+        assert!(e.is_cold_or_never_queried(1800));
+    }
+
+    #[test]
+    fn recently_queried_is_not_cold() {
+        let e = make_entry("out", RefreshMode::Warm);
+        assert!(!e.is_cold_or_never_queried(1800));
+    }
+
+    #[test]
+    fn recent_query_within_threshold() {
+        let e = make_entry("out", RefreshMode::Warm);
+        assert!(e.has_recent_query(30));
+    }
+
+    #[test]
+    fn stale_query_outside_threshold() {
+        let mut e = make_entry("out", RefreshMode::Warm);
+        e.last_queried_at = Some(Instant::now().checked_sub(Duration::from_secs(31)).unwrap());
+        assert!(!e.has_recent_query(30));
+    }
+
+    #[test]
+    fn stale_entry_is_not_fresh() {
+        let e = make_stale_entry("out", RefreshMode::Hot, 9999);
+        assert!(!e.is_fresh(5));
+    }
+
+    #[test]
+    fn clear_refresh_lock_resets_refreshing() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        assert!(e.is_refreshing());
+        e.clear_refresh_lock();
+        assert!(!e.is_refreshing());
+        assert!(!e.refresh_lock_expired(120));
+    }
+
+    #[test]
+    fn clear_refresh_lock_from_loading_preserves_not_fetched() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        assert!(!e.has_fetched());
+        e.clear_refresh_lock();
+        assert!(!e.has_fetched(), "PendingRetry は未フェッチを保持する");
+    }
+
+    #[test]
+    fn mark_refreshing_from_pending_retry_returns_to_loading() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        e.clear_refresh_lock();
+        assert!(!e.is_refreshing());
+        assert!(!e.has_fetched());
+        e.mark_refreshing();
+        assert!(e.is_refreshing());
+        assert!(!e.has_fetched());
+    }
+
+    #[test]
+    fn mark_refreshing_from_ready_transitions_to_refreshing_with_fetched() {
+        let mut e = make_entry("out", RefreshMode::Warm);
+        assert!(e.has_fetched());
+        assert!(!e.is_refreshing());
+        e.mark_refreshing();
+        assert!(e.is_refreshing());
+        assert!(e.has_fetched(), "Refreshing は取得済みを保持する");
+    }
+
+    #[test]
+    fn new_entry_stores_branch() {
+        let e = CacheEntry::new(PathBuf::new(), "feat/123".to_owned(), 5);
+        assert_eq!(e.branch(), "feat/123");
+    }
+
+    #[test]
+    fn new_entry_sets_fetched_at_wall() {
+        let before = SystemTime::now();
+        let e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        let after = SystemTime::now();
+        assert!(e.fetched_at_wall() >= before);
+        assert!(e.fetched_at_wall() <= after);
+    }
+
+    #[test]
+    fn update_refreshes_fetched_at_wall() {
+        let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);
+        let before = SystemTime::now();
+        e.update("out".to_owned(), vec![], RefreshMode::Warm);
+        let after = SystemTime::now();
+        assert!(e.fetched_at_wall() >= before);
+        assert!(e.fetched_at_wall() <= after);
+    }
+}

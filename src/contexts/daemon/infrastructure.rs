@@ -1,3 +1,5 @@
+pub(super) mod background_refresh;
+pub(super) mod connection;
 pub mod daemon_client;
 pub mod daemon_lifecycle;
 pub mod daemon_server;
@@ -6,4 +8,7 @@ pub mod pid;
 pub(super) mod protocol;
 pub(super) mod repo_id;
 pub(super) mod request_handler;
+pub(super) mod restart;
 pub(super) mod server_config;
+pub(super) mod server_state;
+pub(super) mod socket_listener;

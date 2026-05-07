@@ -2,20 +2,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use super::protocol::{EntryDto, PrOutputDto, RefreshModeDto, Request, Response};
-use super::repo_id;
-use crate::contexts::daemon::domain::cache::{CacheEntry, PrOutput, RefreshMode, RepoId};
-use crate::contexts::daemon::domain::refresh_policy::RefreshPolicy;
+mod mapping;
 
-impl From<RefreshModeDto> for RefreshMode {
-    fn from(dto: RefreshModeDto) -> Self {
-        match dto {
-            RefreshModeDto::Hot => RefreshMode::Hot,
-            RefreshModeDto::Warm => RefreshMode::Warm,
-            RefreshModeDto::Terminal => RefreshMode::Terminal,
-        }
-    }
-}
+use super::protocol::{EntryDto, PrOutputDto, Request, Response};
+use super::repo_id;
+use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode, RepoId};
+use crate::contexts::daemon::domain::refresh_policy::RefreshPolicy;
+use mapping::{entry_to_dtos, pr_outputs_from_dtos};
 
 pub(super) struct ActionResult {
     pub(super) response: Response,
@@ -123,60 +116,6 @@ pub(super) fn process(
             }
         }
     }
-}
-
-fn entry_to_dtos(entry: &CacheEntry) -> Vec<EntryDto> {
-    let cwd = entry.cwd().to_string_lossy().into_owned();
-    let branch = entry.branch().to_owned();
-    let cached_at_secs = cached_at_secs(entry);
-
-    if entry.pr_outputs().is_empty() {
-        return vec![entry_dto(
-            cwd,
-            branch,
-            None,
-            entry.output().to_owned(),
-            cached_at_secs,
-        )];
-    }
-
-    entry
-        .pr_outputs()
-        .iter()
-        .map(|pr_output| {
-            entry_dto(
-                cwd.clone(),
-                branch.clone(),
-                Some(pr_output.pr_id),
-                pr_output.output.clone(),
-                cached_at_secs,
-            )
-        })
-        .collect()
-}
-
-fn entry_dto(
-    cwd: String,
-    branch: String,
-    pr_id: Option<u64>,
-    output: String,
-    cached_at_secs: u64,
-) -> EntryDto {
-    EntryDto {
-        cwd,
-        branch,
-        pr_id,
-        output,
-        cached_at_secs,
-    }
-}
-
-fn cached_at_secs(entry: &CacheEntry) -> u64 {
-    entry
-        .fetched_at_wall()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
 }
 
 fn process_query(
@@ -313,13 +252,7 @@ fn process_update(
     entries: &mut HashMap<RepoId, CacheEntry>,
 ) -> ActionResult {
     if let Some(entry) = entries.get_mut(repo_id) {
-        let pr_outputs = pr_outputs_dto
-            .iter()
-            .map(|p| PrOutput {
-                pr_id: p.pr_id,
-                output: p.output.clone(),
-            })
-            .collect();
+        let pr_outputs = pr_outputs_from_dtos(pr_outputs_dto);
         entry.update(output.to_owned(), pr_outputs, refresh_mode);
     }
     ActionResult {
@@ -334,6 +267,7 @@ fn process_update(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contexts::daemon::domain::cache::PrOutput;
 
     fn make_entry(output: &str, refresh_mode: RefreshMode) -> CacheEntry {
         let mut e = CacheEntry::new(PathBuf::new(), String::new(), 5);

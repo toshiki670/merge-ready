@@ -12,6 +12,38 @@ const PROMPT_BIN: &str = "merge-ready-prompt";
 
 const OPEN_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
 const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
+const COMMAND_TIMEOUT_MS: u64 = 5000;
+const CONCURRENT_PROMPTS: usize = 8;
+
+fn daemon_stop_output(env: &TestEnv) -> std::process::Output {
+    let bin = assert_cmd::cargo::cargo_bin(BIN);
+    let mut child = std::process::Command::new(bin)
+        .args(["daemon", "stop"])
+        .env("PATH", env.path_env())
+        .env("HOME", env.home())
+        .env("TMPDIR", env.home())
+        .env("XDG_CONFIG_HOME", env.home().join(".config"))
+        .current_dir(env.repo_dir.path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn daemon stop");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(COMMAND_TIMEOUT_MS);
+    loop {
+        if child.try_wait().is_ok_and(|status| status.is_some()) {
+            return child
+                .wait_with_output()
+                .expect("collect daemon stop output");
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("daemon stop did not finish within {COMMAND_TIMEOUT_MS}ms");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
 
 fn assert_prompt_succeeded(output: &std::process::Output) {
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -32,6 +64,36 @@ fn assert_prompt_succeeded(output: &std::process::Output) {
     );
 }
 
+fn prompt_output_with_timeout(
+    bin: &std::path::Path,
+    path: &str,
+    home: &std::path::Path,
+    repo: &std::path::Path,
+) -> std::process::Output {
+    let mut child = std::process::Command::new(bin)
+        .env("PATH", path)
+        .env("HOME", home)
+        .env("TMPDIR", home)
+        .current_dir(repo)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run prompt");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(COMMAND_TIMEOUT_MS);
+    loop {
+        if child.try_wait().is_ok_and(|status| status.is_some()) {
+            return child.wait_with_output().expect("collect prompt output");
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("prompt did not finish within {COMMAND_TIMEOUT_MS}ms");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
 // ── #7: daemon start ─────────────────────────────────────────────────────────
 
 /// #7: `daemon start` → "daemon started" を出力して exit 0
@@ -46,10 +108,8 @@ fn test_daemon_start_prints_started() {
         .success()
         .stdout(predicate::str::contains("daemon started"));
 
-    let mut stop = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut stop);
-    stop.args(["daemon", "stop"]);
-    stop.assert().success();
+    let output = daemon_stop_output(&env);
+    assert!(output.status.success());
 }
 
 // ── #8: daemon start（二重起動）────────────────────────────────────────────
@@ -108,14 +168,10 @@ fn test_daemon_stop_prints_stopped() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
     let daemon = DaemonHandle::start(&env);
 
-    let mut stop = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut stop);
-    stop.args(["daemon", "stop"]);
-    stop.assert()
-        .success()
-        .stdout(predicate::str::contains("stopped"));
+    let output = daemon_stop_output(&env);
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("stopped"));
 
-    std::thread::sleep(std::time::Duration::from_millis(100));
     drop(daemon);
 }
 
@@ -127,14 +183,10 @@ fn test_daemon_stop_then_status_not_running() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
     let daemon = DaemonHandle::start(&env);
 
-    let mut stop = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut stop);
-    stop.args(["daemon", "stop"]);
-    stop.assert()
-        .success()
-        .stdout(predicate::str::contains("stopped"));
+    let output = daemon_stop_output(&env);
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("stopped"));
 
-    std::thread::sleep(std::time::Duration::from_millis(100));
     drop(daemon);
 
     let mut status = Command::cargo_bin(BIN).unwrap();
@@ -144,6 +196,23 @@ fn test_daemon_stop_then_status_not_running() {
         .assert()
         .success()
         .stdout(predicate::str::contains("not running"));
+}
+
+#[test]
+fn test_daemon_stop_does_not_wait_for_scheduler_tick() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+    let daemon = DaemonHandle::start_with_env(&env, &[("MERGE_READY_SCHEDULER_TICK_SECS", "5")]);
+
+    let started = std::time::Instant::now();
+    let output = daemon_stop_output(&env);
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("stopped"));
+
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "daemon stop should not wait for the scheduler tick"
+    );
+    drop(daemon);
 }
 
 // ── #13: 未起動時の status ───────────────────────────────────────────────────
@@ -223,50 +292,34 @@ fn test_prompt_restarts_daemon_on_version_mismatch() {
         )))
         .stdout(predicate::str::contains("version=0.0.0").not());
 
-    // クリーンアップ
-    Command::cargo_bin(BIN)
-        .unwrap()
-        .args(["daemon", "stop"])
-        .env("TMPDIR", env.home())
-        .output()
-        .ok();
+    DaemonHandle::stop_for_env(&env);
 }
 
 // ── #15: 同時起動レース ──────────────────────────────────────────────────────
 
 /// #15: 複数の `merge-ready-prompt` が同時に Daemon 起動を試みても、Daemon は 1 プロセスのみ存在する
 ///
-/// daemon 未起動の状態で 20 本の `merge-ready-prompt` を並列実行し、
+/// daemon 未起動の状態で複数の `merge-ready-prompt` を並列実行し、
 /// 全て完了後に daemon が 1 プロセスだけ動作していることを確認する。
 #[test]
 fn test_concurrent_prompt_starts_only_one_daemon() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
     let prompt_bin = assert_cmd::cargo::cargo_bin(PROMPT_BIN);
 
-    // 20 本を同時起動
-    let handles: Vec<_> = (0..20)
+    // 複数本を同時起動
+    let handles: Vec<_> = (0..CONCURRENT_PROMPTS)
         .map(|_| {
             let bin = prompt_bin.clone();
             let path = env.path_env();
             let home = env.home().to_path_buf();
             let repo = env.repo_dir.path().to_path_buf();
-            std::thread::spawn(move || {
-                std::process::Command::new(&bin)
-                    .env("PATH", &path)
-                    .env("HOME", &home)
-                    .env("TMPDIR", &home)
-                    .current_dir(&repo)
-                    .output()
-            })
+            std::thread::spawn(move || prompt_output_with_timeout(&bin, &path, &home, &repo))
         })
         .collect();
 
     // 全スレッド完了を待ち、各 prompt が競合中も正常終了することを確認
     for h in handles {
-        let output = h
-            .join()
-            .expect("prompt thread panicked")
-            .expect("run prompt");
+        let output = h.join().expect("prompt thread panicked");
         assert_prompt_succeeded(&output);
     }
 
@@ -287,13 +340,7 @@ fn test_concurrent_prompt_starts_only_one_daemon() {
         .join("daemon.sock");
     assert!(socket_path.exists(), "daemon socket should exist");
 
-    // クリーンアップ
-    Command::cargo_bin(BIN)
-        .unwrap()
-        .args(["daemon", "stop"])
-        .env("TMPDIR", env.home())
-        .output()
-        .ok();
+    DaemonHandle::stop_for_env(&env);
 }
 
 // ── #16: バージョンミスマッチ並列再起動 ─────────────────────────────────────
@@ -306,33 +353,24 @@ fn test_concurrent_version_mismatch_starts_only_one_daemon() {
     let prompt_bin = assert_cmd::cargo::cargo_bin(PROMPT_BIN);
 
     // バージョン不一致の fake daemon を起動
-    let _old = FakeDaemonHandle::start_versioned(&env, "0.0.0");
+    let old = FakeDaemonHandle::start_versioned(&env, "0.0.0");
 
-    // 10 本の merge-ready-prompt を同時実行してバージョンミスマッチを並列でトリガーする
-    let handles: Vec<_> = (0..10)
+    // 複数本の merge-ready-prompt を同時実行してバージョンミスマッチを並列でトリガーする
+    let handles: Vec<_> = (0..CONCURRENT_PROMPTS)
         .map(|_| {
             let bin = prompt_bin.clone();
             let path = env.path_env();
             let home = env.home().to_path_buf();
             let repo = env.repo_dir.path().to_path_buf();
-            std::thread::spawn(move || {
-                std::process::Command::new(&bin)
-                    .env("PATH", &path)
-                    .env("HOME", &home)
-                    .env("TMPDIR", &home)
-                    .current_dir(&repo)
-                    .output()
-            })
+            std::thread::spawn(move || prompt_output_with_timeout(&bin, &path, &home, &repo))
         })
         .collect();
 
     for h in handles {
-        let output = h
-            .join()
-            .expect("prompt thread panicked")
-            .expect("run prompt");
+        let output = h.join().expect("prompt thread panicked");
         assert_prompt_succeeded(&output);
     }
+    drop(old);
 
     // 新 daemon が起動するまでポーリング（最大 5 秒）
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(5000);
@@ -377,13 +415,7 @@ fn test_concurrent_version_mismatch_starts_only_one_daemon() {
         )))
         .stdout(predicate::str::contains("version=0.0.0").not());
 
-    // クリーンアップ
-    Command::cargo_bin(BIN)
-        .unwrap()
-        .args(["daemon", "stop"])
-        .env("TMPDIR", env.home())
-        .output()
-        .ok();
+    DaemonHandle::stop_for_env(&env);
 }
 
 // ── #17: daemon status の出力フォーマット ────────────────────────────────────

@@ -1,9 +1,135 @@
+//! 設定ファイル（`~/.config/merge-ready.toml`）の E2E テスト（シナリオ #42–58）
+//!
+//! - #42–50: symbol / label / format のカスタマイズ、XDG_CONFIG_HOME の優先度
+//!   → prompt テストは daemon 経由フローで検証する
+//! - #51–58: `config` コマンド（エディタ起動）
+
 use assert_cmd::Command;
 use predicates::prelude::*;
+use rstest::rstest;
 
-use super::super::helpers::TestEnv;
+use super::super::helpers::{DaemonHandle, TestEnv};
+
+const MERGE_READY_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}"#;
+const CHECKS_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS"}]"#;
+const CONFLICT_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","reviewDecision":"APPROVED"}"#;
 
 const BIN: &str = "merge-ready";
+const PROMPT_BIN: &str = "merge-ready-prompt";
+
+/// 設定を書いて daemon を起動し、キャッシュが温まった後の `prompt` 出力を検証する。
+fn assert_prompt_with_config(env: &TestEnv, expected: &str) {
+    let _daemon = DaemonHandle::start(env);
+    DaemonHandle::wait_for_cache(env, 5000);
+
+    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::diff(expected.to_owned()))
+        .stderr("");
+}
+
+// ── #42–46, #48: prompt 出力契約（パラメータ化） ─────────────────────────────
+
+/// #42 設定なし / #43 symbol / #44 label / #45 format / #46 全フィールド / #48 不正 TOML
+#[rstest]
+#[case::no_config(None, "✓ Ready for merge")]
+#[case::custom_symbol(Some("[merge_ready]\nsymbol = \"★\""), "★ Ready for merge")]
+#[case::custom_label(Some("[merge_ready]\nlabel = \"OK!\""), "✓ OK!")]
+#[case::custom_format(
+    Some("[merge_ready]\nformat = \"[$symbol] $label\""),
+    "[✓] Ready for merge"
+)]
+#[case::all_fields_custom(
+    Some("[merge_ready]\nsymbol = \"✅\"\nlabel = \"lgtm\"\nformat = \"$label $symbol\""),
+    "lgtm ✅"
+)]
+#[case::invalid_toml(Some("this is not valid toml ][[["), "✓ Ready for merge")]
+fn test_config_prompt(#[case] config: Option<&str>, #[case] expected: &str) {
+    let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
+    if let Some(cfg) = config {
+        env.write_config(cfg);
+    }
+    assert_prompt_with_config(&env, expected);
+}
+
+// ── #47: 一部セクションのみ設定 ──────────────────────────────────────────────
+
+/// #47: 一部セクションのみ設定 → 未設定セクションはデフォルト値にフォールバック
+#[test]
+fn test_partial_config_other_tokens_use_defaults() {
+    let env = TestEnv::new(CONFLICT_JSON, Some(CHECKS_PASS_JSON));
+    env.write_config("[conflict]\nsymbol = \"✘\"");
+    assert_prompt_with_config(&env, "✘ Resolve conflict");
+}
+
+// ── #49–50: XDG_CONFIG_HOME ───────────────────────────────────────────────────
+
+/// #49: `XDG_CONFIG_HOME` が設定されている → そちらの設定ファイルを読む
+#[test]
+fn test_xdg_config_home_is_used() {
+    use std::fs;
+    use tempfile::tempdir;
+
+    let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
+    let xdg_dir = tempdir().expect("tempdir");
+    fs::write(
+        xdg_dir.path().join("merge-ready.toml"),
+        "[merge_ready]\nsymbol = \"★\"",
+    )
+    .expect("write config");
+
+    // start_with_env はソケット出現を確認してから返るため、
+    // prompt が spawn_daemon() を呼んで XDG なし daemon を起動する競合が発生しない。
+    let _daemon = DaemonHandle::start_with_env(
+        &env,
+        &[("XDG_CONFIG_HOME", xdg_dir.path().to_str().unwrap())],
+    );
+
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert()
+        .success()
+        .stdout("★ Ready for merge")
+        .stderr("");
+}
+
+/// #50: `XDG_CONFIG_HOME` と `HOME` 両方ある → `XDG_CONFIG_HOME` が優先される
+#[test]
+fn test_xdg_config_home_takes_precedence_over_home() {
+    use std::fs;
+    use tempfile::tempdir;
+
+    let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
+    // HOME 側にも設定を置く（XDG 側が優先されるはず）
+    env.write_config("[merge_ready]\nsymbol = \"✓\"");
+
+    let xdg_dir = tempdir().expect("tempdir");
+    fs::write(
+        xdg_dir.path().join("merge-ready.toml"),
+        "[merge_ready]\nsymbol = \"★\"",
+    )
+    .expect("write xdg config");
+
+    let _daemon = DaemonHandle::start_with_env(
+        &env,
+        &[("XDG_CONFIG_HOME", xdg_dir.path().to_str().unwrap())],
+    );
+
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert()
+        .success()
+        .stdout("★ Ready for merge")
+        .stderr("");
+}
+
+// ── #51–58: config ────────────────────────────────────────────────────────────
 
 /// #51: `$VISUAL` が設定されている場合、`$VISUAL` がファイルパスを引数として呼ばれる
 #[test]

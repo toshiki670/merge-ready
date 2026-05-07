@@ -9,14 +9,14 @@ use std::time::{Duration, Instant};
 
 use super::paths;
 use super::pid;
-use super::protocol::{EntryDto, PrOutputDto, RefreshModeDto, Request, Response};
+use super::protocol::Request;
 use super::repo_id;
-use crate::contexts::daemon::domain::cache::{CacheEntry, PrOutput, RefreshMode, RepoId};
+use super::request_handler::{self, ActionResult};
+use super::server_config;
+use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode, RepoId};
 use crate::contexts::daemon::domain::daemon::DaemonError;
 use crate::contexts::daemon::domain::refresh_policy::RefreshPolicy;
 
-const DEFAULT_STALE_TTL_SECS: u64 = 5;
-const DEFAULT_REFRESH_LOCK_TIMEOUT_SECS: u64 = 120;
 /// version mismatch 後の自己再起動までの待機時間 (ms)
 const RESTART_GRACE_MS: u64 = 30;
 /// EADDRINUSE 時の bind リトライ間隔
@@ -25,41 +25,6 @@ const BIND_RETRY_INTERVAL_MS: u64 = 100;
 const BIND_RETRY_MAX: usize = 10;
 /// バックグラウンドスケジューラの動作間隔。Hot 最小間隔（2 秒）に合わせる。
 const SCHEDULER_TICK_SECS: u64 = 2;
-
-// ── Hot モード ────────────────────────────────────────────────────────────────
-/// 「最近 Query あり」と見なす経過秒数
-const DEFAULT_HOT_RECENT_QUERY_SECS: u64 = 30;
-/// Hot + 最近 Query あり の場合のリフレッシュ間隔
-const DEFAULT_HOT_WITH_QUERY_SECS: u64 = 2;
-/// Hot のみ（Query なし）の場合のリフレッシュ間隔
-const DEFAULT_HOT_WITHOUT_QUERY_SECS: u64 = 10;
-
-// ── Warm モード ───────────────────────────────────────────────────────────────
-const DEFAULT_WARM_REFRESH_SECS: u64 = 180;
-/// Warm から Cold へ移行するまでの Query 無し経過秒数
-const DEFAULT_WARM_TO_COLD_SECS: u64 = 30 * 60;
-
-// ── Cold モード ───────────────────────────────────────────────────────────────
-/// Cold 初期（累計リフレッシュ `COLD_EARLY_LIMIT` 回まで）の間隔
-const DEFAULT_COLD_EARLY_SECS: u64 = 30 * 60;
-/// Cold 後期（`COLD_EARLY_LIMIT` 回超）の間隔
-const DEFAULT_COLD_LATE_SECS: u64 = 60 * 60;
-/// Cold 初期から後期へ切り替わる累計リフレッシュ回数
-const DEFAULT_COLD_EARLY_LIMIT: u32 = 10;
-
-// ── エントリ寿命 ──────────────────────────────────────────────────────────────
-/// 最終 Query から この秒数が経過したエントリを削除する（2 日）
-const DEFAULT_ENTRY_MAX_AGE_SECS: u64 = 2 * 24 * 60 * 60;
-
-impl From<RefreshModeDto> for RefreshMode {
-    fn from(dto: RefreshModeDto) -> Self {
-        match dto {
-            RefreshModeDto::Hot => RefreshMode::Hot,
-            RefreshModeDto::Warm => RefreshMode::Warm,
-            RefreshModeDto::Terminal => RefreshMode::Terminal,
-        }
-    }
-}
 
 struct DaemonState {
     entries: HashMap<RepoId, CacheEntry>,
@@ -73,27 +38,17 @@ impl DaemonState {
             entries: HashMap::new(),
             started_at: Instant::now(),
             policy: RefreshPolicy {
-                hot_recent_query_secs: hot_recent_query_secs(),
-                hot_with_query_secs: hot_with_query_secs(),
-                hot_without_query_secs: hot_without_query_secs(),
-                warm_refresh_secs: warm_refresh_secs(),
-                warm_to_cold_secs: warm_to_cold_secs(),
-                cold_early_secs: cold_early_secs(),
-                cold_late_secs: cold_late_secs(),
-                cold_early_limit: cold_early_limit(),
+                hot_recent_query_secs: server_config::hot_recent_query_secs(),
+                hot_with_query_secs: server_config::hot_with_query_secs(),
+                hot_without_query_secs: server_config::hot_without_query_secs(),
+                warm_refresh_secs: server_config::warm_refresh_secs(),
+                warm_to_cold_secs: server_config::warm_to_cold_secs(),
+                cold_early_secs: server_config::cold_early_secs(),
+                cold_late_secs: server_config::cold_late_secs(),
+                cold_early_limit: server_config::cold_early_limit(),
             },
         }
     }
-}
-
-struct ActionResult {
-    response: Response,
-    /// `Some(repo_id)` のとき、ロック解放後にリフレッシュを起動する
-    refresh_repo_id: Option<RepoId>,
-    refresh_cwd: Option<PathBuf>,
-    stop: bool,
-    /// レスポンス返却後に自己再起動する（version mismatch 時）
-    restart_after_response: bool,
 }
 
 type RefreshFn = Arc<dyn Fn(&RepoId, &std::path::Path) + Send + Sync + 'static>;
@@ -252,7 +207,15 @@ fn handle_client(
         refresh_cwd,
         stop,
         restart_after_response,
-    } = process(&request, state);
+    } = {
+        let ttl = server_config::stale_ttl_secs();
+        let mut s = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let policy = s.policy;
+        let started_at = s.started_at;
+        request_handler::process(&request, &mut s.entries, &policy, started_at, ttl)
+    };
 
     if let Ok(json) = serde_json::to_string(&response) {
         let _ = stream.write_all(format!("{json}\n").as_bytes());
@@ -297,223 +260,6 @@ fn spawn_self_as_daemon() {
         .spawn();
 }
 
-fn process(request: &Request, state: &Arc<Mutex<DaemonState>>) -> ActionResult {
-    let ttl = stale_ttl_secs();
-    let mut s = state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let policy = s.policy;
-
-    match request {
-        Request::Query {
-            cwd,
-            client_version,
-        } => {
-            let version_mismatch = client_version.as_str() != env!("CARGO_PKG_VERSION");
-
-            let Some((repo_id_str, branch)) = repo_id::repo_info_from_cwd(cwd) else {
-                return ActionResult {
-                    response: Response::Output {
-                        output: String::new(),
-                    },
-                    refresh_repo_id: None,
-                    refresh_cwd: None,
-                    stop: false,
-                    restart_after_response: version_mismatch,
-                };
-            };
-
-            let repo_id = RepoId::new(repo_id_str);
-            let cwd_path = PathBuf::from(cwd);
-            process_query(
-                &repo_id,
-                branch,
-                cwd_path,
-                ttl,
-                version_mismatch,
-                &mut s.entries,
-                &policy,
-            )
-        }
-        Request::Update {
-            repo_id,
-            output,
-            refresh_mode,
-            pr_outputs,
-        } => process_update(
-            &RepoId::new(repo_id.clone()),
-            output,
-            RefreshMode::from(*refresh_mode),
-            pr_outputs,
-            &mut s.entries,
-        ),
-        Request::Stop => ActionResult {
-            response: Response::Ok,
-            refresh_repo_id: None,
-            refresh_cwd: None,
-            stop: true,
-            restart_after_response: false,
-        },
-        Request::Status => {
-            let uptime_secs = s.started_at.elapsed().as_secs();
-            let entries = s.entries.len();
-            ActionResult {
-                response: Response::Status {
-                    entries,
-                    uptime_secs,
-                    version: env!("CARGO_PKG_VERSION").to_owned(),
-                },
-                refresh_repo_id: None,
-                refresh_cwd: None,
-                stop: false,
-                restart_after_response: false,
-            }
-        }
-        Request::Entries => {
-            let dtos: Vec<EntryDto> = s.entries.values().flat_map(entry_to_dtos).collect();
-            ActionResult {
-                response: Response::Entries { entries: dtos },
-                refresh_repo_id: None,
-                refresh_cwd: None,
-                stop: false,
-                restart_after_response: false,
-            }
-        }
-    }
-}
-
-fn entry_to_dtos(entry: &CacheEntry) -> Vec<EntryDto> {
-    let cwd = entry.cwd().to_string_lossy().into_owned();
-    let branch = entry.branch().to_owned();
-    let cached_at_secs = cached_at_secs(entry);
-
-    if entry.pr_outputs().is_empty() {
-        return vec![entry_dto(
-            cwd,
-            branch,
-            None,
-            entry.output().to_owned(),
-            cached_at_secs,
-        )];
-    }
-
-    entry
-        .pr_outputs()
-        .iter()
-        .map(|pr_output| {
-            entry_dto(
-                cwd.clone(),
-                branch.clone(),
-                Some(pr_output.pr_id),
-                pr_output.output.clone(),
-                cached_at_secs,
-            )
-        })
-        .collect()
-}
-
-fn entry_dto(
-    cwd: String,
-    branch: String,
-    pr_id: Option<u64>,
-    output: String,
-    cached_at_secs: u64,
-) -> EntryDto {
-    EntryDto {
-        cwd,
-        branch,
-        pr_id,
-        output,
-        cached_at_secs,
-    }
-}
-
-fn cached_at_secs(entry: &CacheEntry) -> u64 {
-    entry
-        .fetched_at_wall()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-}
-
-fn process_query(
-    repo_id: &RepoId,
-    branch: String,
-    cwd_path: PathBuf,
-    ttl: u64,
-    restart_after_response: bool,
-    entries: &mut HashMap<RepoId, CacheEntry>,
-    policy: &RefreshPolicy,
-) -> ActionResult {
-    match entries.get_mut(repo_id) {
-        Some(entry) if entry.is_fresh(policy.effective_ttl(entry, ttl)) => {
-            // Fresh キャッシュ
-            entry.record_query();
-            ActionResult {
-                response: Response::Output {
-                    output: entry.output().to_owned(),
-                },
-                refresh_repo_id: None,
-                refresh_cwd: None,
-                stop: false,
-                restart_after_response,
-            }
-        }
-        Some(entry) => {
-            // Stale または TTL 超過
-            let output = entry.output().to_owned();
-            let has_fetched = entry.has_fetched();
-            let stored_cwd = entry.cwd().to_path_buf();
-            let refresh_state = if entry.is_refreshing() {
-                RefreshState::Refreshing {
-                    restart_after: restart_after_response,
-                }
-            } else {
-                RefreshState::NeedsRefresh {
-                    restart_after: restart_after_response,
-                }
-            };
-            let is_terminal = entry.refresh_mode() == RefreshMode::Terminal;
-            // Query を受けたので last_queried_at を更新し Cold カウンタをリセット
-            let was_cold = entry.is_cold_or_never_queried(policy.warm_to_cold_secs);
-            if was_cold {
-                entry.reset_cold_count();
-            }
-            entry.record_query();
-            if is_terminal && matches!(refresh_state, RefreshState::NeedsRefresh { .. }) {
-                // Terminal が stale になったらモードをリセットして再確認
-                entry.reset_to_warm();
-            }
-            process_stale_query(
-                repo_id,
-                StaleQueryParams {
-                    output,
-                    has_fetched,
-                    stored_cwd,
-                    refresh_state,
-                },
-                entries,
-            )
-        }
-        None => {
-            // 初回 Miss → エントリを作成してリフレッシュ予約
-            entries.insert(
-                repo_id.to_owned(),
-                CacheEntry::new(cwd_path.clone(), branch, ttl),
-            );
-            ActionResult {
-                response: Response::Output {
-                    output: "? loading".to_owned(),
-                },
-                refresh_repo_id: Some(repo_id.to_owned()),
-                refresh_cwd: Some(cwd_path),
-                stop: false,
-                restart_after_response,
-            }
-        }
-    }
-}
-
 /// リフレッシュ後に `cwd` から `repo_id` を再導出してコールバックを呼ぶ。
 /// ブランチが変わっていれば新しい `repo_id` に対してキャッシュを更新する。
 fn spawn_refresh(stored_repo_id: &RepoId, cwd: &std::path::Path, on_refresh: &RefreshFn) {
@@ -531,163 +277,6 @@ fn cleanup() {
     pid::remove();
 }
 
-// ── 設定値（環境変数オーバーライド対応） ─────────────────────────────────────
-
-fn stale_ttl_secs() -> u64 {
-    env_u64("MERGE_READY_STALE_TTL", DEFAULT_STALE_TTL_SECS)
-}
-
-fn refresh_lock_timeout_secs() -> u64 {
-    env_u64(
-        "MERGE_READY_REFRESH_LOCK_TIMEOUT_SECS",
-        DEFAULT_REFRESH_LOCK_TIMEOUT_SECS,
-    )
-}
-
-fn hot_recent_query_secs() -> u64 {
-    env_u64(
-        "MERGE_READY_HOT_RECENT_QUERY_SECS",
-        DEFAULT_HOT_RECENT_QUERY_SECS,
-    )
-}
-
-fn hot_with_query_secs() -> u64 {
-    env_u64(
-        "MERGE_READY_HOT_WITH_QUERY_SECS",
-        DEFAULT_HOT_WITH_QUERY_SECS,
-    )
-}
-
-fn hot_without_query_secs() -> u64 {
-    env_u64(
-        "MERGE_READY_HOT_WITHOUT_QUERY_SECS",
-        DEFAULT_HOT_WITHOUT_QUERY_SECS,
-    )
-}
-
-fn warm_refresh_secs() -> u64 {
-    env_u64("MERGE_READY_WARM_REFRESH_SECS", DEFAULT_WARM_REFRESH_SECS)
-}
-
-fn warm_to_cold_secs() -> u64 {
-    env_u64("MERGE_READY_WARM_TO_COLD_SECS", DEFAULT_WARM_TO_COLD_SECS)
-}
-
-fn cold_early_secs() -> u64 {
-    env_u64("MERGE_READY_COLD_EARLY_SECS", DEFAULT_COLD_EARLY_SECS)
-}
-
-fn cold_late_secs() -> u64 {
-    env_u64("MERGE_READY_COLD_LATE_SECS", DEFAULT_COLD_LATE_SECS)
-}
-
-fn cold_early_limit() -> u32 {
-    std::env::var("MERGE_READY_COLD_EARLY_LIMIT")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_COLD_EARLY_LIMIT)
-}
-
-fn entry_max_age_secs() -> u64 {
-    env_u64("MERGE_READY_ENTRY_MAX_AGE_SECS", DEFAULT_ENTRY_MAX_AGE_SECS)
-}
-
-fn env_u64(key: &str, default: u64) -> u64 {
-    std::env::var(key)
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default)
-}
-
-// ── 内部処理ヘルパー ──────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Copy)]
-enum RefreshState {
-    NeedsRefresh { restart_after: bool },
-    Refreshing { restart_after: bool },
-}
-
-struct StaleQueryParams {
-    output: String,
-    has_fetched: bool,
-    stored_cwd: PathBuf,
-    refresh_state: RefreshState,
-}
-
-fn process_stale_query(
-    repo_id: &RepoId,
-    params: StaleQueryParams,
-    entries: &mut HashMap<RepoId, CacheEntry>,
-) -> ActionResult {
-    let StaleQueryParams {
-        output,
-        has_fetched,
-        stored_cwd,
-        refresh_state,
-    } = params;
-
-    match (refresh_state, has_fetched) {
-        (RefreshState::Refreshing { restart_after }, false) => ActionResult {
-            response: Response::Output {
-                output: "? loading".to_owned(),
-            },
-            refresh_repo_id: None,
-            refresh_cwd: None,
-            stop: false,
-            restart_after_response: restart_after,
-        },
-        (RefreshState::Refreshing { restart_after }, true) => ActionResult {
-            response: Response::Output { output },
-            refresh_repo_id: None,
-            refresh_cwd: None,
-            stop: false,
-            restart_after_response: restart_after,
-        },
-        (RefreshState::NeedsRefresh { restart_after }, _) => {
-            entries
-                .get_mut(repo_id)
-                .expect("entry exists")
-                .mark_refreshing();
-            ActionResult {
-                response: Response::Output { output },
-                refresh_repo_id: Some(repo_id.to_owned()),
-                refresh_cwd: Some(stored_cwd),
-                stop: false,
-                restart_after_response: restart_after,
-            }
-        }
-    }
-}
-
-/// エントリは必ず `process_query`（Query 経由）で生成される。
-/// 未知の `repo_id` への Update（ブランチ切替直後の再導出 ID など）は無視する。
-/// `cwd: PathBuf::new()` / `last_queried_at: None` の孤立エントリが生まれるのを防ぐ。
-fn process_update(
-    repo_id: &RepoId,
-    output: &str,
-    refresh_mode: RefreshMode,
-    pr_outputs_dto: &[PrOutputDto],
-    entries: &mut HashMap<RepoId, CacheEntry>,
-) -> ActionResult {
-    if let Some(entry) = entries.get_mut(repo_id) {
-        let pr_outputs = pr_outputs_dto
-            .iter()
-            .map(|p| PrOutput {
-                pr_id: p.pr_id,
-                output: p.output.clone(),
-            })
-            .collect();
-        entry.update(output.to_owned(), pr_outputs, refresh_mode);
-    }
-    ActionResult {
-        response: Response::Ok,
-        refresh_repo_id: None,
-        refresh_cwd: None,
-        stop: false,
-        restart_after_response: false,
-    }
-}
-
 fn collect_background_refresh_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(RepoId, PathBuf)> {
     let mut s = state
         .lock()
@@ -696,14 +285,16 @@ fn collect_background_refresh_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(R
 
     // 期限切れエントリを削除
     s.entries
-        .retain(|_, entry| !entry.is_expired(entry_max_age_secs()));
+        .retain(|_, entry| !entry.is_expired(server_config::entry_max_age_secs()));
 
     let mut targets = Vec::new();
     for (repo_id, entry) in &mut s.entries {
         if !entry.is_active() {
             continue;
         }
-        if entry.is_refreshing() && entry.refresh_lock_expired(refresh_lock_timeout_secs()) {
+        if entry.is_refreshing()
+            && entry.refresh_lock_expired(server_config::refresh_lock_timeout_secs())
+        {
             entry.clear_refresh_lock();
         }
         if entry.is_refreshing() {
@@ -741,177 +332,6 @@ mod tests {
             .checked_sub(Duration::from_secs(age_secs))
             .unwrap_or_else(Instant::now);
         e
-    }
-
-    // ── is_active (via CacheEntry) ─────────────────────────────────────────────
-
-    #[test]
-    fn active_when_non_empty_output_and_warm() {
-        assert!(make_entry("✓ Ready for merge", RefreshMode::Warm).is_active());
-    }
-
-    #[test]
-    fn active_when_hot() {
-        assert!(make_entry("⧖ Wait for CI", RefreshMode::Hot).is_active());
-    }
-
-    #[test]
-    fn inactive_when_empty_output() {
-        assert!(!make_entry("", RefreshMode::Warm).is_active());
-    }
-
-    #[test]
-    fn inactive_when_terminal() {
-        assert!(!make_entry("✓ Ready for merge", RefreshMode::Terminal).is_active());
-    }
-
-    // ── process_update ─────────────────────────────────────────────────────────
-
-    #[test]
-    fn process_update_sets_refresh_mode_terminal() {
-        let repo_id = RepoId::new("repo");
-        let mut entries = HashMap::new();
-        entries.insert(
-            repo_id.clone(),
-            make_entry("✓ Ready for merge", RefreshMode::Warm),
-        );
-        process_update(&repo_id, "", RefreshMode::Terminal, &[], &mut entries);
-        assert_eq!(entries[&repo_id].refresh_mode(), RefreshMode::Terminal);
-    }
-
-    #[test]
-    fn process_update_sets_refresh_mode_hot() {
-        let repo_id = RepoId::new("repo");
-        let mut entries = HashMap::new();
-        entries.insert(
-            repo_id.clone(),
-            make_entry("✓ Ready for merge", RefreshMode::Warm),
-        );
-        process_update(
-            &repo_id,
-            "⧖ Wait for CI",
-            RefreshMode::Hot,
-            &[],
-            &mut entries,
-        );
-        assert_eq!(entries[&repo_id].refresh_mode(), RefreshMode::Hot);
-    }
-
-    #[test]
-    fn process_update_stores_pr_outputs() {
-        let repo_id = RepoId::new("repo");
-        let mut entries = HashMap::new();
-        entries.insert(
-            repo_id.clone(),
-            make_entry(
-                "✓ Ready for merge #200 ✎ Ready for review #201",
-                RefreshMode::Warm,
-            ),
-        );
-
-        process_update(
-            &repo_id,
-            "✓ Ready for merge #200 ✎ Ready for review #201",
-            RefreshMode::Warm,
-            &[
-                PrOutputDto {
-                    pr_id: 200,
-                    output: "✓ Ready for merge #200".to_owned(),
-                },
-                PrOutputDto {
-                    pr_id: 201,
-                    output: "✎ Ready for review #201".to_owned(),
-                },
-            ],
-            &mut entries,
-        );
-
-        let pr_outputs = entries[&repo_id].pr_outputs();
-        assert_eq!(pr_outputs.len(), 2);
-        assert_eq!(pr_outputs[0].pr_id, 200);
-        assert_eq!(pr_outputs[0].output, "✓ Ready for merge #200");
-        assert_eq!(pr_outputs[1].pr_id, 201);
-        assert_eq!(pr_outputs[1].output, "✎ Ready for review #201");
-    }
-
-    #[test]
-    fn process_update_unknown_repo_id_is_ignored() {
-        // ブランチ切替後に spawn_refresh が新 repo_id で Update してきた場合、
-        // エントリを新規作成せず無視する（孤立エントリ防止）
-        let mut entries = HashMap::new();
-        process_update(
-            &RepoId::new("unknown-repo"),
-            "output",
-            RefreshMode::Warm,
-            &[],
-            &mut entries,
-        );
-        assert!(
-            entries.is_empty(),
-            "未知の repo_id への Update はエントリを作成しないはず"
-        );
-    }
-
-    #[test]
-    fn process_update_clears_terminal_when_pr_reopens() {
-        let repo_id = RepoId::new("repo");
-        let mut entries = HashMap::new();
-        entries.insert(repo_id.clone(), make_entry("", RefreshMode::Terminal));
-        process_update(
-            &repo_id,
-            "✓ Ready for merge",
-            RefreshMode::Warm,
-            &[],
-            &mut entries,
-        );
-        assert_eq!(entries[&repo_id].refresh_mode(), RefreshMode::Warm);
-    }
-
-    // ── entry_to_dtos ─────────────────────────────────────────────────────────
-
-    #[test]
-    fn entry_to_dtos_expands_pr_outputs() {
-        let mut entry = CacheEntry::new(PathBuf::from("/repo"), "feat/multi".to_owned(), 5);
-        entry.update(
-            "✓ Ready for merge #200 ✎ Ready for review #201".to_owned(),
-            vec![
-                PrOutput {
-                    pr_id: 200,
-                    output: "✓ Ready for merge #200".to_owned(),
-                },
-                PrOutput {
-                    pr_id: 201,
-                    output: "✎ Ready for review #201".to_owned(),
-                },
-            ],
-            RefreshMode::Warm,
-        );
-
-        let dtos = entry_to_dtos(&entry);
-
-        assert_eq!(dtos.len(), 2);
-        assert_eq!(dtos[0].cwd, "/repo");
-        assert_eq!(dtos[0].branch, "feat/multi");
-        assert_eq!(dtos[0].pr_id, Some(200));
-        assert_eq!(dtos[0].output, "✓ Ready for merge #200");
-        assert_eq!(dtos[1].cwd, "/repo");
-        assert_eq!(dtos[1].branch, "feat/multi");
-        assert_eq!(dtos[1].pr_id, Some(201));
-        assert_eq!(dtos[1].output, "✎ Ready for review #201");
-    }
-
-    #[test]
-    fn entry_to_dtos_keeps_aggregate_output_without_pr_outputs() {
-        let mut entry = CacheEntry::new(PathBuf::from("/repo"), "chore/no-pr".to_owned(), 5);
-        entry.update("+ Create PR".to_owned(), vec![], RefreshMode::Warm);
-
-        let dtos = entry_to_dtos(&entry);
-
-        assert_eq!(dtos.len(), 1);
-        assert_eq!(dtos[0].cwd, "/repo");
-        assert_eq!(dtos[0].branch, "chore/no-pr");
-        assert_eq!(dtos[0].pr_id, None);
-        assert_eq!(dtos[0].output, "+ Create PR");
     }
 
     // ── collect_background_refresh_targets ─────────────────────────────────────
@@ -955,7 +375,7 @@ mod tests {
             let mut entry = make_stale_entry("✓ Ready for merge", RefreshMode::Warm, 9999);
             entry.last_queried_at = Some(
                 Instant::now()
-                    .checked_sub(Duration::from_secs(warm_to_cold_secs() + 1))
+                    .checked_sub(Duration::from_secs(server_config::warm_to_cold_secs() + 1))
                     .unwrap(),
             );
             entry.cold_refresh_count = 3;
@@ -1006,7 +426,7 @@ mod tests {
             let mut entry = make_entry("✓ Ready for merge", RefreshMode::Warm);
             entry.last_queried_at = Some(
                 Instant::now()
-                    .checked_sub(Duration::from_secs(entry_max_age_secs() + 1))
+                    .checked_sub(Duration::from_secs(server_config::entry_max_age_secs() + 1))
                     .unwrap(),
             );
             s.entries.insert(RepoId::new("repo"), entry);

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.3] - 2026-05-07
+### Bug Fixes
+- Daemon の終了処理を安定化して coverage 実行のハングを防ぐ ([#281](https://github.com/toshiki670/merge-ready/pull/281)) ([`4ac2309`](https://github.com/toshiki670/merge-ready/commit/4ac230922b56146d6689448efd25a05309345ebf))
+### Features
+- Watch のエントリ一覧を CWD → BRANCH → PR 昇順でソートする ([#275](https://github.com/toshiki670/merge-ready/pull/275)) ([`25acfc4`](https://github.com/toshiki670/merge-ready/commit/25acfc48971383dff182531f70f9cf294026f67d))
+
+
 ## [0.7.2] - 2026-05-06
 ### Bug Fixes
 - Daemon 起動レースを防ぐ ([#266](https://github.com/toshiki670/merge-ready/pull/266)) ([`c385de5`](https://github.com/toshiki670/merge-ready/commit/c385de574bda1d3b255b76821855f994d721429e))

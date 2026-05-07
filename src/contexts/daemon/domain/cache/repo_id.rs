@@ -24,12 +24,6 @@ impl From<RepoId> for String {
     }
 }
 
-impl std::fmt::Display for RepoId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

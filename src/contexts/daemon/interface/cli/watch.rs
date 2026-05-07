@@ -171,18 +171,23 @@ fn format_cached_at(cached_at_secs: u64) -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let elapsed = now.saturating_sub(cached_at_secs);
-    if elapsed < 60 {
-        format!("{elapsed}s ago")
-    } else if elapsed < 3600 {
-        format!("{}m ago", elapsed / 60)
+    format_elapsed(now.saturating_sub(cached_at_secs))
+}
+
+fn format_elapsed(elapsed_secs: u64) -> String {
+    if elapsed_secs < 60 {
+        format!("{elapsed_secs}s ago")
+    } else if elapsed_secs < 3600 {
+        format!("{}m ago", elapsed_secs / 60)
     } else {
-        format!("{}h ago", elapsed / 3600)
+        format!("{}h ago", elapsed_secs / 3600)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
     fn make_view(
@@ -298,33 +303,14 @@ mod tests {
         assert!(table.contains("✎ Ready for review #201"));
     }
 
-    #[test]
-    fn format_cached_at_seconds() {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let s = format_cached_at(now.saturating_sub(5));
-        assert!(s.ends_with("s ago"));
-    }
-
-    #[test]
-    fn format_cached_at_minutes() {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let s = format_cached_at(now.saturating_sub(90));
-        assert!(s.ends_with("m ago"));
-    }
-
-    #[test]
-    fn format_cached_at_hours() {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let s = format_cached_at(now.saturating_sub(7200));
-        assert!(s.ends_with("h ago"));
+    #[rstest]
+    #[case(5, "5s ago")]
+    #[case(59, "59s ago")]
+    #[case(60, "1m ago")]
+    #[case(90, "1m ago")]
+    #[case(3600, "1h ago")]
+    #[case(7200, "2h ago")]
+    fn format_elapsed_various_durations(#[case] elapsed_secs: u64, #[case] expected: &str) {
+        assert_eq!(format_elapsed(elapsed_secs), expected);
     }
 }

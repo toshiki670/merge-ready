@@ -7,7 +7,6 @@ use predicates::prelude::*;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
 
-const BIN: &str = "merge-ready";
 const PROMPT_BIN: &str = "merge-ready-prompt";
 const OPEN_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
 const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
@@ -35,12 +34,7 @@ fn test_initial_load_then_shows_result() {
         .stdout(predicate::str::diff("✓ Ready for merge"));
 
     // 自動起動された daemon を後始末
-    let bin = assert_cmd::cargo::cargo_bin(BIN);
-    std::process::Command::new(&bin)
-        .args(["daemon", "stop"])
-        .env("TMPDIR", env.home())
-        .output()
-        .ok();
+    DaemonHandle::stop_for_env(&env);
 }
 
 /// daemon 起動直後（キャッシュなし）→ `? loading`

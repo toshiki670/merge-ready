@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::contexts::daemon::application::port::{EntryView, WatchPort};
 use crate::contexts::daemon::domain::cache::RepoId;
@@ -7,6 +8,7 @@ use crate::contexts::daemon::domain::daemon::{DaemonError, DaemonLifecyclePort, 
 use super::{daemon_client::DaemonClient, daemon_server, pid};
 
 type RefreshCallback = dyn Fn(&RepoId, &std::path::Path) + Send + Sync + 'static;
+const STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub struct DaemonLifecycle {
     on_refresh: Arc<RefreshCallback>,
@@ -26,21 +28,18 @@ impl DaemonLifecyclePort for DaemonLifecycle {
     }
 
     fn stop(&self) -> bool {
+        let running_pid = pid::read().filter(|&p| pid::is_alive(p));
         if DaemonClient::stop() {
-            return true;
+            return running_pid.is_none_or(wait_or_terminate);
         }
-        let Some(p) = pid::read() else {
+        let Some(p) = running_pid.or_else(pid::read) else {
             return false;
         };
         if !pid::is_alive(p) {
             pid::remove();
             return false;
         }
-        // ソケット経由が失敗した場合は SIGTERM でフォールバック
-        std::process::Command::new("kill")
-            .args(["-TERM", &p.to_string()])
-            .status()
-            .is_ok_and(|s| s.success())
+        terminate_and_wait(p)
     }
 
     fn get_status(&self) -> Option<DaemonStatus> {
@@ -54,6 +53,22 @@ impl DaemonLifecyclePort for DaemonLifecycle {
     fn get_pid(&self) -> Option<u32> {
         pid::read().filter(|&p| pid::is_alive(p))
     }
+}
+
+fn wait_or_terminate(p: u32) -> bool {
+    if pid::wait_until_gone(p, STOP_TIMEOUT) {
+        return true;
+    }
+    terminate_and_wait(p)
+}
+
+fn terminate_and_wait(p: u32) -> bool {
+    // ソケット経由が失敗した、または終了が遅い場合は SIGTERM でフォールバックする。
+    let signalled = std::process::Command::new("kill")
+        .args(["-TERM", &p.to_string()])
+        .status()
+        .is_ok_and(|s| s.success());
+    signalled && pid::wait_until_gone(p, STOP_TIMEOUT)
 }
 
 impl WatchPort for DaemonLifecycle {

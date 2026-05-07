@@ -38,30 +38,34 @@ pub fn run(on_refresh: &RefreshFn) -> Result<(), DaemonError> {
 
     let state = Arc::new(Mutex::new(DaemonState::new(config)));
     let (exit_tx, exit_rx) = mpsc::channel::<()>();
+    let (scheduler_stop_tx, scheduler_stop_rx) = mpsc::channel::<()>();
     let restart_started = Arc::new(AtomicBool::new(false));
 
-    // 定期バックグラウンドリフレッシュ
-    // SCHEDULER_TICK_SECS ごとに各エントリのリフレッシュ間隔を個別に評価する
-    {
+    let scheduler = {
         let state = Arc::clone(&state);
         let on_refresh = Arc::clone(on_refresh);
         std::thread::spawn(move || {
             loop {
-                std::thread::sleep(Duration::from_secs(config.scheduler_tick_secs));
+                match scheduler_stop_rx
+                    .recv_timeout(Duration::from_secs(config.scheduler_tick_secs))
+                {
+                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                }
                 let refresh_targets = background_refresh::collect_targets(&state);
                 for (repo_id, cwd) in refresh_targets {
                     spawn_refresh(&repo_id, &cwd, &on_refresh);
                 }
             }
-        });
-    }
+        })
+    };
 
     // non-blocking で accept し、終了シグナルを 10ms ごとにポーリングする
     listener.set_nonblocking(true).ok();
 
-    loop {
+    let should_cleanup = loop {
         if exit_rx.try_recv().is_ok() {
-            return Ok(());
+            break false;
         }
 
         match listener.accept() {
@@ -79,12 +83,17 @@ pub fn run(on_refresh: &RefreshFn) -> Result<(), DaemonError> {
             }
             Err(e) => {
                 log::error!("listener error: {e}");
-                break;
+                break true;
             }
         }
-    }
+    };
 
-    restart::cleanup();
+    let _ = scheduler_stop_tx.send(());
+    let _ = scheduler.join();
+
+    if should_cleanup {
+        restart::cleanup();
+    }
     Ok(())
 }
 

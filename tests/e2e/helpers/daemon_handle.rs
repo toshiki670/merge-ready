@@ -3,6 +3,8 @@
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
+use std::path::Path;
+use std::sync::mpsc;
 
 use super::{TestEnv, daemon_dir_name};
 
@@ -20,6 +22,8 @@ impl DaemonHandle {
         DaemonHandle { process, tmpdir }
     }
 }
+
+const STOP_WAIT_MS: u64 = 2000;
 
 impl DaemonHandle {
     /// daemon を起動し、socket が出現するまで最大 2000ms ポーリングする。
@@ -86,16 +90,99 @@ impl DaemonHandle {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
     }
+
+    pub fn stop_for_env(env: &TestEnv) {
+        Self::stop_tmpdir(env.home());
+    }
+
+    fn stop_tmpdir(tmpdir: &Path) {
+        let pid = read_pid(tmpdir);
+        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
+        let mut stop = std::process::Command::new(&bin);
+        stop.args(["daemon", "stop"])
+            .env("TMPDIR", tmpdir)
+            .env("HOME", tmpdir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let _ = run_command_to_exit(&mut stop, STOP_WAIT_MS);
+
+        if let Some(pid) = pid {
+            if !wait_until_pid_gone(pid, STOP_WAIT_MS) {
+                let _ = std::process::Command::new("kill")
+                    .args(["-TERM", &pid.to_string()])
+                    .status();
+                let _ = wait_until_pid_gone(pid, STOP_WAIT_MS);
+            }
+        }
+        let _ = wait_until_socket_removed(tmpdir, STOP_WAIT_MS);
+    }
+}
+
+fn run_command_to_exit(cmd: &mut std::process::Command, max_ms: u64) -> bool {
+    let Ok(mut child) = cmd.spawn() else {
+        return false;
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
+    loop {
+        if child.try_wait().is_ok_and(|status| status.is_some()) {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
 }
 
 impl Drop for DaemonHandle {
     fn drop(&mut self) {
-        let bin = assert_cmd::cargo::cargo_bin("merge-ready");
-        let _ = std::process::Command::new(&bin)
-            .args(["daemon", "stop"])
-            .env("TMPDIR", &self.tmpdir)
-            .output();
+        Self::stop_tmpdir(&self.tmpdir);
         let _ = self.process.kill();
+        let _ = self.process.wait();
+    }
+}
+
+fn read_pid(tmpdir: &Path) -> Option<u32> {
+    fs::read_to_string(tmpdir.join(daemon_dir_name()).join("daemon.pid"))
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+}
+
+fn wait_until_pid_gone(pid: u32, max_ms: u64) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
+    loop {
+        if !is_pid_alive(pid) {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+fn is_pid_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+fn wait_until_socket_removed(tmpdir: &Path, max_ms: u64) -> bool {
+    let socket = tmpdir.join(daemon_dir_name()).join("daemon.sock");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
+    loop {
+        if !socket.exists() {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
 
@@ -104,7 +191,7 @@ impl Drop for DaemonHandle {
 /// `Status` には指定 version を返し、`Query` の version 不一致時には新 daemon を spawn して終了する。
 pub struct FakeDaemonHandle {
     join: Option<std::thread::JoinHandle<()>>,
-    socket_path: std::path::PathBuf,
+    stop_tx: Option<mpsc::Sender<()>>,
 }
 
 impl FakeDaemonHandle {
@@ -117,15 +204,29 @@ impl FakeDaemonHandle {
         let _ = fs::remove_file(&socket_path);
 
         let listener = UnixListener::bind(&socket_path).expect("bind fake daemon socket");
+        listener
+            .set_nonblocking(true)
+            .expect("set fake daemon nonblocking");
         let version = version.to_owned();
         let socket_path_for_thread = socket_path.clone();
         let tmpdir = env.home().to_path_buf();
         let path_env = env.path_env();
+        let (stop_tx, stop_rx) = mpsc::channel::<()>();
         let join = std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                let Ok(mut stream) = stream else {
-                    continue;
+            let mut remove_socket_on_exit = true;
+            loop {
+                if stop_rx.try_recv().is_ok() {
+                    break;
+                }
+                let mut stream = match listener.accept() {
+                    Ok((stream, _)) => stream,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                        continue;
+                    }
+                    Err(_) => continue,
                 };
+                let _ = stream.set_read_timeout(Some(std::time::Duration::from_millis(500)));
                 let mut line = String::new();
                 {
                     let mut reader = BufReader::new(&stream);
@@ -152,6 +253,10 @@ impl FakeDaemonHandle {
                     let client_version =
                         extract_client_version_from_query(&line).unwrap_or_default();
                     if client_version != version {
+                        // socket を解放して新 daemon が bind できるようにする
+                        let _ = fs::remove_file(&socket_path_for_thread);
+                        remove_socket_on_exit = false;
+
                         // 新 daemon を起動（実際の daemon の自己再起動をシミュレート）
                         let bin = assert_cmd::cargo::cargo_bin("merge-ready");
                         let _ = std::process::Command::new(&bin)
@@ -163,21 +268,21 @@ impl FakeDaemonHandle {
                             .stdout(std::process::Stdio::null())
                             .stderr(std::process::Stdio::null())
                             .spawn();
-                        // socket を解放して新 daemon が bind できるようにする
-                        let _ = fs::remove_file(&socket_path_for_thread);
-                        return;
+                        break;
                     }
                     continue;
                 } else {
                     let _ = stream.write_all(b"{\"tag\":\"output\",\"output\":\"? loading\"}\n");
                 }
             }
-            let _ = fs::remove_file(&socket_path_for_thread);
+            if remove_socket_on_exit {
+                let _ = fs::remove_file(&socket_path_for_thread);
+            }
         });
 
         Self {
             join: Some(join),
-            socket_path,
+            stop_tx: Some(stop_tx),
         }
     }
 }
@@ -193,11 +298,11 @@ fn extract_client_version_from_query(line: &str) -> Option<String> {
 
 impl Drop for FakeDaemonHandle {
     fn drop(&mut self) {
-        let _ = std::os::unix::net::UnixStream::connect(&self.socket_path)
-            .and_then(|mut stream| stream.write_all(b"{\"action\":\"stop\"}\n"));
+        if let Some(stop_tx) = self.stop_tx.take() {
+            let _ = stop_tx.send(());
+        }
         if let Some(join) = self.join.take() {
             let _ = join.join();
         }
-        let _ = fs::remove_file(&self.socket_path);
     }
 }

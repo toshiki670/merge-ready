@@ -264,7 +264,10 @@ mod tests {
         ];
         let table = format_table(&rows);
         let lines: Vec<&str> = table.lines().skip(1).collect();
-        assert!(lines[0].contains("/a/repo") && lines[0].contains("feat/1"), "1行目: /a/repo feat/1");
+        assert!(
+            lines[0].contains("/a/repo") && lines[0].contains("feat/1"),
+            "1行目: /a/repo feat/1"
+        );
         assert!(
             lines[1].contains("/a/repo") && lines[1].contains("feat/2") && lines[1].contains("#1"),
             "2行目: /a/repo feat/2 #1"

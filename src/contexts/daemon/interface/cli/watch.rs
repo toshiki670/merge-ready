@@ -49,6 +49,14 @@ fn format_table(entries: &[EntryView]) -> String {
         return "no entries cached\n".to_owned();
     }
 
+    let mut sorted: Vec<&EntryView> = entries.iter().collect();
+    sorted.sort_by(|a, b| {
+        a.cwd
+            .cmp(&b.cwd)
+            .then_with(|| a.branch.cmp(&b.branch))
+            .then_with(|| a.pr_id.cmp(&b.pr_id))
+    });
+
     let header = TableRow {
         cwd: "CWD".to_owned(),
         branch: "BRANCH".to_owned(),
@@ -56,7 +64,7 @@ fn format_table(entries: &[EntryView]) -> String {
         status: "STATUS".to_owned(),
         cached_at: "CACHED AT".to_owned(),
     };
-    let rows: Vec<TableRow> = entries.iter().map(TableRow::from_entry).collect();
+    let rows: Vec<TableRow> = sorted.iter().map(|e| TableRow::from_entry(e)).collect();
     let widths = TableWidths::from_rows(&header, &rows);
 
     let mut out = String::new();
@@ -163,18 +171,23 @@ fn format_cached_at(cached_at_secs: u64) -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let elapsed = now.saturating_sub(cached_at_secs);
-    if elapsed < 60 {
-        format!("{elapsed}s ago")
-    } else if elapsed < 3600 {
-        format!("{}m ago", elapsed / 60)
+    format_elapsed(now.saturating_sub(cached_at_secs))
+}
+
+fn format_elapsed(elapsed_secs: u64) -> String {
+    if elapsed_secs < 60 {
+        format!("{elapsed_secs}s ago")
+    } else if elapsed_secs < 3600 {
+        format!("{}m ago", elapsed_secs / 60)
     } else {
-        format!("{}h ago", elapsed / 3600)
+        format!("{}h ago", elapsed_secs / 3600)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
     fn make_view(
@@ -242,6 +255,31 @@ mod tests {
     }
 
     #[test]
+    fn format_table_entries_sorted_by_cwd_then_branch_then_pr() {
+        let rows = vec![
+            make_view("/z/repo", "main", None, "✓ Ready", 5),
+            make_view("/a/repo", "feat/2", Some(2), "✓ Ready", 5),
+            make_view("/a/repo", "feat/1", Some(1), "✓ Ready", 5),
+            make_view("/a/repo", "feat/2", Some(1), "✓ Ready", 5),
+        ];
+        let table = format_table(&rows);
+        let lines: Vec<&str> = table.lines().skip(1).collect();
+        assert!(
+            lines[0].contains("/a/repo") && lines[0].contains("feat/1"),
+            "1行目: /a/repo feat/1"
+        );
+        assert!(
+            lines[1].contains("/a/repo") && lines[1].contains("feat/2") && lines[1].contains("#1"),
+            "2行目: /a/repo feat/2 #1"
+        );
+        assert!(
+            lines[2].contains("/a/repo") && lines[2].contains("feat/2") && lines[2].contains("#2"),
+            "3行目: /a/repo feat/2 #2"
+        );
+        assert!(lines[3].contains("/z/repo"), "4行目: /z/repo");
+    }
+
+    #[test]
     fn format_table_shows_multiple_pr_rows() {
         let rows = vec![
             make_view(
@@ -268,33 +306,14 @@ mod tests {
         assert!(table.contains("✎ Ready for review #201"));
     }
 
-    #[test]
-    fn format_cached_at_seconds() {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let s = format_cached_at(now.saturating_sub(5));
-        assert!(s.ends_with("s ago"));
-    }
-
-    #[test]
-    fn format_cached_at_minutes() {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let s = format_cached_at(now.saturating_sub(90));
-        assert!(s.ends_with("m ago"));
-    }
-
-    #[test]
-    fn format_cached_at_hours() {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let s = format_cached_at(now.saturating_sub(7200));
-        assert!(s.ends_with("h ago"));
+    #[rstest]
+    #[case(5, "5s ago")]
+    #[case(59, "59s ago")]
+    #[case(60, "1m ago")]
+    #[case(90, "1m ago")]
+    #[case(3600, "1h ago")]
+    #[case(7200, "2h ago")]
+    fn format_elapsed_various_durations(#[case] elapsed_secs: u64, #[case] expected: &str) {
+        assert_eq!(format_elapsed(elapsed_secs), expected);
     }
 }

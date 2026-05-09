@@ -18,3 +18,7 @@ gh workflow run release-prepare.yml --repo toshiki670/merge-ready
 echo "Workflow をトリガーしました。"
 echo "進捗: https://github.com/toshiki670/merge-ready/actions/workflows/release-prepare.yml"
 """
+
+[tasks.setup-hooks]
+description = "Set up local git hooks for rust fmt/clippy"
+run = "bash scripts/setup-hooks.sh"

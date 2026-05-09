@@ -66,7 +66,7 @@ fn test_no_pr() {
 /// #34: Draft PR → `✎ Ready for review`
 #[test]
 fn test_draft_pr_shows_ready_for_review() {
-    let env = TestEnv::new(DRAFT_PR, Some(r#"[]"#));
+    let env = TestEnv::new(DRAFT_PR, Some(r"[]"));
     assert_prompt(&env, "✎ Ready for review");
 }
 
@@ -87,23 +87,23 @@ fn test_non_open_pr_shows_nothing(#[case] pr_json: &str) {
 /// #179: `mergeStateStatus == "MERGE_STATE_UNKNOWN"` → `⧖ Wait for status`
 #[test]
 fn test_merge_state_unknown_shows_wait_for_status() {
-    let env = TestEnv::new(MERGE_STATE_UNKNOWN_PR, Some(r#"[]"#));
+    let env = TestEnv::new(MERGE_STATE_UNKNOWN_PR, Some(r"[]"));
     assert_prompt(&env, "⧖ Wait for status");
 }
 
 /// #179: `mergeStateStatus == "UNKNOWN"` → `⧖ Wait for status`
 #[test]
 fn test_unknown_merge_state_status_shows_wait_for_status() {
-    let env = TestEnv::new(UNKNOWN_STATUS_PR, Some(r#"[]"#));
+    let env = TestEnv::new(UNKNOWN_STATUS_PR, Some(r"[]"));
     assert_prompt(&env, "⧖ Wait for status");
 }
 
 // ── #178: BLOCKED + 全シグナル None ──────────────────────────────────────────
 
-/// #178: `mergeStateStatus == "BLOCKED"` かつ branch_sync / ci / review がすべて None
+/// #178: `mergeStateStatus == "BLOCKED"` かつ `branch_sync` / `ci` / `review` がすべて `None`
 ///       → `? Check merge blocker`
 #[test]
 fn test_blocked_unknown_shows_check_merge_blocker() {
-    let env = TestEnv::new(BLOCKED_UNKNOWN_PR, Some(r#"[]"#));
+    let env = TestEnv::new(BLOCKED_UNKNOWN_PR, Some(r"[]"));
     assert_prompt(&env, "? Check merge blocker");
 }

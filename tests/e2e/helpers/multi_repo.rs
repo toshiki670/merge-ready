@@ -14,7 +14,7 @@ pub struct MultiRepoEnv {
 }
 
 impl MultiRepoEnv {
-    /// `pr_view_a` / `pr_view_b` をそれぞれの repo_dir に仕込み、
+    /// `pr_view_a` / `pr_view_b` をそれぞれの `repo_dir` に仕込み、
     /// `$PWD` ベースで応答する共有 `fake gh` をセットアップする。
     pub fn new(pr_view_a: &str, pr_view_b: &str) -> Self {
         let bin_dir = tempdir().expect("bin_dir");
@@ -70,7 +70,7 @@ impl MultiRepoEnv {
     /// daemon を `repo_a` の cwd で起動し、socket 出現まで最大 2000ms 待つ。
     pub fn start_daemon(&self) -> DaemonHandle {
         let bin = assert_cmd::cargo::cargo_bin("merge-ready");
-        let child = std::process::Command::new(&bin)
+        let mut child = std::process::Command::new(&bin)
             .args(["daemon", "start"])
             .env("PATH", self.path_env())
             .env("HOME", self.home())
@@ -83,13 +83,15 @@ impl MultiRepoEnv {
             .expect("daemon spawn failed");
 
         let socket = self.home().join(daemon_dir_name()).join("daemon.sock");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while std::time::Instant::now() < deadline {
             if socket.exists() {
                 return DaemonHandle::new(child, self.home().to_path_buf());
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        let _ = child.kill();
+        let _ = child.wait();
         panic!("daemon did not start within 2000ms");
     }
 

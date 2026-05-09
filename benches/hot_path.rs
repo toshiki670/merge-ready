@@ -145,7 +145,7 @@ fn setup_bench_env() -> BenchEnv {
 
     // socket 出現を待つ（計測対象外）
     let socket = env.tmp_dir.path().join(dir_name()).join("daemon.sock");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(3000);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
     while std::time::Instant::now() < deadline {
         if socket.exists() {
             break;
@@ -156,7 +156,7 @@ fn setup_bench_env() -> BenchEnv {
 
     // キャッシュが温まるまで待つ（計測対象外）
     let prompt_bin = binary_path("merge-ready-prompt");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(5000);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         let out = Command::new(&prompt_bin)
             .env("PATH", path_env(&env))

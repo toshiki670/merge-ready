@@ -258,7 +258,7 @@ fn test_prompt_restarts_daemon_on_version_mismatch() {
     drop(old);
 
     // 新 daemon が起動するまでポーリング（最大 5 秒）
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(5000);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         let out = Command::cargo_bin(BIN)
             .unwrap()
@@ -373,7 +373,7 @@ fn test_concurrent_version_mismatch_starts_only_one_daemon() {
     drop(old);
 
     // 新 daemon が起動するまでポーリング（最大 5 秒）
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(5000);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         let out = Command::cargo_bin(BIN)
             .unwrap()

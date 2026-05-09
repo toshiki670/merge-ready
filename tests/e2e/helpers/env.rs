@@ -10,6 +10,7 @@ use tempfile::{TempDir, tempdir};
 use super::write_executable;
 
 /// テスト実行環境を完全に隔離するヘルパー。
+#[allow(clippy::struct_field_names)]
 pub struct TestEnv {
     /// `fake gh` を配置する一時ディレクトリ
     pub bin_dir: TempDir,

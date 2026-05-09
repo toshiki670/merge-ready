@@ -50,7 +50,7 @@ fn test_top_level_help(#[case] arg: &str) {
 
 // ── #71: バージョン ───────────────────────────────────────────────────────────
 
-/// #71: `--version` → CARGO_PKG_VERSION を含む
+/// #71: `--version` → `CARGO_PKG_VERSION` を含む
 #[test]
 fn test_version_flag() {
     let env = TestEnv::new(MERGE_READY_PR_VIEW_JSON, Some(MERGE_READY_PR_CHECKS_JSON));

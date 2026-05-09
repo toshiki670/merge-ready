@@ -38,7 +38,7 @@ fn test_merge_ready() {
 
 // ── #16: 全ブロッカーが成立 ──────────────────────────────────────────────────
 
-/// #16: conflict + ci_fail + changes_requested が全部成立 → `✓ Ready for merge` は表示されない
+/// #16: `conflict` + `ci_fail` + `changes_requested` が全部成立 → `✓ Ready for merge` は表示されない
 #[test]
 fn test_all_conditions_block_merge_ready() {
     let env = TestEnv::new(

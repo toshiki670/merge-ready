@@ -24,7 +24,7 @@ fn spawn_watch_and_read(env: &TestEnv, n: usize, timeout: Duration) -> String {
         .env("HOME", env.home())
         .env("TMPDIR", env.home())
         .env("XDG_CONFIG_HOME", env.home().join(".config"))
-        .current_dir(env.repo_dir.path())
+        .current_dir(env.repo.path())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
@@ -223,7 +223,7 @@ fn test_watch_expands_multiple_prs_to_rows() {
         {"number":200,"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null,"baseRefName":"","headRefName":""},
         {"number":201,"state":"OPEN","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null,"baseRefName":"","headRefName":""}
     ]"#;
-    let env = TestEnv::with_pr_list(pr_list_json, Some(r#"[]"#));
+    let env = TestEnv::with_pr_list(pr_list_json, Some(r"[]"));
     let _daemon = DaemonHandle::start(&env);
     DaemonHandle::wait_for_cache(&env, 5000);
 

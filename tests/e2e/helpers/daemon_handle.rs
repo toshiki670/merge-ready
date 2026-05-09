@@ -43,27 +43,29 @@ impl DaemonHandle {
             .env("HOME", env.home())
             .env("TMPDIR", env.home())
             .env("XDG_CONFIG_HOME", env.home().join(".config"))
-            .current_dir(env.repo_dir.path())
+            .current_dir(env.repo.path())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
         for (k, v) in extra_envs {
             cmd.env(k, v);
         }
-        let child = cmd.spawn().expect("daemon spawn failed");
+        let mut child = cmd.spawn().expect("daemon spawn failed");
 
         let socket = env
-            .home_dir
+            .home_tmp
             .path()
             .join(daemon_dir_name())
             .join("daemon.sock");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(2000);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while std::time::Instant::now() < deadline {
             if socket.exists() {
-                return DaemonHandle::new(child, env.home_dir.path().to_path_buf());
+                return DaemonHandle::new(child, env.home_tmp.path().to_path_buf());
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        let _ = child.kill();
+        let _ = child.wait();
         panic!("daemon did not start within 2000ms");
     }
 
@@ -76,7 +78,7 @@ impl DaemonHandle {
                 .env("PATH", env.path_env())
                 .env("HOME", env.home())
                 .env("TMPDIR", env.home())
-                .current_dir(env.repo_dir.path())
+                .current_dir(env.repo.path())
                 .output()
                 .expect("merge-ready-prompt failed");
             let stdout = String::from_utf8_lossy(&out.stdout);
@@ -107,13 +109,13 @@ impl DaemonHandle {
             .stderr(std::process::Stdio::null());
         let _ = run_command_to_exit(&mut stop, STOP_WAIT_MS);
 
-        if let Some(pid) = pid {
-            if !wait_until_pid_gone(pid, STOP_WAIT_MS) {
-                let _ = std::process::Command::new("kill")
-                    .args(["-TERM", &pid.to_string()])
-                    .status();
-                let _ = wait_until_pid_gone(pid, STOP_WAIT_MS);
-            }
+        if let Some(pid) = pid
+            && !wait_until_pid_gone(pid, STOP_WAIT_MS)
+        {
+            let _ = std::process::Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .status();
+            let _ = wait_until_pid_gone(pid, STOP_WAIT_MS);
         }
         let _ = wait_until_socket_removed(tmpdir, STOP_WAIT_MS);
     }
@@ -270,7 +272,6 @@ impl FakeDaemonHandle {
                             .spawn();
                         break;
                     }
-                    continue;
                 } else {
                     let _ = stream.write_all(b"{\"tag\":\"output\",\"output\":\"? loading\"}\n");
                 }
@@ -287,7 +288,7 @@ impl FakeDaemonHandle {
     }
 }
 
-/// JSON 行から client_version フィールドを簡易抽出する。
+/// JSON 行から `client_version` フィールドを簡易抽出する。
 fn extract_client_version_from_query(line: &str) -> Option<String> {
     let key = "\"client_version\":\"";
     let pos = line.find(key)?;

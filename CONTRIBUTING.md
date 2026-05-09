@@ -34,7 +34,7 @@ mise run setup-hooks  # sets local git hooks (pre-commit: fmt, pre-push: clippy)
 This repository uses local Git hooks configured via `mise` task:
 
 - `pre-commit`: `cargo fmt --all -- --check`
-- `pre-push`: `cargo clippy --workspace -- -D warnings`
+- `pre-push`: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 
 Re-run after cloning the repository:
 

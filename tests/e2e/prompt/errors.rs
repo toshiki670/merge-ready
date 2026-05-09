@@ -2,7 +2,7 @@
 //!
 //! `gh` CLI の各エラーシナリオに対して正しい `stdout` が返ることを検証する。
 //! daemon がエラー状態をキャッシュするため、daemon 経由（キャッシュパス）で検証する。
-//! 各テストは独立した `TestEnv`（`bin_dir` + `home_dir`）を持つため、
+//! 各テストは独立した `TestEnv`（`bin` + `home_tmp`）を持つため、
 //! 並列実行時に `error.log` が競合しない。
 
 const PROMPT_BIN: &str = "merge-ready-prompt";

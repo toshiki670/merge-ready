@@ -1,6 +1,6 @@
 //! キャッシュライフサイクル シナリオ #6: 複数リポジトリの分離
 //!
-//! repo_a（Ready for merge）と repo_b（Resolve conflict）が同一 daemon を共有し、
+//! `repo_a`（`Ready for merge`）と `repo_b`（`Resolve conflict`）が同一 daemon を共有し、
 //! キャッシュを汚染しない
 
 use super::super::helpers::MultiRepoEnv;

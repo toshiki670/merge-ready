@@ -20,7 +20,7 @@ fn test_multiple_prs_shown_in_order() {
         {"number":200,"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null,"baseRefName":"","headRefName":""},
         {"number":201,"state":"OPEN","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null,"baseRefName":"","headRefName":""}
     ]"#;
-    let env = TestEnv::with_pr_list(pr_list_json, Some(r#"[]"#));
+    let env = TestEnv::with_pr_list(pr_list_json, Some(r"[]"));
 
     let _daemon = DaemonHandle::start(&env);
     DaemonHandle::wait_for_cache(&env, 5000);
@@ -38,7 +38,7 @@ fn test_multiple_prs_shown_in_order() {
 /// 複数 PR でブロック状態が混在する場合: 各 PR の状態を独立して表示する
 ///
 /// PR #300: merge ready (CLEAN, CI pass)
-/// PR #301: レビュー待ち (BLOCKED, REVIEW_REQUIRED)
+/// PR #301: レビュー待ち (`BLOCKED`, `REVIEW_REQUIRED`)
 /// 期待出力: "✓ Ready for merge #300 @ Assign reviewer #301"
 #[test]
 fn test_multiple_prs_with_mixed_states() {
@@ -46,7 +46,7 @@ fn test_multiple_prs_with_mixed_states() {
         {"number":300,"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null,"baseRefName":"","headRefName":""},
         {"number":301,"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"REVIEW_REQUIRED","baseRefName":"","headRefName":""}
     ]"#;
-    let env = TestEnv::with_pr_list(pr_list_json, Some(r#"[]"#));
+    let env = TestEnv::with_pr_list(pr_list_json, Some(r"[]"));
 
     let _daemon = DaemonHandle::start(&env);
     DaemonHandle::wait_for_cache(&env, 5000);

@@ -23,7 +23,7 @@ fn daemon_stop_output(env: &TestEnv) -> std::process::Output {
         .env("HOME", env.home())
         .env("TMPDIR", env.home())
         .env("XDG_CONFIG_HOME", env.home().join(".config"))
-        .current_dir(env.repo_dir.path())
+        .current_dir(env.repo.path())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -258,7 +258,7 @@ fn test_prompt_restarts_daemon_on_version_mismatch() {
     drop(old);
 
     // 新 daemon が起動するまでポーリング（最大 5 秒）
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(5000);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         let out = Command::cargo_bin(BIN)
             .unwrap()
@@ -312,7 +312,7 @@ fn test_concurrent_prompt_starts_only_one_daemon() {
             let bin = prompt_bin.clone();
             let path = env.path_env();
             let home = env.home().to_path_buf();
-            let repo = env.repo_dir.path().to_path_buf();
+            let repo = env.repo.path().to_path_buf();
             std::thread::spawn(move || prompt_output_with_timeout(&bin, &path, &home, &repo))
         })
         .collect();
@@ -334,7 +334,7 @@ fn test_concurrent_prompt_starts_only_one_daemon() {
 
     // PID ファイルが 1 つだけあることを確認（複数 daemon は起動していない）
     let socket_path = env
-        .home_dir
+        .home_tmp
         .path()
         .join(super::super::helpers::daemon_dir_name())
         .join("daemon.sock");
@@ -361,7 +361,7 @@ fn test_concurrent_version_mismatch_starts_only_one_daemon() {
             let bin = prompt_bin.clone();
             let path = env.path_env();
             let home = env.home().to_path_buf();
-            let repo = env.repo_dir.path().to_path_buf();
+            let repo = env.repo.path().to_path_buf();
             std::thread::spawn(move || prompt_output_with_timeout(&bin, &path, &home, &repo))
         })
         .collect();
@@ -373,7 +373,7 @@ fn test_concurrent_version_mismatch_starts_only_one_daemon() {
     drop(old);
 
     // 新 daemon が起動するまでポーリング（最大 5 秒）
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(5000);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         let out = Command::cargo_bin(BIN)
             .unwrap()
@@ -396,7 +396,7 @@ fn test_concurrent_version_mismatch_starts_only_one_daemon() {
 
     // socket ファイルが存在すること（1 daemon だけが bind している）
     let socket_path = env
-        .home_dir
+        .home_tmp
         .path()
         .join(super::super::helpers::daemon_dir_name())
         .join("daemon.sock");

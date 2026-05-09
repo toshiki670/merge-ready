@@ -28,6 +28,18 @@ Key principles:
 
 ```bash
 mise install   # installs Rust toolchain declared in mise.toml
+mise run setup-hooks  # sets local git hooks (pre-commit: fmt, pre-push: clippy)
+```
+
+This repository uses local Git hooks configured via `mise` task:
+
+- `pre-commit`: `cargo fmt --all -- --check`
+- `pre-push`: `cargo clippy --workspace -- -D warnings`
+
+Re-run after cloning the repository:
+
+```bash
+mise run setup-hooks
 ```
 
 ## Build & Test

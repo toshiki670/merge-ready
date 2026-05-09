@@ -67,10 +67,7 @@ fn test_partial_config_other_tokens_use_defaults() {
 /// `[error]` セクションを設定した場合、エラー出力に反映される
 #[rstest]
 #[case::custom_symbol("[error]\nsymbol = \"!\"", "! unexpected error")]
-#[case::custom_format(
-    "[error]\nformat = \"[$symbol] $message\"",
-    "[✗] unexpected error"
-)]
+#[case::custom_format("[error]\nformat = \"[$symbol] $message\"", "[✗] unexpected error")]
 fn test_error_token_customization(#[case] config_toml: &str, #[case] expected: &str) {
     let env = TestEnv::with_error("HTTP 500: Internal Server Error", 1);
     env.write_config(config_toml);

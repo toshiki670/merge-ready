@@ -76,6 +76,14 @@ jobs:
       - name: Check no mod.rs files
         run: bash scripts/check-no-mod-rs.sh
 
+  no-clippy-allow:
+    name: no-clippy-allow
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Check no clippy allow attributes
+        run: bash scripts/check-no-clippy-allow.sh
+
   deny:
     name: deny
     runs-on: ubuntu-latest

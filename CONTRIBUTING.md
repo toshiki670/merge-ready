@@ -34,6 +34,7 @@ mise run setup-hooks  # sets local git hooks (pre-commit: fmt, pre-push: clippy)
 This repository uses local Git hooks configured via `mise` task:
 
 - `pre-commit`: `cargo fmt --all -- --check`
+- `pre-commit`: `bash scripts/check-no-clippy-allow.sh` (forbid `#[allow(clippy::...)]` in Rust files)
 - `pre-push`: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 
 Re-run after cloning the repository:
@@ -52,6 +53,7 @@ cargo fmt --check --all              # formatting check
 cargo deny check                     # dependency audit
 bash scripts/check-layer-deps.sh     # DDD layer dependency rules
 bash scripts/check-no-mod-rs.sh      # forbid mod.rs (use Rust 2018+ style)
+bash scripts/check-no-clippy-allow.sh # forbid #[allow(clippy::...)] in Rust files
 bash scripts/check-pr-title.sh       # require Conventional Commit PR titles (set PR_TITLE)
 bash scripts/check-e2e.sh           # feat/fix PRs must include changes under tests/e2e/ (set PR_TITLE and BASE_REF)
 ```

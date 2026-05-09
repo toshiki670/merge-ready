@@ -6,6 +6,7 @@ const CHECKS_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS"}]"#;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use rstest::rstest;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
 
@@ -79,6 +80,42 @@ fn conditional_inside_styled_block_hidden_when_pr_id_empty() {
         !stdout.contains("( #)"),
         "literal '( #)' must not appear, got: {stdout:?}"
     );
+}
+
+/// 複数の色指定形式（Ansi256 / RGB / Named fg+bg）を使った format で、
+/// スタイル付き出力が有効になることを検証する E2E テスト。
+#[rstest]
+#[case::ansi256_fg("[$symbol](fg:196) $label")]
+#[case::rgb_fg("[$symbol](fg:#ff0000) $label")]
+#[case::named_fg_bg("[$symbol](red bg:blue) $label")]
+#[case::ansi256_fg_rgb_bg("[$symbol](fg:196 bg:#001122) $label")]
+/// サポートされる named color（通常色 / bright 色）指定で
+/// ANSI エスケープコード付き出力になることを確認する。
+#[case::black("[$symbol](black) $label")]
+#[case::yellow("[$symbol](yellow) $label")]
+#[case::purple("[$symbol](purple) $label")]
+#[case::white("[$symbol](white) $label")]
+#[case::bright_black("[$symbol](bright-black) $label")]
+#[case::bright_red("[$symbol](bright-red) $label")]
+#[case::bright_green("[$symbol](bright-green) $label")]
+#[case::bright_yellow("[$symbol](bright-yellow) $label")]
+#[case::bright_blue("[$symbol](bright-blue) $label")]
+#[case::bright_purple("[$symbol](bright-purple) $label")]
+#[case::bright_cyan("[$symbol](bright-cyan) $label")]
+#[case::bright_white("[$symbol](bright-white) $label")]
+fn multi_color_format_produces_ansi_output(#[case] fmt: &str) {
+    let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
+    env.write_config(&format!("[merge_ready]\nformat = \"{fmt}\""));
+
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("\x1b["))
+        .stderr("");
 }
 
 /// スタイル適用後のテキストに色が漏れない（reset が挿入される）。

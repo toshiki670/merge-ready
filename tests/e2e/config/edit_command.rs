@@ -96,7 +96,7 @@ fn test_config_edit_creates_default_when_absent() {
         "expected merge-ready.toml, got: {called_path}"
     );
 
-    let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
+    let config_path = env.home_tmp.path().join(".config").join("merge-ready.toml");
     assert!(config_path.exists(), "config file was not created");
     let content = std::fs::read_to_string(&config_path).unwrap();
     assert!(!content.is_empty(), "config file is empty");
@@ -112,9 +112,9 @@ fn test_config_edit_creates_dir_and_file_when_both_absent() {
     c.env("PATH", env.path_env());
     c.env("HOME", env.home());
     c.env("TMPDIR", env.home());
-    let xdg_dir = env.home_dir.path().join("no_such_dir");
+    let xdg_dir = env.home_tmp.path().join("no_such_dir");
     c.env("XDG_CONFIG_HOME", &xdg_dir);
-    c.current_dir(env.repo_dir.path());
+    c.current_dir(env.repo.path());
     c.env("VISUAL", &editor_path);
     c.args(["config"]);
     c.assert().success().stderr("");
@@ -160,7 +160,7 @@ fn test_config_edit_exits_nonzero_without_config_path() {
     c.env("PATH", env.path_env());
     c.env_remove("HOME");
     c.env_remove("XDG_CONFIG_HOME");
-    c.current_dir(env.repo_dir.path());
+    c.current_dir(env.repo.path());
     c.env("VISUAL", &editor_path);
     c.args(["config"]);
     c.assert()
@@ -182,7 +182,7 @@ fn test_config_edit_default_contains_sections() {
     c.args(["config"]);
     c.assert().success().stderr("");
 
-    let config_path = env.home_dir.path().join(".config").join("merge-ready.toml");
+    let config_path = env.home_tmp.path().join(".config").join("merge-ready.toml");
     let content = std::fs::read_to_string(&config_path).expect("read config");
     assert!(
         content.contains("merge_ready"),

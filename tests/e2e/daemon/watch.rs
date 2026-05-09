@@ -24,7 +24,7 @@ fn spawn_watch_and_read(env: &TestEnv, n: usize, timeout: Duration) -> String {
         .env("HOME", env.home())
         .env("TMPDIR", env.home())
         .env("XDG_CONFIG_HOME", env.home().join(".config"))
-        .current_dir(env.repo_dir.path())
+        .current_dir(env.repo.path())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()

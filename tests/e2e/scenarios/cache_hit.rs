@@ -33,7 +33,7 @@ fn test_daemon_fresh_returns_cached_output() {
     cmd.env("PATH", broken_env.path_env());
     cmd.env("HOME", env.home());
     cmd.env("TMPDIR", env.home());
-    cmd.current_dir(env.repo_dir.path());
+    cmd.current_dir(env.repo.path());
     cmd.assert()
         .success()
         .stdout(predicate::str::diff("✓ Ready for merge"));

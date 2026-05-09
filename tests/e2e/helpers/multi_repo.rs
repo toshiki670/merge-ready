@@ -7,18 +7,18 @@ use tempfile::{TempDir, tempdir};
 use super::{DaemonHandle, daemon_dir_name, write_executable};
 
 pub struct MultiRepoEnv {
-    pub bin_dir: TempDir,
-    pub home_dir: TempDir,
+    pub bin: TempDir,
+    pub home_tmp: TempDir,
     pub repo_a: TempDir,
     pub repo_b: TempDir,
 }
 
 impl MultiRepoEnv {
-    /// `pr_view_a` / `pr_view_b` をそれぞれの `repo_dir` に仕込み、
+    /// `pr_view_a` / `pr_view_b` をそれぞれの `repo` に仕込み、
     /// `$PWD` ベースで応答する共有 `fake gh` をセットアップする。
     pub fn new(pr_view_a: &str, pr_view_b: &str) -> Self {
-        let bin_dir = tempdir().expect("bin_dir");
-        let home_dir = tempdir().expect("home_dir");
+        let bin = tempdir().expect("bin");
+        let home_tmp = tempdir().expect("home_tmp");
         let repo_a = tempdir().expect("repo_a");
         let repo_b = tempdir().expect("repo_b");
 
@@ -38,7 +38,7 @@ impl MultiRepoEnv {
                 exit 127\n\
                 ;;\n\
             esac\n";
-        write_executable(bin_dir.path().join("gh"), gh_script);
+        write_executable(bin.path().join("gh"), gh_script);
 
         for (repo, json) in [(&repo_a, pr_view_a), (&repo_b, pr_view_b)] {
             let git_dir = repo.path().join(".git");
@@ -52,19 +52,19 @@ impl MultiRepoEnv {
         }
 
         Self {
-            bin_dir,
-            home_dir,
+            bin,
+            home_tmp,
             repo_a,
             repo_b,
         }
     }
 
     pub fn path_env(&self) -> String {
-        format!("{}:/bin:/usr/bin", self.bin_dir.path().display())
+        format!("{}:/bin:/usr/bin", self.bin.path().display())
     }
 
     pub fn home(&self) -> &Path {
-        self.home_dir.path()
+        self.home_tmp.path()
     }
 
     /// daemon を `repo_a` の cwd で起動し、socket 出現まで最大 2000ms 待つ。
@@ -95,8 +95,8 @@ impl MultiRepoEnv {
         panic!("daemon did not start within 2000ms");
     }
 
-    /// `repo_dir` の prompt 出力が `"? loading"` でなくなるまで最大 `max_ms` ms 待つ。
-    pub fn wait_for_cache_in(&self, repo_dir: &TempDir, max_ms: u64) {
+    /// `repo` の prompt 出力が `"? loading"` でなくなるまで最大 `max_ms` ms 待つ。
+    pub fn wait_for_cache_in(&self, repo: &TempDir, max_ms: u64) {
         let bin = assert_cmd::cargo::cargo_bin("merge-ready-prompt");
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
         loop {
@@ -104,7 +104,7 @@ impl MultiRepoEnv {
                 .env("PATH", self.path_env())
                 .env("HOME", self.home())
                 .env("TMPDIR", self.home())
-                .current_dir(repo_dir.path())
+                .current_dir(repo.path())
                 .output()
                 .expect("merge-ready-prompt failed");
             let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -119,14 +119,14 @@ impl MultiRepoEnv {
         }
     }
 
-    /// `repo_dir` から `merge-ready-prompt` を実行してその出力を返す。
-    pub fn prompt_output(&self, repo_dir: &TempDir) -> String {
+    /// `repo` から `merge-ready-prompt` を実行してその出力を返す。
+    pub fn prompt_output(&self, repo: &TempDir) -> String {
         let bin = assert_cmd::cargo::cargo_bin("merge-ready-prompt");
         let out = std::process::Command::new(&bin)
             .env("PATH", self.path_env())
             .env("HOME", self.home())
             .env("TMPDIR", self.home())
-            .current_dir(repo_dir.path())
+            .current_dir(repo.path())
             .output()
             .expect("merge-ready-prompt failed");
         String::from_utf8_lossy(&out.stdout).into_owned()

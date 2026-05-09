@@ -43,7 +43,7 @@ impl DaemonHandle {
             .env("HOME", env.home())
             .env("TMPDIR", env.home())
             .env("XDG_CONFIG_HOME", env.home().join(".config"))
-            .current_dir(env.repo_dir.path())
+            .current_dir(env.repo.path())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
@@ -53,14 +53,14 @@ impl DaemonHandle {
         let mut child = cmd.spawn().expect("daemon spawn failed");
 
         let socket = env
-            .home_dir
+            .home_tmp
             .path()
             .join(daemon_dir_name())
             .join("daemon.sock");
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while std::time::Instant::now() < deadline {
             if socket.exists() {
-                return DaemonHandle::new(child, env.home_dir.path().to_path_buf());
+                return DaemonHandle::new(child, env.home_tmp.path().to_path_buf());
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
@@ -78,7 +78,7 @@ impl DaemonHandle {
                 .env("PATH", env.path_env())
                 .env("HOME", env.home())
                 .env("TMPDIR", env.home())
-                .current_dir(env.repo_dir.path())
+                .current_dir(env.repo.path())
                 .output()
                 .expect("merge-ready-prompt failed");
             let stdout = String::from_utf8_lossy(&out.stdout);

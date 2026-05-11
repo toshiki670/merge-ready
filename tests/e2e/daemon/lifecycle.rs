@@ -449,3 +449,34 @@ fn test_daemon_status_format() {
             .unwrap(),
     );
 }
+
+// ── #18: stale PID ファイルのクリーンアップ ──────────────────────────────────
+
+/// #18: 前回クラッシュした daemon が残した stale な PID ファイルがある状態で
+/// `daemon start` を実行すると、クリーンアップして正常起動する
+#[test]
+fn test_daemon_start_cleans_up_stale_pid_file() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+
+    // 死んだプロセスの PID で stale なファイルを作成してクラッシュ後の残骸を模倣する
+    let mut dead = std::process::Command::new("true")
+        .spawn()
+        .expect("spawn true");
+    let dead_pid = dead.id();
+    dead.wait().expect("wait for dead process");
+
+    let daemon_dir = env.home().join(super::super::helpers::daemon_dir_name());
+    std::fs::create_dir_all(&daemon_dir).expect("create daemon dir");
+    std::fs::write(daemon_dir.join("daemon.pid"), dead_pid.to_string())
+        .expect("write stale pid file");
+    std::fs::write(daemon_dir.join("daemon.sock"), b"").expect("write stale socket placeholder");
+
+    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    env.apply(&mut cmd);
+    cmd.args(["daemon", "start"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("daemon started"));
+
+    DaemonHandle::stop_for_env(&env);
+}

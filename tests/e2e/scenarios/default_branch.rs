@@ -8,12 +8,13 @@ const PROMPT_BIN: &str = "merge-ready-prompt";
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-use super::super::helpers::{DaemonHandle, TestEnv};
+use super::super::helpers::DaemonHandle;
+use super::default_branch_fixtures;
 
 /// main ブランチ（デフォルトブランチ）上: daemon キャッシュ確定後に空出力
 #[test]
 fn test_daemon_on_main_default_branch_outputs_empty() {
-    let env = TestEnv::with_default_branch_no_pr("main");
+    let env = default_branch_fixtures::with_default_branch_no_pr("main");
     let _daemon = DaemonHandle::start(&env);
 
     DaemonHandle::wait_for_cache(&env, 5000);
@@ -29,7 +30,7 @@ fn test_daemon_on_main_default_branch_outputs_empty() {
 /// master ブランチ（デフォルトブランチ）上: daemon キャッシュ確定後に空出力
 #[test]
 fn test_daemon_on_master_default_branch_outputs_empty() {
-    let env = TestEnv::with_default_branch_no_pr("master");
+    let env = default_branch_fixtures::with_default_branch_no_pr("master");
     let _daemon = DaemonHandle::start(&env);
 
     DaemonHandle::wait_for_cache(&env, 5000);

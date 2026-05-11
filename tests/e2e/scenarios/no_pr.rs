@@ -9,6 +9,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
+use super::no_pr_fixtures;
 
 /// #4: PR なしブランチで daemon 経由: リフレッシュ完了後に `+ Create PR` が表示される
 #[test]
@@ -37,7 +38,7 @@ fn test_daemon_no_pr_shows_nothing_after_refresh() {
 /// #5: no-PR の stale リフレッシュ中でも `? loading` に戻らず空出力を維持する
 #[test]
 fn test_daemon_no_pr_stale_while_refreshing_keeps_empty_output() {
-    let env = TestEnv::with_no_pr_stale_delay_ms(1000);
+    let env = no_pr_fixtures::with_no_pr_stale_delay_ms(1000);
     let _daemon = DaemonHandle::start_with_env(&env, &[("MERGE_READY_STALE_TTL", "0")]);
 
     // 初回クエリ: キャッシュミス → loading

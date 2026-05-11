@@ -65,4 +65,30 @@ mod tests {
         }
         assert_eq!(count.load(Ordering::Relaxed), 1);
     }
+
+    #[test]
+    fn restart_once_skips_when_already_started() {
+        let restart_started = Arc::new(AtomicBool::new(true));
+        let (tx, rx) = std::sync::mpsc::channel();
+        restart_once(&restart_started, &tx);
+        assert!(
+            rx.try_recv().is_err(),
+            "既に開始済みなら exit シグナルは送られないはず"
+        );
+    }
+
+    #[test]
+    fn restart_once_sends_exit_when_cas_succeeds() {
+        let restart_started = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        restart_once(&restart_started, &tx);
+        assert!(
+            rx.try_recv().is_ok(),
+            "CAS 成功後に exit シグナルが送られるべき"
+        );
+        assert!(
+            restart_started.load(Ordering::Acquire),
+            "restart_started が true になるべき"
+        );
+    }
 }

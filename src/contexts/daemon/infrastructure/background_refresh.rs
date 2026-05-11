@@ -130,4 +130,57 @@ mod tests {
         let s = state.lock().unwrap();
         assert!(s.entries.is_empty());
     }
+
+    #[test]
+    fn background_refresh_skips_entry_within_refresh_interval() {
+        // fetched_at が直近（経過秒 < warm_refresh_secs）なら対象外
+        let state = state();
+        {
+            let mut s = state.lock().unwrap();
+            // age_secs=0: fetched_at ≈ now → elapsed < warm_refresh_secs(180)
+            let mut entry = make_stale_entry("✓ Ready for merge", RefreshMode::Warm, 0);
+            entry.cwd = PathBuf::from("/some/repo");
+            // last_queried_at を古くして hot interval ではなく warm interval が使われるようにする
+            entry.last_queried_at = Some(
+                Instant::now()
+                    .checked_sub(Duration::from_secs(
+                        s.config.policy.hot_recent_query_secs + 1,
+                    ))
+                    .unwrap(),
+            );
+            s.entries.insert(RepoId::new("repo"), entry);
+        }
+        let targets = collect_targets(&state);
+        assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn background_refresh_refresh_lock_expired_clears_lock_and_includes_entry() {
+        let repo_id = RepoId::new("repo");
+        let state = state();
+        {
+            let mut s = state.lock().unwrap();
+            let mut entry = make_stale_entry("⧖ Wait for CI", RefreshMode::Hot, 9999);
+            entry.cwd = PathBuf::from("/some/repo");
+            entry.mark_refreshing();
+            // refresh_started_at を lock timeout より古くする
+            entry.refresh_started_at = Some(
+                Instant::now()
+                    .checked_sub(Duration::from_secs(s.config.refresh_lock_timeout_secs + 1))
+                    .unwrap(),
+            );
+            s.entries.insert(repo_id.clone(), entry);
+        }
+        let targets = collect_targets(&state);
+        assert_eq!(
+            targets.len(),
+            1,
+            "lock 切れエントリはリフレッシュ対象に含まれるべき"
+        );
+        let s = state.lock().unwrap();
+        assert!(
+            s.entries[&repo_id].is_refreshing(),
+            "再度 refreshing にマークされているべき"
+        );
+    }
 }

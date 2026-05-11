@@ -1,10 +1,30 @@
 use std::io::{ErrorKind, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use super::error::{GhError, classify_gh_error};
+
+pub(super) trait CommandRunner: Send + Sync {
+    fn run(&self, args: &[&str]) -> Result<Vec<u8>, GhError>;
+}
+
+pub(super) struct GhProcessRunner {
+    cwd: Option<PathBuf>,
+}
+
+impl GhProcessRunner {
+    pub(super) fn new(cwd: Option<PathBuf>) -> Self {
+        Self { cwd }
+    }
+}
+
+impl CommandRunner for GhProcessRunner {
+    fn run(&self, args: &[&str]) -> Result<Vec<u8>, GhError> {
+        run_gh(args, self.cwd.as_deref())
+    }
+}
 
 fn gh_timeout() -> Duration {
     let secs = std::env::var("MERGE_READY_GH_TIMEOUT_SECS")

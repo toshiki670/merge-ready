@@ -4,7 +4,7 @@ mod fetch;
 mod mapper;
 mod schema;
 
-use command::run_gh;
+use command::{CommandRunner, GhProcessRunner};
 use error::GhError;
 use fetch::fetch_behind_by;
 use mapper::{aggregate_ci, translate_review, translate_sync, translate_unblocked};
@@ -23,6 +23,7 @@ use crate::contexts::evaluation::infrastructure::git::{current_branch, is_git_re
 
 pub struct GhClient<L> {
     cwd: Option<std::path::PathBuf>,
+    runner: Box<dyn CommandRunner>,
     logger: L,
 }
 
@@ -30,13 +31,14 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
     #[must_use]
     pub fn new_in(cwd: std::path::PathBuf, logger: L) -> Self {
         Self {
+            runner: Box::new(GhProcessRunner::new(Some(cwd.clone()))),
             cwd: Some(cwd),
             logger,
         }
     }
 
     fn run_gh(&self, args: &[&str]) -> Result<Vec<u8>, GhError> {
-        run_gh(args, self.cwd.as_deref())
+        self.runner.run(args)
     }
 
     fn log_and_convert(&self, e: GhError) -> RepositoryError {
@@ -130,14 +132,14 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
 
         // branch_sync と ci を並列取得
         let (branch_sync, ci_result) = std::thread::scope(|s| {
-            let cwd = self.cwd.as_deref();
+            let runner: &dyn CommandRunner = &*self.runner;
             let base = pr_view.base_ref_name.as_str();
             let head = pr_view.head_ref_name.as_str();
             let mergeable = pr_view.mergeable.as_str();
             let pr_number = pr_view.number;
 
             let sync_handle = s.spawn(move || {
-                let behind_by = fetch_behind_by(base, head, cwd);
+                let behind_by = fetch_behind_by(base, head, runner);
                 translate_sync(mergeable, behind_by)
             });
             let ci_handle = s.spawn(move || self.fetch_ci_state_for(pr_number));
@@ -213,5 +215,129 @@ impl<L: ErrorLogger + Sync> PromptRepository for GhClient<L> {
 
         let prs: Result<Vec<PullRequest>, RepositoryError> = results.into_iter().collect();
         Ok(Prompt::PullRequests(prs?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contexts::evaluation::application::port::LogRecord;
+    use std::sync::{Arc, Mutex};
+    use tempfile::TempDir;
+
+    struct StubRunner(fn(&[&str]) -> Result<Vec<u8>, GhError>);
+    impl CommandRunner for StubRunner {
+        fn run(&self, args: &[&str]) -> Result<Vec<u8>, GhError> {
+            (self.0)(args)
+        }
+    }
+
+    struct NoOpLogger;
+    impl ErrorLogger for NoOpLogger {
+        fn log(&self, _: &LogRecord) {}
+    }
+
+    /// ログ呼び出し回数を数えるスレッドセーフなロガー。Clone で共有する。
+    #[derive(Clone)]
+    struct CountLogger(Arc<Mutex<u32>>);
+    impl CountLogger {
+        fn new() -> Self {
+            Self(Arc::new(Mutex::new(0)))
+        }
+        fn count(&self) -> u32 {
+            *self.0.lock().unwrap()
+        }
+    }
+    impl ErrorLogger for CountLogger {
+        fn log(&self, _: &LogRecord) {
+            *self.0.lock().unwrap() += 1;
+        }
+    }
+
+    fn stub_client(
+        runner: impl CommandRunner + 'static,
+        cwd: Option<std::path::PathBuf>,
+    ) -> GhClient<NoOpLogger> {
+        GhClient {
+            cwd,
+            runner: Box::new(runner),
+            logger: NoOpLogger,
+        }
+    }
+
+    // ── default_branch ────────────────────────────────────────────────────────
+
+    #[test]
+    fn default_branch_returns_empty_on_command_failure() {
+        let client = stub_client(
+            StubRunner(|_| Err(GhError::ApiError("gh error".to_owned()))),
+            None,
+        );
+        assert_eq!(client.default_branch(), "");
+    }
+
+    #[test]
+    fn default_branch_returns_empty_on_parse_failure() {
+        let client = stub_client(StubRunner(|_| Ok(b"not-json".to_vec())), None);
+        assert_eq!(client.default_branch(), "");
+    }
+
+    // ── is_default_branch ─────────────────────────────────────────────────────
+
+    #[test]
+    fn is_default_branch_returns_false_when_current_branch_empty() {
+        // 非 git ディレクトリ → current_branch = None → "" → is_empty → false
+        let dir = TempDir::new().unwrap();
+        let client = stub_client(
+            StubRunner(|_| Ok(b"{}".to_vec())),
+            Some(dir.path().to_path_buf()),
+        );
+        assert!(!client.is_default_branch());
+    }
+
+    // ── fetch_pr_list ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn fetch_pr_list_logs_and_errors_on_parse_failure() {
+        let logger = CountLogger::new();
+        let client = GhClient {
+            cwd: None,
+            runner: Box::new(StubRunner(|_| Ok(b"not-json-array".to_vec()))),
+            logger: logger.clone(),
+        };
+        let result = client.fetch_pr_list();
+        assert!(matches!(result, Err(GhError::ApiError(_))));
+        assert!(
+            logger.count() > 0,
+            "JSON parse 失敗時にログが記録されるべき"
+        );
+    }
+
+    // ── fetch_ci_state_for ────────────────────────────────────────────────────
+
+    #[test]
+    fn fetch_ci_state_for_maps_non_no_checks_gh_error() {
+        let client = stub_client(
+            StubRunner(|_| Err(GhError::ApiError("some other error".to_owned()))),
+            None,
+        );
+        let result = client.fetch_ci_state_for(42);
+        assert!(matches!(result, Err(RepositoryError::Unexpected)));
+    }
+
+    #[test]
+    fn fetch_ci_state_for_returns_unexpected_on_parse_failure() {
+        let logger = CountLogger::new();
+        let client = GhClient {
+            cwd: None,
+            runner: Box::new(StubRunner(|_| Ok(b"not-json".to_vec()))),
+            logger: logger.clone(),
+        };
+        let result = client.fetch_ci_state_for(42);
+        assert!(matches!(result, Err(RepositoryError::Unexpected)));
+        assert!(
+            logger.count() > 0,
+            "JSON parse 失敗時にログが記録されるべき"
+        );
     }
 }

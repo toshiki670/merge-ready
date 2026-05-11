@@ -101,3 +101,34 @@ fn test_error_log_written() {
     let content = std::fs::read_to_string(&log_path).unwrap();
     assert!(!content.is_empty(), "error.log が空");
 }
+
+// ── JSON 解析失敗 ─────────────────────────────────────────────────────────────
+
+/// `gh pr list` が exit 0 で不正な JSON を返した場合 → `✗ unexpected error`
+#[test]
+fn test_pr_list_invalid_json_shows_unexpected_error() {
+    let env = TestEnv::with_invalid_pr_list_json();
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    cmd(&env)
+        .assert()
+        .success()
+        .stdout("✗ unexpected error")
+        .stderr("");
+}
+
+/// `gh pr checks` が exit 0 で不正な JSON を返した場合 → `✗ unexpected error`
+#[test]
+fn test_pr_checks_invalid_json_shows_unexpected_error() {
+    const OPEN_PR: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":null,"baseRefName":"","headRefName":""}"#;
+    let env = TestEnv::with_invalid_pr_checks_json(OPEN_PR);
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    cmd(&env)
+        .assert()
+        .success()
+        .stdout("✗ unexpected error")
+        .stderr("");
+}

@@ -66,20 +66,12 @@ fn conditional_inside_styled_block_hidden_when_pr_id_empty() {
     // `( #)` が出力に含まれないこと（Conditional が非表示）
     let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
-    let output = cmd.output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        !stdout.contains("( #"),
-        "conditional block should be hidden, got: {stdout:?}"
-    );
-    assert!(
-        stdout.contains("✓ Ready for merge"),
-        "symbol and label should be present, got: {stdout:?}"
-    );
-    assert!(
-        !stdout.contains("( #)"),
-        "literal '( #)' must not appear, got: {stdout:?}"
-    );
+    cmd.timeout(std::time::Duration::from_secs(5))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("( #").not())
+        .stdout(predicate::str::contains("✓ Ready for merge"))
+        .stdout(predicate::str::contains("( #)").not());
 }
 
 /// 複数の色指定形式（Ansi256 / RGB / Named fg+bg）を使った format で、

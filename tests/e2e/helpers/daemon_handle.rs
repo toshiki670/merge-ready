@@ -6,7 +6,7 @@ use std::os::unix::net::UnixListener;
 use std::path::Path;
 use std::sync::mpsc;
 
-use super::{TestEnv, daemon_dir_name};
+use super::{TestEnv, daemon_dir_name, run_prompt_with_timeout};
 
 /// daemon プロセスを管理するテストヘルパー。
 ///
@@ -74,13 +74,13 @@ impl DaemonHandle {
         let bin = assert_cmd::cargo::cargo_bin("merge-ready-prompt");
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
         loop {
-            let out = std::process::Command::new(&bin)
-                .env("PATH", env.path_env())
-                .env("HOME", env.home())
-                .env("TMPDIR", env.home())
-                .current_dir(env.repo.path())
-                .output()
-                .expect("merge-ready-prompt failed");
+            let out = run_prompt_with_timeout(
+                std::process::Command::new(&bin)
+                    .env("PATH", env.path_env())
+                    .env("HOME", env.home())
+                    .env("TMPDIR", env.home())
+                    .current_dir(env.repo.path()),
+            );
             let stdout = String::from_utf8_lossy(&out.stdout);
             if stdout != "? loading" {
                 return;

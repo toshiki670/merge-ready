@@ -2,8 +2,9 @@ mod daemon_handle;
 mod env;
 mod multi_repo;
 
-pub use daemon_handle::{DaemonHandle, FakeDaemonHandle};
+pub use daemon_handle::DaemonHandle;
 pub use env::TestEnv;
+pub(crate) use env::{setup_empty_dirs, setup_git_dirs};
 pub use multi_repo::MultiRepoEnv;
 
 use std::fs;

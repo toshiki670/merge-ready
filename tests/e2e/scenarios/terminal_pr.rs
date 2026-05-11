@@ -8,12 +8,13 @@ const PROMPT_BIN: &str = "merge-ready-prompt";
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-use super::super::helpers::{DaemonHandle, TestEnv};
+use super::super::helpers::DaemonHandle;
+use super::terminal_pr_fixtures;
 
 /// #50: closed PR はキャッシュ確定後に再フェッチされない
 #[test]
 fn test_closed_pr_stops_refreshing_after_terminal_state() {
-    let (env, log_path) = TestEnv::with_terminal_pr_call_log("CLOSED");
+    let (env, log_path) = terminal_pr_fixtures::with_terminal_pr_call_log("CLOSED");
     let _daemon = DaemonHandle::start_with_env(&env, &[("MERGE_READY_STALE_TTL", "0")]);
 
     // 初回クエリ: キャッシュミス → ? loading
@@ -47,7 +48,7 @@ fn test_closed_pr_stops_refreshing_after_terminal_state() {
 /// #51: merged PR はキャッシュ確定後に再フェッチされない
 #[test]
 fn test_merged_pr_stops_refreshing_after_terminal_state() {
-    let (env, log_path) = TestEnv::with_terminal_pr_call_log("MERGED");
+    let (env, log_path) = terminal_pr_fixtures::with_terminal_pr_call_log("MERGED");
     let _daemon = DaemonHandle::start_with_env(&env, &[("MERGE_READY_STALE_TTL", "0")]);
 
     // 初回クエリ: ? loading

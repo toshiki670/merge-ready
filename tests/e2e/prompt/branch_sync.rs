@@ -8,6 +8,7 @@ use predicates::prelude::*;
 use rstest::rstest;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
+use super::branch_sync_fixtures;
 
 const CONFLICTING_DIRTY: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","reviewDecision":null}"#;
 const CONFLICTING_BEHIND: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"CONFLICTING","mergeStateStatus":"BEHIND","reviewDecision":null}"#;
@@ -54,7 +55,7 @@ fn test_conflict_prompt(#[case] pr_json: &str, #[case] checks_json: &str, #[case
 /// #18: compare API の `behind_by > 0` → `✗ Update branch`
 #[test]
 fn test_update_branch() {
-    let env = TestEnv::with_behind_by(MERGEABLE_BLOCKED, Some(PASS_JSON), 1);
+    let env = branch_sync_fixtures::with_behind_by(MERGEABLE_BLOCKED, Some(PASS_JSON), 1);
     assert_prompt(&env, "✗ Update branch");
 }
 
@@ -63,13 +64,13 @@ fn test_update_branch() {
 /// #19: compare API がエラーを返す → `? Check branch sync`
 #[test]
 fn test_compare_api_error() {
-    let env = TestEnv::with_compare_error(MERGEABLE_BLOCKED, Some(PASS_JSON));
+    let env = branch_sync_fixtures::with_compare_error(MERGEABLE_BLOCKED, Some(PASS_JSON));
     assert_prompt(&env, "? Check branch sync");
 }
 
 /// `gh repo view --json nameWithOwner` が exit 0 で不正な JSON を返す → `? Check branch sync`
 #[test]
 fn test_repo_view_invalid_json_shows_check_branch_sync() {
-    let env = TestEnv::with_invalid_repo_view_json(MERGEABLE_BLOCKED, PASS_JSON);
+    let env = branch_sync_fixtures::with_invalid_repo_view_json(MERGEABLE_BLOCKED, PASS_JSON);
     assert_prompt(&env, "? Check branch sync");
 }

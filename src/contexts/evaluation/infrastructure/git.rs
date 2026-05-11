@@ -1,15 +1,8 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-pub fn is_git_repo(cwd: Option<&Path>) -> bool {
-    let base = match cwd {
-        Some(d) => d.to_path_buf(),
-        None => match std::env::current_dir() {
-            Ok(d) => d,
-            Err(_) => return false,
-        },
-    };
-    let mut current = base.as_path();
+pub fn is_git_repo(cwd: &Path) -> bool {
+    let mut current = cwd;
     loop {
         if current.join(".git").exists() {
             return true;
@@ -21,14 +14,14 @@ pub fn is_git_repo(cwd: Option<&Path>) -> bool {
     }
 }
 
-pub fn current_branch(cwd: Option<&Path>) -> Option<String> {
-    let mut cmd = Command::new("git");
-    cmd.args(["branch", "--show-current"]);
-    cmd.stdout(Stdio::piped()).stderr(Stdio::null());
-    if let Some(dir) = cwd {
-        cmd.current_dir(dir);
-    }
-    let out = cmd.output().ok()?;
+pub fn current_branch(cwd: &Path) -> Option<String> {
+    let out = Command::new("git")
+        .args(["branch", "--show-current"])
+        .current_dir(cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
     if out.status.success() {
         Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
     } else {

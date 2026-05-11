@@ -5,7 +5,8 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-use super::super::helpers::{DaemonHandle, FakeDaemonHandle, TestEnv};
+use super::super::helpers::{DaemonHandle, TestEnv};
+use super::lifecycle_fixtures::FakeDaemonHandle;
 
 const BIN: &str = "merge-ready";
 const PROMPT_BIN: &str = "merge-ready-prompt";
@@ -14,6 +15,34 @@ const OPEN_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"
 const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
 const COMMAND_TIMEOUT_MS: u64 = 5000;
 const CONCURRENT_PROMPTS: usize = 8;
+
+fn status_output_with_timeout(env: &TestEnv) -> std::process::Output {
+    let bin = assert_cmd::cargo::cargo_bin(BIN);
+    let mut child = std::process::Command::new(bin)
+        .args(["daemon", "status"])
+        .env("PATH", env.path_env())
+        .env("HOME", env.home())
+        .env("TMPDIR", env.home())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn daemon status");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(COMMAND_TIMEOUT_MS);
+    loop {
+        if child.try_wait().is_ok_and(|status| status.is_some()) {
+            return child
+                .wait_with_output()
+                .expect("collect daemon status output");
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("daemon status did not finish within {COMMAND_TIMEOUT_MS}ms");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
 
 fn daemon_stop_output(env: &TestEnv) -> std::process::Output {
     let bin = assert_cmd::cargo::cargo_bin(BIN);
@@ -260,14 +289,7 @@ fn test_prompt_restarts_daemon_on_version_mismatch() {
     // 新 daemon が起動するまでポーリング（最大 5 秒）
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        let out = Command::cargo_bin(BIN)
-            .unwrap()
-            .args(["daemon", "status"])
-            .env("PATH", env.path_env())
-            .env("HOME", env.home())
-            .env("TMPDIR", env.home())
-            .output()
-            .expect("status failed");
+        let out = status_output_with_timeout(&env);
         let stdout = String::from_utf8_lossy(&out.stdout);
         if stdout.contains(&format!("version={}", env!("CARGO_PKG_VERSION"))) {
             break;
@@ -375,14 +397,7 @@ fn test_concurrent_version_mismatch_starts_only_one_daemon() {
     // 新 daemon が起動するまでポーリング（最大 5 秒）
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        let out = Command::cargo_bin(BIN)
-            .unwrap()
-            .args(["daemon", "status"])
-            .env("PATH", env.path_env())
-            .env("HOME", env.home())
-            .env("TMPDIR", env.home())
-            .output()
-            .expect("status failed");
+        let out = status_output_with_timeout(&env);
         let stdout = String::from_utf8_lossy(&out.stdout);
         if stdout.contains(&format!("version={}", env!("CARGO_PKG_VERSION"))) {
             break;

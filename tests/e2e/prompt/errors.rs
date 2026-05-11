@@ -11,6 +11,7 @@ use assert_cmd::Command;
 use rstest::rstest;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
+use super::errors_fixtures;
 
 fn cmd(env: &TestEnv) -> Command {
     let mut c = Command::cargo_bin(PROMPT_BIN).unwrap();
@@ -78,7 +79,7 @@ fn test_error_output(#[case] msg: &str, #[case] code: u8, #[case] expected: &str
 /// #40: `gh` がハングした場合、タイムアウト後に `✗ unexpected error` を返すこと（詳細はログ）。
 #[test]
 fn test_gh_timeout() {
-    let env = TestEnv::with_hanging_gh();
+    let env = errors_fixtures::with_hanging_gh();
     let _daemon = DaemonHandle::start_with_env(&env, &[("MERGE_READY_GH_TIMEOUT_SECS", "2")]);
     DaemonHandle::wait_for_cache(&env, 10000);
 
@@ -100,4 +101,35 @@ fn test_error_log_written() {
     assert!(log_path.exists(), "error.log が作成されていない");
     let content = std::fs::read_to_string(&log_path).unwrap();
     assert!(!content.is_empty(), "error.log が空");
+}
+
+// ── JSON 解析失敗 ─────────────────────────────────────────────────────────────
+
+/// `gh pr list` が exit 0 で不正な JSON を返した場合 → `✗ unexpected error`
+#[test]
+fn test_pr_list_invalid_json_shows_unexpected_error() {
+    let env = errors_fixtures::with_invalid_pr_list_json();
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    cmd(&env)
+        .assert()
+        .success()
+        .stdout("✗ unexpected error")
+        .stderr("");
+}
+
+/// `gh pr checks` が exit 0 で不正な JSON を返した場合 → `✗ unexpected error`
+#[test]
+fn test_pr_checks_invalid_json_shows_unexpected_error() {
+    const OPEN_PR: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":null,"baseRefName":"","headRefName":""}"#;
+    let env = errors_fixtures::with_invalid_pr_checks_json(OPEN_PR);
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    cmd(&env)
+        .assert()
+        .success()
+        .stdout("✗ unexpected error")
+        .stderr("");
 }

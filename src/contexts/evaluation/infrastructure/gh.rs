@@ -22,21 +22,22 @@ use crate::contexts::evaluation::infrastructure::git::{current_branch, is_git_re
 // ── GhClient ────────────────────────────────────────────────────────────────
 
 pub struct GhClient<L> {
-    cwd: Option<std::path::PathBuf>,
+    cwd: std::path::PathBuf,
     logger: L,
 }
 
 impl<L: ErrorLogger + Sync> GhClient<L> {
     #[must_use]
     pub fn new_in(cwd: std::path::PathBuf, logger: L) -> Self {
-        Self {
-            cwd: Some(cwd),
-            logger,
-        }
+        Self { cwd, logger }
     }
 
     fn run_gh(&self, args: &[&str]) -> Result<Vec<u8>, GhError> {
-        run_gh(args, self.cwd.as_deref())
+        run_gh(args, Some(&self.cwd))
+    }
+
+    fn cwd(&self) -> &std::path::Path {
+        &self.cwd
     }
 
     fn log_and_convert(&self, e: GhError) -> RepositoryError {
@@ -75,7 +76,7 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
     }
 
     fn is_default_branch(&self) -> bool {
-        let branch = current_branch(self.cwd.as_deref()).unwrap_or_default();
+        let branch = current_branch(self.cwd()).unwrap_or_default();
         if branch.is_empty() {
             return false;
         }
@@ -83,7 +84,7 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
     }
 
     fn fetch_pr_list(&self) -> Result<Vec<GhPrListItem>, GhError> {
-        let branch = current_branch(self.cwd.as_deref()).unwrap_or_default();
+        let branch = current_branch(self.cwd()).unwrap_or_default();
         let bytes = self.run_gh(&[
             "pr",
             "list",
@@ -130,14 +131,14 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
 
         // branch_sync と ci を並列取得
         let (branch_sync, ci_result) = std::thread::scope(|s| {
-            let cwd = self.cwd.as_deref();
+            let cwd = self.cwd();
             let base = pr_view.base_ref_name.as_str();
             let head = pr_view.head_ref_name.as_str();
             let mergeable = pr_view.mergeable.as_str();
             let pr_number = pr_view.number;
 
             let sync_handle = s.spawn(move || {
-                let behind_by = fetch_behind_by(base, head, cwd);
+                let behind_by = fetch_behind_by(base, head, Some(cwd));
                 translate_sync(mergeable, behind_by)
             });
             let ci_handle = s.spawn(move || self.fetch_ci_state_for(pr_number));
@@ -173,7 +174,7 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
 
 impl<L: ErrorLogger + Sync> PromptRepository for GhClient<L> {
     fn fetch(&self) -> Result<Prompt, RepositoryError> {
-        if !is_git_repo(self.cwd.as_deref()) {
+        if !is_git_repo(self.cwd()) {
             return Ok(Prompt::NoRepository);
         }
 

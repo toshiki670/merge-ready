@@ -1,6 +1,9 @@
 mod branch_sync;
+mod branch_sync_fixtures;
 mod ci_checks;
+mod ci_checks_fixtures;
 mod errors;
+mod errors_fixtures;
 mod merge_ready;
 mod pr_state;
 mod review;

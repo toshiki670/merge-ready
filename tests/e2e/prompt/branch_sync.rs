@@ -66,3 +66,10 @@ fn test_compare_api_error() {
     let env = TestEnv::with_compare_error(MERGEABLE_BLOCKED, Some(PASS_JSON));
     assert_prompt(&env, "? Check branch sync");
 }
+
+/// `gh repo view --json nameWithOwner` が exit 0 で不正な JSON を返す → `? Check branch sync`
+#[test]
+fn test_repo_view_invalid_json_shows_check_branch_sync() {
+    let env = TestEnv::with_invalid_repo_view_json(MERGEABLE_BLOCKED, PASS_JSON);
+    assert_prompt(&env, "? Check branch sync");
+}

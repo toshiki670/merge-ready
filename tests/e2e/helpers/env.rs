@@ -421,6 +421,91 @@ impl TestEnv {
         }
     }
 
+    /// `gh pr list` が exit 0 で不正な JSON を返すシナリオ
+    pub fn with_invalid_pr_list_json() -> Self {
+        let (bin, home_tmp, repo) = Self::setup_with_git("feat/my-feature");
+        let script = "#!/bin/sh\n\
+                      case \"$*\" in\n\
+                        *'pr list'*)\n\
+                          printf 'not-valid-json'\n\
+                          ;;\n\
+                        *)\n\
+                          printf 'unknown gh command: %s' \"$*\" >&2\n\
+                          exit 127\n\
+                          ;;\n\
+                      esac\n";
+        write_executable(bin.path().join("gh"), script);
+        Self {
+            bin,
+            home_tmp,
+            repo,
+        }
+    }
+
+    /// `gh pr list` が成功するが `gh pr checks` が exit 0 で不正な JSON を返すシナリオ
+    pub fn with_invalid_pr_checks_json(pr_view_json: &str) -> Self {
+        let (bin, home_tmp, repo) = Self::setup_with_git("feat/my-feature");
+        let inner = pr_view_json.strip_prefix('{').unwrap_or(pr_view_json);
+        let pr_list_json = format!(r#"[{{"number":1,{inner}]"#);
+        let script = format!(
+            "#!/bin/sh\n\
+             case \"$*\" in\n\
+               *'pr list'*)\n\
+                 printf '%s' '{pr_list_json}'\n\
+                 ;;\n\
+               *'pr checks'*)\n\
+                 printf 'not-valid-json'\n\
+                 ;;\n\
+               *'api'*'compare'*)\n\
+                 printf '{{\"behind_by\":0}}'\n\
+                 ;;\n\
+               *)\n\
+                 printf 'unknown gh command: %s' \"$*\" >&2\n\
+                 exit 127\n\
+                 ;;\n\
+             esac\n"
+        );
+        write_executable(bin.path().join("gh"), &script);
+        Self {
+            bin,
+            home_tmp,
+            repo,
+        }
+    }
+
+    /// `gh pr list` / `gh pr checks` が成功するが `gh repo view --json nameWithOwner` が
+    /// exit 0 で不正な JSON を返すシナリオ（compare API への到達前に失敗）
+    pub fn with_invalid_repo_view_json(pr_view_json: &str, pr_checks_json: &str) -> Self {
+        let (bin, home_tmp, repo) = Self::setup_with_git("feat/my-feature");
+        let inner = pr_view_json.strip_prefix('{').unwrap_or(pr_view_json);
+        let pr_list_json = format!(r#"[{{"number":1,{inner}]"#);
+        let checks_json = pr_checks_json.to_owned();
+        let script = format!(
+            "#!/bin/sh\n\
+             case \"$*\" in\n\
+               *'pr list'*)\n\
+                 printf '%s' '{pr_list_json}'\n\
+                 ;;\n\
+               *'pr checks'*)\n\
+                 printf '%s' '{checks_json}'\n\
+                 ;;\n\
+               *'repo view'*'nameWithOwner'*)\n\
+                 printf 'not-valid-json'\n\
+                 ;;\n\
+               *)\n\
+                 printf 'unknown gh command: %s' \"$*\" >&2\n\
+                 exit 127\n\
+                 ;;\n\
+             esac\n"
+        );
+        write_executable(bin.path().join("gh"), &script);
+        Self {
+            bin,
+            home_tmp,
+            repo,
+        }
+    }
+
     /// `PATH` 文字列を返す（`bin` を先頭に追加）
     pub fn path_env(&self) -> String {
         format!("{}:/bin:/usr/bin", self.bin.path().display())

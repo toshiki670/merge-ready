@@ -8,6 +8,7 @@ use predicates::prelude::*;
 use rstest::rstest;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
+use super::ci_checks_fixtures;
 
 const BLOCKED_NO_REVIEW: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":null}"#;
 const BLOCKED_CHANGES_REQUESTED: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"CHANGES_REQUESTED"}"#;
@@ -59,6 +60,6 @@ fn test_ci_check_prompt(#[case] pr_json: &str, #[case] checks_json: &str, #[case
 #[case::merge_ready(APPROVED_CLEAN, "✓ Ready for merge")]
 #[case::review(BLOCKED_CHANGES_REQUESTED, "⚠ Resolve review")]
 fn test_no_ci_checks_prompt(#[case] pr_json: &str, #[case] expected: &str) {
-    let env = TestEnv::with_no_ci_checks(pr_json);
+    let env = ci_checks_fixtures::with_no_ci_checks(pr_json);
     assert_prompt(&env, expected);
 }

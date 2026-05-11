@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use tempfile::{TempDir, tempdir};
 
-use super::{DaemonHandle, daemon_dir_name, write_executable};
+use super::{DaemonHandle, daemon_dir_name, run_prompt_with_timeout, write_executable};
 
 pub struct MultiRepoEnv {
     pub bin: TempDir,
@@ -100,13 +100,13 @@ impl MultiRepoEnv {
         let bin = assert_cmd::cargo::cargo_bin("merge-ready-prompt");
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
         loop {
-            let out = std::process::Command::new(&bin)
-                .env("PATH", self.path_env())
-                .env("HOME", self.home())
-                .env("TMPDIR", self.home())
-                .current_dir(repo.path())
-                .output()
-                .expect("merge-ready-prompt failed");
+            let out = run_prompt_with_timeout(
+                std::process::Command::new(&bin)
+                    .env("PATH", self.path_env())
+                    .env("HOME", self.home())
+                    .env("TMPDIR", self.home())
+                    .current_dir(repo.path()),
+            );
             let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
             if stdout != "? loading" {
                 return;
@@ -122,13 +122,13 @@ impl MultiRepoEnv {
     /// `repo` から `merge-ready-prompt` を実行してその出力を返す。
     pub fn prompt_output(&self, repo: &TempDir) -> String {
         let bin = assert_cmd::cargo::cargo_bin("merge-ready-prompt");
-        let out = std::process::Command::new(&bin)
-            .env("PATH", self.path_env())
-            .env("HOME", self.home())
-            .env("TMPDIR", self.home())
-            .current_dir(repo.path())
-            .output()
-            .expect("merge-ready-prompt failed");
+        let out = run_prompt_with_timeout(
+            std::process::Command::new(&bin)
+                .env("PATH", self.path_env())
+                .env("HOME", self.home())
+                .env("TMPDIR", self.home())
+                .current_dir(repo.path()),
+        );
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
 }

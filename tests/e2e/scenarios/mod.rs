@@ -1,10 +1,14 @@
 mod cache_hit;
 mod default_branch;
+mod default_branch_fixtures;
 mod initial_load;
 mod multi_repo;
 mod multiple_prs;
 mod no_github_remote;
 mod no_pr;
+mod no_pr_fixtures;
 mod no_repo;
+mod no_repo_fixtures;
 mod stale;
 mod terminal_pr;
+mod terminal_pr_fixtures;

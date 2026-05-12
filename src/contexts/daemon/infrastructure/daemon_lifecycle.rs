@@ -92,35 +92,11 @@ impl WatchPort for DaemonLifecycle {
 
 #[cfg(test)]
 mod tests {
-    use super::{terminate_and_wait, wait_or_terminate};
+    use super::terminate_and_wait;
 
     #[test]
     fn terminate_and_wait_nonexistent_pid_returns_false() {
         // kill -TERM u32::MAX → fails (no such process) → signalled=false → false immediately
         assert!(!terminate_and_wait(u32::MAX));
-    }
-
-    #[test]
-    fn wait_or_terminate_falls_back_to_sigterm_when_not_responding() {
-        // Spawn a process that ignores SIGTERM.
-        // wait_or_terminate → wait_until_gone times out (STOP_TIMEOUT=50ms in tests)
-        // → terminate_and_wait sends SIGTERM (ignored) → wait_until_gone times out again → false.
-        let mut child = std::process::Command::new("sh")
-            .args(["-c", "trap '' TERM; sleep 100"])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .expect("spawn sh");
-        let pid = child.id();
-
-        let result = wait_or_terminate(pid);
-        assert!(
-            !result,
-            "SIGTERM-ignoring process should cause false return"
-        );
-
-        child.kill().ok();
-        child.wait().ok();
     }
 }

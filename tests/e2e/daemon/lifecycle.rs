@@ -99,7 +99,17 @@ fn prompt_output_with_timeout(
     home: &std::path::Path,
     repo: &std::path::Path,
 ) -> std::process::Output {
-    use std::io::Read;
+    use std::io::{Read, Seek};
+
+    // パイプではなく匿名一時ファイルに出力をリダイレクトする。
+    // パイプの場合、spawn_daemon() で起動した孫プロセスが書き込み端を保持したまま
+    // 生き続けると read_to_end が EOF 待ちで永久ブロックする。
+    // ファイルへのリダイレクトなら孫プロセスが fd を開いたままでも
+    // プロセス終了後にシークして読み返せるため、この問題が発生しない。
+    let mut stdout_file = tempfile::tempfile().expect("stdout tempfile");
+    let mut stderr_file = tempfile::tempfile().expect("stderr tempfile");
+    let stdout_for_child = stdout_file.try_clone().expect("clone stdout file");
+    let stderr_for_child = stderr_file.try_clone().expect("clone stderr file");
 
     let mut child = std::process::Command::new(bin)
         .env("PATH", path)
@@ -107,28 +117,10 @@ fn prompt_output_with_timeout(
         .env("TMPDIR", home)
         .current_dir(repo)
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::from(stdout_for_child))
+        .stderr(std::process::Stdio::from(stderr_for_child))
         .spawn()
         .expect("run prompt");
-
-    // wait_with_output() はプロンプトが spawn_daemon() で起動した孫プロセスが
-    // パイプの書き込み端を保持している場合に EOF 待ちで無限ブロックする。
-    // チャンネル経由でタイムアウト付きに読み出す。
-    let mut stdout_pipe = child.stdout.take().expect("stdout pipe");
-    let mut stderr_pipe = child.stderr.take().expect("stderr pipe");
-    let (stdout_tx, stdout_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    let (stderr_tx, stderr_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = stdout_pipe.read_to_end(&mut buf);
-        let _ = stdout_tx.send(buf);
-    });
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = stderr_pipe.read_to_end(&mut buf);
-        let _ = stderr_tx.send(buf);
-    });
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(COMMAND_TIMEOUT_MS);
     let status = loop {
@@ -143,16 +135,14 @@ fn prompt_output_with_timeout(
         std::thread::sleep(std::time::Duration::from_millis(20));
     };
 
-    // 孫プロセスがパイプを保持していても deadline 残り時間（最大 3s）だけ待つ。
-    // 正常終了なら EOF はほぼ即座に来るため、ほとんどのケースで遅延は生じない。
-    let remaining = deadline
-        .saturating_duration_since(std::time::Instant::now())
-        .min(std::time::Duration::from_secs(3))
-        .max(std::time::Duration::from_millis(500));
-    let stdout = stdout_rx.recv_timeout(remaining).unwrap_or_default();
-    let stderr = stderr_rx
-        .recv_timeout(std::time::Duration::from_millis(500))
-        .unwrap_or_default();
+    let mut stdout = Vec::new();
+    stdout_file.seek(std::io::SeekFrom::Start(0)).ok();
+    stdout_file.read_to_end(&mut stdout).ok();
+
+    let mut stderr = Vec::new();
+    stderr_file.seek(std::io::SeekFrom::Start(0)).ok();
+    stderr_file.read_to_end(&mut stderr).ok();
+
     std::process::Output {
         status,
         stdout,

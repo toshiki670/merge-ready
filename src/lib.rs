@@ -8,6 +8,7 @@ use crate::contexts::daemon::application::cache as daemon_cache_app;
 use crate::contexts::daemon::domain::cache::{PrOutput, RefreshMode, RepoId};
 use crate::contexts::daemon::infrastructure::daemon_client::DaemonClient;
 use crate::contexts::daemon::infrastructure::daemon_lifecycle::DaemonLifecycle;
+use crate::contexts::daemon::infrastructure::paths::Paths;
 use crate::contexts::evaluation::infrastructure::toml_loader::TomlConfigRepository;
 use crate::contexts::evaluation::infrastructure::{gh::GhClient, logger::Logger};
 use crate::contexts::evaluation::interface::prompt::CacheHint;
@@ -40,7 +41,7 @@ fn build_daemon_lifecycle() -> DaemonLifecycle {
                 })
                 .collect();
             daemon_cache_app::update(
-                &DaemonClient,
+                &DaemonClient::new(Paths::default().socket_path()),
                 repo_id,
                 &result.output,
                 refresh_mode,

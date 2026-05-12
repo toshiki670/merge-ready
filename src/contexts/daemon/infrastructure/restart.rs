@@ -3,13 +3,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use super::{paths, pid};
+use super::paths::{self, Paths};
+use super::pid;
 
 const RESTART_GRACE_MS: u64 = 30;
 
-pub(super) fn cleanup() {
-    let _ = std::fs::remove_file(paths::socket_path());
-    pid::remove();
+pub(super) fn cleanup(paths: &Paths) {
+    let _ = std::fs::remove_file(paths.socket_path());
+    pid::remove(&paths.pid_path());
 }
 
 pub(super) fn spawn_self_as_daemon() {
@@ -25,13 +26,17 @@ pub(super) fn spawn_self_as_daemon() {
         .spawn();
 }
 
-pub(super) fn restart_once(restart_started: &Arc<AtomicBool>, exit_tx: &mpsc::Sender<()>) {
+pub(super) fn restart_once(
+    restart_started: &Arc<AtomicBool>,
+    exit_tx: &mpsc::Sender<()>,
+    paths: &Paths,
+) {
     if restart_started
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_ok()
     {
         std::thread::sleep(Duration::from_millis(RESTART_GRACE_MS));
-        cleanup();
+        cleanup(paths);
         spawn_self_as_daemon();
         let _ = exit_tx.send(());
     }

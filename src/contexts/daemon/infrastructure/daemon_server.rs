@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use super::background_refresh;
 use super::connection;
-use super::paths;
+use super::paths::Paths;
 use super::repo_id;
 use super::restart;
 use super::server_config;
@@ -20,14 +20,14 @@ pub(super) type RefreshFn = Arc<dyn Fn(&RepoId, &std::path::Path) + Send + Sync 
 ///
 /// `on_refresh` はキャッシュ更新が必要になったときにスレッドで呼ばれる。
 /// Stop リクエストで `Ok(())` を返す。
-pub fn run(on_refresh: &RefreshFn) -> Result<(), DaemonError> {
+pub fn run(on_refresh: &RefreshFn, paths: Paths) -> Result<(), DaemonError> {
     let config = server_config::DaemonServerConfig::from_env();
-    let socket_path = paths::socket_path();
+    let socket_path = paths.socket_path();
     if let Some(parent) = socket_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let listener = socket_listener::bind(&socket_path)?;
+    let listener = socket_listener::bind(&paths)?;
 
     // 外側プロセスへ起動完了を通知する（stdout pipe 経由）
     {
@@ -36,6 +36,7 @@ pub fn run(on_refresh: &RefreshFn) -> Result<(), DaemonError> {
         let _ = std::io::stdout().flush();
     }
 
+    let paths = Arc::new(paths);
     let state = Arc::new(Mutex::new(DaemonState::new(config)));
     let (exit_tx, exit_rx) = mpsc::channel::<()>();
     let (scheduler_stop_tx, scheduler_stop_rx) = mpsc::channel::<()>();
@@ -74,8 +75,9 @@ pub fn run(on_refresh: &RefreshFn) -> Result<(), DaemonError> {
                 let on_refresh = Arc::clone(on_refresh);
                 let exit_tx = exit_tx.clone();
                 let restart_started = Arc::clone(&restart_started);
+                let paths = Arc::clone(&paths);
                 std::thread::spawn(move || {
-                    connection::handle(s, &state, &on_refresh, &exit_tx, &restart_started);
+                    connection::handle(s, &state, &on_refresh, &exit_tx, &restart_started, &paths);
                 });
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -92,7 +94,7 @@ pub fn run(on_refresh: &RefreshFn) -> Result<(), DaemonError> {
     let _ = scheduler.join();
 
     if should_cleanup {
-        restart::cleanup();
+        restart::cleanup(&paths);
     }
     Ok(())
 }

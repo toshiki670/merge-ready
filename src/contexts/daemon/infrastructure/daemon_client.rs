@@ -1,15 +1,23 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
 use std::time::Duration;
 
-use super::paths;
 use super::protocol::{EntryDto, PrOutputDto, RefreshModeDto, Request, Response};
 use crate::contexts::daemon::domain::cache::{CachePort, PrOutput, RefreshMode, RepoId};
 
 /// デーモンソケットへの接続タイムアウト（ms）
 const READ_TIMEOUT_MS: u64 = 500;
 
-pub struct DaemonClient;
+pub struct DaemonClient {
+    socket_path: PathBuf,
+}
+
+impl DaemonClient {
+    pub fn new(socket_path: PathBuf) -> Self {
+        Self { socket_path }
+    }
+}
 
 impl From<RefreshMode> for RefreshModeDto {
     fn from(m: RefreshMode) -> Self {
@@ -36,7 +44,7 @@ impl CachePort for DaemonClient {
                 output: p.output,
             })
             .collect();
-        let _ = Self::send(&Request::Update {
+        let _ = self.send(&Request::Update {
             repo_id: repo_id.as_str().to_owned(),
             output: output.to_owned(),
             refresh_mode: RefreshModeDto::from(refresh_mode),
@@ -46,12 +54,12 @@ impl CachePort for DaemonClient {
 }
 
 impl DaemonClient {
-    pub(super) fn stop() -> bool {
-        Self::send(&Request::Stop).is_ok()
+    pub(super) fn stop(&self) -> bool {
+        self.send(&Request::Stop).is_ok()
     }
 
-    pub(super) fn status_raw() -> Option<(usize, u64, String)> {
-        match Self::send(&Request::Status) {
+    pub(super) fn status_raw(&self) -> Option<(usize, u64, String)> {
+        match self.send(&Request::Status) {
             Ok(Response::Status {
                 entries,
                 uptime_secs,
@@ -61,15 +69,15 @@ impl DaemonClient {
         }
     }
 
-    pub(crate) fn entries_raw() -> Option<Vec<EntryDto>> {
-        match Self::send(&Request::Entries) {
+    pub(crate) fn entries_raw(&self) -> Option<Vec<EntryDto>> {
+        match self.send(&Request::Entries) {
             Ok(Response::Entries { entries }) => Some(entries),
             _ => None,
         }
     }
 
-    fn send(request: &Request) -> Result<Response, ()> {
-        let stream = UnixStream::connect(paths::socket_path()).map_err(|_| ())?;
+    fn send(&self, request: &Request) -> Result<Response, ()> {
+        let stream = UnixStream::connect(&self.socket_path).map_err(|_| ())?;
         stream
             .set_read_timeout(Some(Duration::from_millis(READ_TIMEOUT_MS)))
             .map_err(|_| ())?;

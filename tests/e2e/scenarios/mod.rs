@@ -1,6 +1,12 @@
 mod cache_hit;
+mod cold_mode;
+mod cold_mode_fixtures;
 mod default_branch;
 mod default_branch_fixtures;
+mod entry_eviction;
+mod git_subdir;
+mod hot_mode;
+mod hot_mode_fixtures;
 mod initial_load;
 mod multi_repo;
 mod multiple_prs;
@@ -12,3 +18,5 @@ mod no_repo_fixtures;
 mod stale;
 mod terminal_pr;
 mod terminal_pr_fixtures;
+mod terminal_pr_reset;
+mod terminal_pr_reset_fixtures;

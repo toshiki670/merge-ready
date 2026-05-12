@@ -55,7 +55,7 @@ fn test_hot_mode_refreshes_multiple_times() {
     }
 
     // スケジューラ 2 tick 分（2 秒）待機
-    std::thread::sleep(std::time::Duration::from_millis(2000));
+    std::thread::sleep(std::time::Duration::from_secs(2));
 
     // gh が 2 回以上呼ばれていること（Hot モードで再フェッチが発生）
     let call_log = std::fs::read_to_string(&log_path).unwrap_or_default();

@@ -51,7 +51,7 @@ fn test_terminal_pr_reset_to_warm_after_reopen() {
     );
 
     // 再フェッチ完了（OPEN PR）で出力が非空になるまでポーリング
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(5000);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         let out = run_prompt_with_timeout(
             std::process::Command::new(&bin)

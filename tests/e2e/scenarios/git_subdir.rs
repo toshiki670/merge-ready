@@ -30,7 +30,7 @@ fn test_prompt_from_git_subdirectory() {
 
     // サブディレクトリから merge-ready-prompt を実行
     // is_git_repo が .git を祖先ディレクトリで検出するパスを通る
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(5000);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         let out = run_prompt_with_timeout(
             std::process::Command::new(&bin)

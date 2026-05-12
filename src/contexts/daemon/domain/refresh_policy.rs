@@ -62,3 +62,118 @@ impl RefreshPolicy {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode};
+
+    use super::RefreshPolicy;
+
+    fn policy() -> RefreshPolicy {
+        RefreshPolicy {
+            hot_recent_query_secs: 60,
+            hot_with_query_secs: 10,
+            hot_without_query_secs: 30,
+            warm_refresh_secs: 120,
+            warm_to_cold_secs: 300,
+            cold_early_secs: 600,
+            cold_late_secs: 3600,
+            cold_early_limit: 5,
+        }
+    }
+
+    fn entry_with_mode(mode: RefreshMode) -> CacheEntry {
+        let mut e = CacheEntry::new(PathBuf::from("/tmp/test"), "branch".into(), 0);
+        e.update("output".into(), vec![], mode);
+        e
+    }
+
+    #[test]
+    fn terminal_returns_u64_max() {
+        let p = policy();
+        let e = entry_with_mode(RefreshMode::Terminal);
+        assert_eq!(p.effective_refresh_interval_secs(&e), u64::MAX);
+    }
+
+    #[test]
+    fn hot_with_recent_query_returns_hot_with_query_secs() {
+        let mut p = policy();
+        p.hot_recent_query_secs = u64::MAX;
+        let e = entry_with_mode(RefreshMode::Hot);
+        assert_eq!(p.effective_refresh_interval_secs(&e), p.hot_with_query_secs);
+    }
+
+    #[test]
+    fn warm_with_recent_query_returns_hot_with_query_secs() {
+        let mut p = policy();
+        p.hot_recent_query_secs = u64::MAX;
+        let e = entry_with_mode(RefreshMode::Warm);
+        assert_eq!(p.effective_refresh_interval_secs(&e), p.hot_with_query_secs);
+    }
+
+    #[test]
+    fn effective_ttl_terminal_returns_warm_refresh_secs() {
+        let p = policy();
+        let e = entry_with_mode(RefreshMode::Terminal);
+        assert_eq!(p.effective_ttl(&e, 999), p.warm_refresh_secs);
+    }
+
+    #[test]
+    fn effective_ttl_non_terminal_returns_base_ttl() {
+        let p = policy();
+        let e = entry_with_mode(RefreshMode::Warm);
+        assert_eq!(p.effective_ttl(&e, 999), 999);
+    }
+
+    // These tests need last_queried_at to be > 0 seconds old.
+    // CacheEntry::new sets last_queried_at = Some(Instant::now()), so we sleep 1 second.
+    // nextest runs tests in parallel processes, so all 1-second tests complete in ~1s total.
+
+    #[test]
+    fn hot_without_recent_query_returns_hot_without_query_secs() {
+        let mut p = policy();
+        p.hot_recent_query_secs = 0;
+        let e = entry_with_mode(RefreshMode::Hot);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        assert_eq!(
+            p.effective_refresh_interval_secs(&e),
+            p.hot_without_query_secs
+        );
+    }
+
+    #[test]
+    fn warm_not_cold_returns_warm_refresh_secs() {
+        let mut p = policy();
+        p.hot_recent_query_secs = 0;
+        p.warm_to_cold_secs = u64::MAX;
+        let e = entry_with_mode(RefreshMode::Warm);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        assert_eq!(p.effective_refresh_interval_secs(&e), p.warm_refresh_secs);
+    }
+
+    #[test]
+    fn warm_cold_early_returns_cold_early_secs() {
+        let mut p = policy();
+        p.hot_recent_query_secs = 0;
+        p.warm_to_cold_secs = 0;
+        p.cold_early_limit = 5;
+        // cold_refresh_count starts at 0 < 5 → early branch
+        let e = entry_with_mode(RefreshMode::Warm);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        assert_eq!(p.effective_refresh_interval_secs(&e), p.cold_early_secs);
+    }
+
+    #[test]
+    fn warm_cold_late_returns_cold_late_secs() {
+        let mut p = policy();
+        p.hot_recent_query_secs = 0;
+        p.warm_to_cold_secs = 0;
+        p.cold_early_limit = 0;
+        // cold_refresh_count starts at 0 >= 0 → late branch
+        let e = entry_with_mode(RefreshMode::Warm);
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        assert_eq!(p.effective_refresh_interval_secs(&e), p.cold_late_secs);
+    }
+}

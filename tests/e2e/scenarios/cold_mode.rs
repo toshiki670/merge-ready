@@ -8,7 +8,7 @@
 //! - `CacheEntry::increment_cold_count`
 //! - `CacheEntry::is_cold`
 //! - `CacheEntry::cold_refresh_count` (read in `cold_interval_secs`)
-//! - `RefreshPolicy::effective_refresh_interval_secs` の Warm + is_cold 分岐
+//! - `RefreshPolicy::effective_refresh_interval_secs` の Warm + `is_cold` 分岐
 //! - `RefreshPolicy::cold_interval_secs` の Cold late 分岐
 
 const PROMPT_BIN: &str = "merge-ready-prompt";
@@ -49,7 +49,7 @@ fn test_cold_mode_continues_refreshing_without_queries() {
     DaemonHandle::wait_for_cache(&env, 5000);
 
     // Query を送らずに 3 秒待機（warm_to_cold_secs=0 で即 Cold → cold_early/late_secs=0 で毎 tick）
-    std::thread::sleep(std::time::Duration::from_millis(3000));
+    std::thread::sleep(std::time::Duration::from_secs(3));
 
     // gh が 2 回以上呼ばれていること（Cold モードでも自動リフレッシュが継続）
     let call_log = std::fs::read_to_string(&log_path).unwrap_or_default();

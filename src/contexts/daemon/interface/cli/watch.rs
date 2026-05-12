@@ -316,4 +316,71 @@ mod tests {
     fn format_elapsed_various_durations(#[case] elapsed_secs: u64, #[case] expected: &str) {
         assert_eq!(format_elapsed(elapsed_secs), expected);
     }
+
+    // ── draw() and run() with mock WatchPort ─────────────────────────────────
+
+    struct EntryPort;
+    impl WatchPort for EntryPort {
+        fn entries(&self) -> Option<Vec<EntryView>> {
+            Some(vec![EntryView {
+                cwd: "/repo".to_owned(),
+                branch: "main".to_owned(),
+                pr_id: Some(1),
+                output: "ok".to_owned(),
+                cached_at_secs: 0,
+            }])
+        }
+    }
+
+    #[test]
+    fn draw_returns_true_when_entries_present() {
+        assert!(draw(&EntryPort));
+    }
+
+    struct TwoShotPort {
+        count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+    impl WatchPort for TwoShotPort {
+        fn entries(&self) -> Option<Vec<EntryView>> {
+            let n = self
+                .count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if n == 0 {
+                // First call: return entries → draw returns true → loop continues (lines 20–21)
+                Some(vec![EntryView {
+                    cwd: "/r".to_owned(),
+                    branch: "b".to_owned(),
+                    pr_id: None,
+                    output: "ok".to_owned(),
+                    cached_at_secs: 0,
+                }])
+            } else {
+                // Second call: no entries → draw returns false → run() exits
+                None
+            }
+        }
+    }
+
+    #[test]
+    fn run_loops_and_exits_when_entries_become_unavailable() {
+        // Takes ~1 second due to POLL_INTERVAL between iterations.
+        let call_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let port = TwoShotPort {
+            count: std::sync::Arc::clone(&call_count),
+        };
+        run(&port);
+        assert_eq!(
+            call_count.load(std::sync::atomic::Ordering::Relaxed),
+            2,
+            "run() should call entries() twice: once returning Some, once None"
+        );
+    }
+
+    // ── visible_len: ANSI escape sequence stripping ───────────────────────────
+
+    #[test]
+    fn visible_len_excludes_ansi_escape_sequences() {
+        // "\x1b[32m" starts a green color sequence terminated by "m"; only "hello" is visible
+        assert_eq!(visible_len("\x1b[32mhello\x1b[m"), 5);
+    }
 }

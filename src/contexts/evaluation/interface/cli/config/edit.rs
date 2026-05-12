@@ -34,3 +34,26 @@ fn ensure_config_file(path: &Path) -> Result<(), std::io::Error> {
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     std::fs::write(path, content.as_bytes())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_config_file;
+
+    #[test]
+    fn ensure_config_file_creates_parent_directory_when_missing() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config_path = tmp.path().join("subdir").join("merge-ready.toml");
+        assert!(
+            !config_path.parent().unwrap().exists(),
+            "precondition: parent dir must not exist yet"
+        );
+
+        ensure_config_file(&config_path).expect("ensure_config_file");
+
+        assert!(
+            config_path.parent().unwrap().exists(),
+            "parent directory should be created by create_dir_all"
+        );
+        assert!(config_path.exists(), "config file should be created");
+    }
+}

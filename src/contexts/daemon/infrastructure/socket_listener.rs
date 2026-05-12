@@ -63,3 +63,35 @@ pub(super) fn bind(socket_path: &std::path::Path) -> Result<UnixListener, Daemon
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use crate::contexts::daemon::domain::daemon::DaemonError;
+
+    use super::{bind, paths, pid};
+
+    #[test]
+    fn bind_returns_failure_when_socket_path_exceeds_os_limit() {
+        // Skip when a real daemon is already running: bind() reads the global PID file
+        // and returns AlreadyRunning before reaching the socket-bind step (Issue #299).
+        if pid::read().is_some_and(pid::is_alive) {
+            return;
+        }
+
+        // Ensure the lock file's parent directory exists; bind() opens
+        // paths::lock_path() (TMPDIR/merge-ready/daemon.lock) before binding the socket.
+        let _ = std::fs::create_dir_all(paths::base_dir());
+
+        // Unix socket paths are limited to ~104 bytes (macOS) / ~108 bytes (Linux).
+        // A 205-char path exceeds both limits, causing UnixListener::bind to fail
+        // with ENAMETOOLONG — not AddrInUse — which exercises lines 58–61.
+        let socket_path = format!("/tmp/{}", "a".repeat(200));
+        let result = bind(Path::new(&socket_path));
+        assert!(
+            matches!(result, Err(DaemonError::Failure)),
+            "expected Failure for oversized path, got: {result:?}"
+        );
+    }
+}

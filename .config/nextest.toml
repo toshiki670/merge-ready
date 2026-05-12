@@ -1,0 +1,4 @@
+[profile.default]
+# 5s 超で slow、さらに 2 period (10s) 後に強制終了 → 計 15s
+slow-timeout = { period = "5s", terminate-after = 2 }
+test-threads = "num-cpus"

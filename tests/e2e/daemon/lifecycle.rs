@@ -99,20 +99,33 @@ fn prompt_output_with_timeout(
     home: &std::path::Path,
     repo: &std::path::Path,
 ) -> std::process::Output {
+    use std::io::{Read, Seek};
+
+    // パイプではなく匿名一時ファイルに出力をリダイレクトする。
+    // パイプの場合、spawn_daemon() で起動した孫プロセスが書き込み端を保持したまま
+    // 生き続けると read_to_end が EOF 待ちで永久ブロックする。
+    // ファイルへのリダイレクトなら孫プロセスが fd を開いたままでも
+    // プロセス終了後にシークして読み返せるため、この問題が発生しない。
+    let mut stdout_file = tempfile::tempfile().expect("stdout tempfile");
+    let mut stderr_file = tempfile::tempfile().expect("stderr tempfile");
+    let stdout_for_child = stdout_file.try_clone().expect("clone stdout file");
+    let stderr_for_child = stderr_file.try_clone().expect("clone stderr file");
+
     let mut child = std::process::Command::new(bin)
         .env("PATH", path)
         .env("HOME", home)
         .env("TMPDIR", home)
         .current_dir(repo)
         .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::from(stdout_for_child))
+        .stderr(std::process::Stdio::from(stderr_for_child))
         .spawn()
         .expect("run prompt");
+
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(COMMAND_TIMEOUT_MS);
-    loop {
-        if child.try_wait().is_ok_and(|status| status.is_some()) {
-            return child.wait_with_output().expect("collect prompt output");
+    let status = loop {
+        if let Ok(Some(status)) = child.try_wait() {
+            break status;
         }
         if std::time::Instant::now() >= deadline {
             let _ = child.kill();
@@ -120,6 +133,20 @@ fn prompt_output_with_timeout(
             panic!("prompt did not finish within {COMMAND_TIMEOUT_MS}ms");
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+
+    let mut stdout = Vec::new();
+    stdout_file.seek(std::io::SeekFrom::Start(0)).ok();
+    stdout_file.read_to_end(&mut stdout).ok();
+
+    let mut stderr = Vec::new();
+    stderr_file.seek(std::io::SeekFrom::Start(0)).ok();
+    stderr_file.read_to_end(&mut stderr).ok();
+
+    std::process::Output {
+        status,
+        stdout,
+        stderr,
     }
 }
 
@@ -345,16 +372,23 @@ fn test_concurrent_prompt_starts_only_one_daemon() {
         assert_prompt_succeeded(&output);
     }
 
-    // daemon が正確に 1 プロセス起動していることを確認
-    let mut status = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut status);
-    status
-        .args(["daemon", "status"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("running"));
+    // daemon が起動するまでポーリング（最大 5 秒）
+    // spawn_daemon() は fire-and-forget のため、prompt 完了後も daemon が起動中の場合がある
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let out = status_output_with_timeout(&env);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        if stdout.starts_with("running") {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "daemon did not start within 5s: {stdout}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 
-    // PID ファイルが 1 つだけあることを確認（複数 daemon は起動していない）
+    // ソケットファイルが 1 つだけ存在することを確認（複数 daemon は起動していない）
     let socket_path = env
         .home_tmp
         .path()
@@ -418,17 +452,16 @@ fn test_concurrent_version_mismatch_starts_only_one_daemon() {
     assert!(socket_path.exists(), "daemon socket should exist");
 
     // 現バージョンの daemon が応答しており、旧バージョンではないこと
-    let mut after = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut after);
-    after
-        .args(["daemon", "status"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(format!(
-            "version={}",
-            env!("CARGO_PKG_VERSION")
-        )))
-        .stdout(predicate::str::contains("version=0.0.0").not());
+    let final_status = status_output_with_timeout(&env);
+    let final_stdout = String::from_utf8_lossy(&final_status.stdout);
+    assert!(
+        final_stdout.contains(&format!("version={}", env!("CARGO_PKG_VERSION"))),
+        "expected current version in status: {final_stdout}"
+    );
+    assert!(
+        !final_stdout.contains("version=0.0.0"),
+        "old version still in status: {final_stdout}"
+    );
 
     DaemonHandle::stop_for_env(&env);
 }
@@ -448,4 +481,35 @@ fn test_daemon_status_format() {
         predicate::str::is_match(r"^running  pid=\d+  entries=\d+  uptime=\d+s  version=.+\n$")
             .unwrap(),
     );
+}
+
+// ── #18: stale PID ファイルのクリーンアップ ──────────────────────────────────
+
+/// #18: 前回クラッシュした daemon が残した stale な PID ファイルがある状態で
+/// `daemon start` を実行すると、クリーンアップして正常起動する
+#[test]
+fn test_daemon_start_cleans_up_stale_pid_file() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+
+    // 死んだプロセスの PID で stale なファイルを作成してクラッシュ後の残骸を模倣する
+    let mut dead = std::process::Command::new("true")
+        .spawn()
+        .expect("spawn true");
+    let dead_pid = dead.id();
+    dead.wait().expect("wait for dead process");
+
+    let daemon_dir = env.home().join(super::super::helpers::daemon_dir_name());
+    std::fs::create_dir_all(&daemon_dir).expect("create daemon dir");
+    std::fs::write(daemon_dir.join("daemon.pid"), dead_pid.to_string())
+        .expect("write stale pid file");
+    std::fs::write(daemon_dir.join("daemon.sock"), b"").expect("write stale socket placeholder");
+
+    let mut cmd = Command::cargo_bin(BIN).unwrap();
+    env.apply(&mut cmd);
+    cmd.args(["daemon", "start"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("daemon started"));
+
+    DaemonHandle::stop_for_env(&env);
 }

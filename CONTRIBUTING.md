@@ -43,11 +43,17 @@ Re-run after cloning the repository:
 mise run setup-hooks
 ```
 
+## Testing Strategy
+
+Prefer E2E tests over unit tests. Unit tests are reserved for logic that E2E tests cannot reach — for example, infinite loops, OS-level error injection, or behaviour that requires precise timing control. Everything else should be covered at the E2E layer.
+
+This keeps the test suite grounded in real user interactions, and eliminates the overhead of maintaining two separate layers of tests for the same behaviour.
+
 ## Build & Test
 
 ```bash
 cargo build                          # compile
-cargo test --workspace               # run all tests
+cargo nextest run --workspace        # run all tests
 cargo clippy --workspace -- -D warnings  # lints (must pass)
 cargo fmt --check --all              # formatting check
 cargo deny check                     # dependency audit
@@ -95,7 +101,7 @@ chore/update-deps
 
 PR checklist:
 
-- [ ] All CI checks (`cargo test`, `clippy`, `fmt`, `deny`, layer deps) pass locally before pushing
+- [ ] All CI checks (`cargo nextest run`, `clippy`, `fmt`, `deny`, layer deps) pass locally before pushing
 - [ ] Each commit is atomic and passes tests on its own
 - [ ] Commit messages follow the convention above
 - [ ] New behaviour is covered by tests written before the implementation

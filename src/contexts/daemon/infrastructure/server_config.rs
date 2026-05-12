@@ -98,38 +98,3 @@ fn parse_u64(value: Option<&str>, default: u64) -> u64 {
 fn parse_u32(value: Option<&str>, default: u32) -> u32 {
     value.and_then(|v| v.parse().ok()).unwrap_or(default)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_u64_uses_default_when_missing() {
-        assert_eq!(parse_u64(None, 42), 42);
-    }
-
-    #[test]
-    fn parse_u64_uses_default_when_invalid() {
-        assert_eq!(parse_u64(Some("not-a-number"), 42), 42);
-    }
-
-    #[test]
-    fn parse_u64_uses_value_when_valid() {
-        assert_eq!(parse_u64(Some("7"), 42), 7);
-    }
-
-    #[test]
-    fn parse_u32_uses_default_when_invalid() {
-        assert_eq!(parse_u32(Some("-1"), 10), 10);
-    }
-
-    #[test]
-    fn from_env_has_expected_fallbacks() {
-        let config = DaemonServerConfig::from_env();
-        assert!(config.stale_ttl_secs > 0);
-        assert!(config.refresh_lock_timeout_secs > 0);
-        assert!(config.entry_max_age_secs > 0);
-        assert!(config.scheduler_tick_secs > 0);
-        assert!(config.policy.warm_refresh_secs > 0);
-    }
-}

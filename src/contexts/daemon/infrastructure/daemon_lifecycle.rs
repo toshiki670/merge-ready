@@ -126,12 +126,12 @@ mod tests {
     }
 
     #[test]
-    fn get_pid_returns_none_when_pid_is_not_alive() {
+    fn get_pid_returns_some_when_pid_is_alive() {
         let dir = tempdir().unwrap();
         let paths = Paths::new(dir.path().to_path_buf());
-        pid::write(u32::MAX, &paths.pid_path());
+        pid::write(std::process::id(), &paths.pid_path());
         let lifecycle = noop_lifecycle(paths);
-        assert_eq!(lifecycle.get_pid(), None);
+        assert_eq!(lifecycle.get_pid(), Some(std::process::id()));
     }
 
     #[test]

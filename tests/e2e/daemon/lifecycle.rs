@@ -99,6 +99,8 @@ fn prompt_output_with_timeout(
     home: &std::path::Path,
     repo: &std::path::Path,
 ) -> std::process::Output {
+    use std::io::Read;
+
     let mut child = std::process::Command::new(bin)
         .env("PATH", path)
         .env("HOME", home)
@@ -109,10 +111,29 @@ fn prompt_output_with_timeout(
         .stderr(std::process::Stdio::piped())
         .spawn()
         .expect("run prompt");
+
+    // wait_with_output() はプロンプトが spawn_daemon() で起動した孫プロセスが
+    // パイプの書き込み端を保持している場合に EOF 待ちで無限ブロックする。
+    // チャンネル経由でタイムアウト付きに読み出す。
+    let mut stdout_pipe = child.stdout.take().expect("stdout pipe");
+    let mut stderr_pipe = child.stderr.take().expect("stderr pipe");
+    let (stdout_tx, stdout_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let (stderr_tx, stderr_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout_pipe.read_to_end(&mut buf);
+        let _ = stdout_tx.send(buf);
+    });
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stderr_pipe.read_to_end(&mut buf);
+        let _ = stderr_tx.send(buf);
+    });
+
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(COMMAND_TIMEOUT_MS);
-    loop {
-        if child.try_wait().is_ok_and(|status| status.is_some()) {
-            return child.wait_with_output().expect("collect prompt output");
+    let status = loop {
+        if let Ok(Some(status)) = child.try_wait() {
+            break status;
         }
         if std::time::Instant::now() >= deadline {
             let _ = child.kill();
@@ -120,6 +141,22 @@ fn prompt_output_with_timeout(
             panic!("prompt did not finish within {COMMAND_TIMEOUT_MS}ms");
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+
+    // 孫プロセスがパイプを保持していても deadline 残り時間（最大 3s）だけ待つ。
+    // 正常終了なら EOF はほぼ即座に来るため、ほとんどのケースで遅延は生じない。
+    let remaining = deadline
+        .saturating_duration_since(std::time::Instant::now())
+        .min(std::time::Duration::from_secs(3))
+        .max(std::time::Duration::from_millis(500));
+    let stdout = stdout_rx.recv_timeout(remaining).unwrap_or_default();
+    let stderr = stderr_rx
+        .recv_timeout(std::time::Duration::from_millis(500))
+        .unwrap_or_default();
+    std::process::Output {
+        status,
+        stdout,
+        stderr,
     }
 }
 
@@ -345,16 +382,23 @@ fn test_concurrent_prompt_starts_only_one_daemon() {
         assert_prompt_succeeded(&output);
     }
 
-    // daemon が正確に 1 プロセス起動していることを確認
-    let mut status = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut status);
-    status
-        .args(["daemon", "status"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("running"));
+    // daemon が起動するまでポーリング（最大 5 秒）
+    // spawn_daemon() は fire-and-forget のため、prompt 完了後も daemon が起動中の場合がある
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let out = status_output_with_timeout(&env);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        if stdout.starts_with("running") {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "daemon did not start within 5s: {stdout}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
 
-    // PID ファイルが 1 つだけあることを確認（複数 daemon は起動していない）
+    // ソケットファイルが 1 つだけ存在することを確認（複数 daemon は起動していない）
     let socket_path = env
         .home_tmp
         .path()
@@ -418,17 +462,16 @@ fn test_concurrent_version_mismatch_starts_only_one_daemon() {
     assert!(socket_path.exists(), "daemon socket should exist");
 
     // 現バージョンの daemon が応答しており、旧バージョンではないこと
-    let mut after = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut after);
-    after
-        .args(["daemon", "status"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(format!(
-            "version={}",
-            env!("CARGO_PKG_VERSION")
-        )))
-        .stdout(predicate::str::contains("version=0.0.0").not());
+    let final_status = status_output_with_timeout(&env);
+    let final_stdout = String::from_utf8_lossy(&final_status.stdout);
+    assert!(
+        final_stdout.contains(&format!("version={}", env!("CARGO_PKG_VERSION"))),
+        "expected current version in status: {final_stdout}"
+    );
+    assert!(
+        !final_stdout.contains("version=0.0.0"),
+        "old version still in status: {final_stdout}"
+    );
 
     DaemonHandle::stop_for_env(&env);
 }

@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
 use std::sync::mpsc;
 
-use super::super::helpers::{TestEnv, daemon_dir_name};
+use super::super::helpers::TestEnv;
 
 /// version 不一致を再現するための簡易 fake daemon。
 ///
@@ -16,7 +16,7 @@ pub struct FakeDaemonHandle {
 impl FakeDaemonHandle {
     #[must_use]
     pub fn start_versioned(env: &TestEnv, version: &str) -> Self {
-        let socket_path = env.home().join(daemon_dir_name()).join("daemon.sock");
+        let socket_path = env.home().join("daemon.sock");
         if let Some(parent) = socket_path.parent() {
             fs::create_dir_all(parent).expect("create fake daemon dir");
         }
@@ -82,6 +82,7 @@ impl FakeDaemonHandle {
                             .args(["daemon", "start"])
                             .env("TMPDIR", &tmpdir)
                             .env("HOME", &tmpdir)
+                            .env("MERGE_READY_BASE_DIR", &tmpdir)
                             .env("PATH", &path_env)
                             .stdin(std::process::Stdio::null())
                             .stdout(std::process::Stdio::null())

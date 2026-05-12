@@ -71,7 +71,9 @@ fn decode_query_response(bytes: &[u8]) -> Option<String> {
 }
 
 fn socket_path() -> PathBuf {
-    std::env::temp_dir().join(dir_name()).join("daemon.sock")
+    std::env::var("MERGE_READY_BASE_DIR")
+        .map_or_else(|_| std::env::temp_dir().join(dir_name()), PathBuf::from)
+        .join("daemon.sock")
 }
 
 fn dir_name() -> String {

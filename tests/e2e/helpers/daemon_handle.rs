@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use super::{TestEnv, daemon_dir_name, run_prompt_with_timeout};
+use super::{TestEnv, run_prompt_with_timeout};
 
 /// daemon プロセスを管理するテストヘルパー。
 ///
@@ -11,12 +11,12 @@ use super::{TestEnv, daemon_dir_name, run_prompt_with_timeout};
 /// Drop 時に daemon を停止する。
 pub struct DaemonHandle {
     process: std::process::Child,
-    pub(super) tmpdir: std::path::PathBuf,
+    pub(super) base_dir: std::path::PathBuf,
 }
 
 impl DaemonHandle {
-    pub(super) fn new(process: std::process::Child, tmpdir: std::path::PathBuf) -> Self {
-        DaemonHandle { process, tmpdir }
+    pub(super) fn new(process: std::process::Child, base_dir: std::path::PathBuf) -> Self {
+        DaemonHandle { process, base_dir }
     }
 }
 
@@ -39,6 +39,7 @@ impl DaemonHandle {
             .env("PATH", env.path_env())
             .env("HOME", env.home())
             .env("TMPDIR", env.home())
+            .env("MERGE_READY_BASE_DIR", env.home())
             .env("XDG_CONFIG_HOME", env.home().join(".config"))
             .current_dir(env.repo.path())
             .stdin(std::process::Stdio::null())
@@ -49,11 +50,7 @@ impl DaemonHandle {
         }
         let mut child = cmd.spawn().expect("daemon spawn failed");
 
-        let socket = env
-            .home_tmp
-            .path()
-            .join(daemon_dir_name())
-            .join("daemon.sock");
+        let socket = env.home_tmp.path().join("daemon.sock");
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while std::time::Instant::now() < deadline {
             if socket.exists() {
@@ -76,6 +73,7 @@ impl DaemonHandle {
                     .env("PATH", env.path_env())
                     .env("HOME", env.home())
                     .env("TMPDIR", env.home())
+                    .env("MERGE_READY_BASE_DIR", env.home())
                     .current_dir(env.repo.path()),
             );
             let stdout = String::from_utf8_lossy(&out.stdout);
@@ -91,16 +89,16 @@ impl DaemonHandle {
     }
 
     pub fn stop_for_env(env: &TestEnv) {
-        Self::stop_tmpdir(env.home());
+        Self::stop_base_dir(env.home());
     }
 
-    fn stop_tmpdir(tmpdir: &Path) {
-        let pid = read_pid(tmpdir);
+    fn stop_base_dir(base_dir: &Path) {
+        let pid = read_pid(base_dir);
         let bin = assert_cmd::cargo::cargo_bin("merge-ready");
         let mut stop = std::process::Command::new(&bin);
         stop.args(["daemon", "stop"])
-            .env("TMPDIR", tmpdir)
-            .env("HOME", tmpdir)
+            .env("MERGE_READY_BASE_DIR", base_dir)
+            .env("HOME", base_dir)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
@@ -114,7 +112,7 @@ impl DaemonHandle {
                 .status();
             let _ = wait_until_pid_gone(pid, STOP_WAIT_MS);
         }
-        let _ = wait_until_socket_removed(tmpdir, STOP_WAIT_MS);
+        let _ = wait_until_socket_removed(base_dir, STOP_WAIT_MS);
     }
 }
 
@@ -138,14 +136,14 @@ fn run_command_to_exit(cmd: &mut std::process::Command, max_ms: u64) -> bool {
 
 impl Drop for DaemonHandle {
     fn drop(&mut self) {
-        Self::stop_tmpdir(&self.tmpdir);
+        Self::stop_base_dir(&self.base_dir);
         let _ = self.process.kill();
         let _ = self.process.wait();
     }
 }
 
-fn read_pid(tmpdir: &Path) -> Option<u32> {
-    fs::read_to_string(tmpdir.join(daemon_dir_name()).join("daemon.pid"))
+fn read_pid(base_dir: &Path) -> Option<u32> {
+    fs::read_to_string(base_dir.join("daemon.pid"))
         .ok()
         .and_then(|s| s.trim().parse().ok())
 }
@@ -171,8 +169,8 @@ fn is_pid_alive(pid: u32) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-fn wait_until_socket_removed(tmpdir: &Path, max_ms: u64) -> bool {
-    let socket = tmpdir.join(daemon_dir_name()).join("daemon.sock");
+fn wait_until_socket_removed(base_dir: &Path, max_ms: u64) -> bool {
+    let socket = base_dir.join("daemon.sock");
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
     loop {
         if !socket.exists() {

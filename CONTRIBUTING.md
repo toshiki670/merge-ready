@@ -43,6 +43,12 @@ Re-run after cloning the repository:
 mise run setup-hooks
 ```
 
+## Testing Strategy
+
+Prefer E2E tests over unit tests. Unit tests are reserved for logic that E2E tests cannot reach — for example, infinite loops, OS-level error injection, or behaviour that requires precise timing control. Everything else should be covered at the E2E layer.
+
+This keeps the test suite grounded in real user interactions, and eliminates the overhead of maintaining two separate layers of tests for the same behaviour.
+
 ## Build & Test
 
 ```bash

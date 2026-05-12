@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::daemon_server::RefreshFn;
+use super::paths::Paths;
 use super::protocol::Request;
 use super::request_handler::{self, ActionResult};
 use super::restart;
@@ -17,6 +18,7 @@ pub(super) fn handle(
     on_refresh: &RefreshFn,
     exit_tx: &mpsc::Sender<()>,
     restart_started: &Arc<AtomicBool>,
+    paths: &Paths,
 ) {
     let mut buf = String::new();
     {
@@ -62,12 +64,12 @@ pub(super) fn handle(
     }
 
     if restart_after_response {
-        restart::restart_once(restart_started, exit_tx);
+        restart::restart_once(restart_started, exit_tx, paths);
         return;
     }
 
     if stop {
-        restart::cleanup();
+        restart::cleanup(paths);
         std::thread::sleep(Duration::from_millis(50));
         let _ = exit_tx.send(());
     }

@@ -23,6 +23,7 @@ fn status_output_with_timeout(env: &TestEnv) -> std::process::Output {
         .env("PATH", env.path_env())
         .env("HOME", env.home())
         .env("TMPDIR", env.home())
+        .env("MERGE_READY_BASE_DIR", env.home())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -51,6 +52,7 @@ fn daemon_stop_output(env: &TestEnv) -> std::process::Output {
         .env("PATH", env.path_env())
         .env("HOME", env.home())
         .env("TMPDIR", env.home())
+        .env("MERGE_READY_BASE_DIR", env.home())
         .env("XDG_CONFIG_HOME", env.home().join(".config"))
         .current_dir(env.repo.path())
         .stdin(std::process::Stdio::null())
@@ -115,6 +117,7 @@ fn prompt_output_with_timeout(
         .env("PATH", path)
         .env("HOME", home)
         .env("TMPDIR", home)
+        .env("MERGE_READY_BASE_DIR", home)
         .current_dir(repo)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(stdout_for_child))
@@ -389,11 +392,7 @@ fn test_concurrent_prompt_starts_only_one_daemon() {
     }
 
     // ソケットファイルが 1 つだけ存在することを確認（複数 daemon は起動していない）
-    let socket_path = env
-        .home_tmp
-        .path()
-        .join(super::super::helpers::daemon_dir_name())
-        .join("daemon.sock");
+    let socket_path = env.home_tmp.path().join("daemon.sock");
     assert!(socket_path.exists(), "daemon socket should exist");
 
     DaemonHandle::stop_for_env(&env);
@@ -444,11 +443,7 @@ fn test_concurrent_version_mismatch_starts_only_one_daemon() {
     }
 
     // socket ファイルが存在すること（1 daemon だけが bind している）
-    let socket_path = env
-        .home_tmp
-        .path()
-        .join(super::super::helpers::daemon_dir_name())
-        .join("daemon.sock");
+    let socket_path = env.home_tmp.path().join("daemon.sock");
     assert!(socket_path.exists(), "daemon socket should exist");
 
     // 現バージョンの daemon が応答しており、旧バージョンではないこと
@@ -498,8 +493,7 @@ fn test_daemon_start_cleans_up_stale_pid_file() {
     let dead_pid = dead.id();
     dead.wait().expect("wait for dead process");
 
-    let daemon_dir = env.home().join(super::super::helpers::daemon_dir_name());
-    std::fs::create_dir_all(&daemon_dir).expect("create daemon dir");
+    let daemon_dir = env.home();
     std::fs::write(daemon_dir.join("daemon.pid"), dead_pid.to_string())
         .expect("write stale pid file");
     std::fs::write(daemon_dir.join("daemon.sock"), b"").expect("write stale socket placeholder");

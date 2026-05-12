@@ -33,6 +33,7 @@ fn test_daemon_fresh_returns_cached_output() {
     cmd.env("PATH", broken_env.path_env());
     cmd.env("HOME", env.home());
     cmd.env("TMPDIR", env.home());
+    cmd.env("MERGE_READY_BASE_DIR", env.home());
     cmd.current_dir(env.repo.path());
     cmd.assert()
         .success()

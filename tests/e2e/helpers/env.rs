@@ -185,11 +185,12 @@ impl TestEnv {
         self.home_tmp.path()
     }
 
-    /// `Command` に `PATH` / `HOME` / `TMPDIR` / `XDG_CONFIG_HOME` / `current_dir` を設定する。
+    /// `Command` に `PATH` / `HOME` / `TMPDIR` / `MERGE_READY_BASE_DIR` / `XDG_CONFIG_HOME` / `current_dir` を設定する。
     pub fn apply(&self, cmd: &mut assert_cmd::Command) {
         cmd.env("PATH", self.path_env());
         cmd.env("HOME", self.home());
         cmd.env("TMPDIR", self.home());
+        cmd.env("MERGE_READY_BASE_DIR", self.home());
         cmd.env("XDG_CONFIG_HOME", self.home().join(".config"));
         cmd.current_dir(self.repo.path());
     }
@@ -201,6 +202,7 @@ impl TestEnv {
         cmd.env("PATH", self.path_env());
         cmd.env("HOME", self.home());
         cmd.env("TMPDIR", self.home());
+        cmd.env("MERGE_READY_BASE_DIR", self.home());
         cmd.current_dir(self.repo.path());
     }
 

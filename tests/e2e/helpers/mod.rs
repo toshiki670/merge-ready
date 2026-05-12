@@ -38,18 +38,6 @@ pub(super) fn run_prompt_with_timeout(cmd: &mut std::process::Command) -> std::p
     }
 }
 
-/// macOS: `"merge-ready"`、Linux: `"merge-ready-{uid}"`
-pub(crate) fn daemon_dir_name() -> String {
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if let Ok(meta) = std::fs::metadata("/proc/self") {
-            return format!("merge-ready-{}", meta.uid());
-        }
-    }
-    "merge-ready".to_owned()
-}
-
 pub(crate) fn write_executable(path: impl AsRef<Path>, content: &str) {
     let path = path.as_ref();
     fs::write(path, content).expect("failed to write script");

@@ -30,7 +30,8 @@ impl Paths {
 
 impl Default for Paths {
     fn default() -> Self {
-        Self::new(base_dir())
+        let base = std::env::var("MERGE_READY_BASE_DIR").map_or_else(|_| base_dir(), PathBuf::from);
+        Self::new(base)
     }
 }
 

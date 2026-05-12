@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use tempfile::{TempDir, tempdir};
 
-use super::{DaemonHandle, daemon_dir_name, run_prompt_with_timeout, write_executable};
+use super::{DaemonHandle, run_prompt_with_timeout, write_executable};
 
 pub struct MultiRepoEnv {
     pub bin: TempDir,
@@ -75,6 +75,7 @@ impl MultiRepoEnv {
             .env("PATH", self.path_env())
             .env("HOME", self.home())
             .env("TMPDIR", self.home())
+            .env("MERGE_READY_BASE_DIR", self.home())
             .current_dir(self.repo_a.path())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -82,7 +83,7 @@ impl MultiRepoEnv {
             .spawn()
             .expect("daemon spawn failed");
 
-        let socket = self.home().join(daemon_dir_name()).join("daemon.sock");
+        let socket = self.home().join("daemon.sock");
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while std::time::Instant::now() < deadline {
             if socket.exists() {
@@ -105,6 +106,7 @@ impl MultiRepoEnv {
                     .env("PATH", self.path_env())
                     .env("HOME", self.home())
                     .env("TMPDIR", self.home())
+                    .env("MERGE_READY_BASE_DIR", self.home())
                     .current_dir(repo.path()),
             );
             let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -127,6 +129,7 @@ impl MultiRepoEnv {
                 .env("PATH", self.path_env())
                 .env("HOME", self.home())
                 .env("TMPDIR", self.home())
+                .env("MERGE_READY_BASE_DIR", self.home())
                 .current_dir(repo.path()),
         );
         String::from_utf8_lossy(&out.stdout).into_owned()

@@ -47,7 +47,7 @@ mise run setup-hooks
 
 ```bash
 cargo build                          # compile
-cargo test --workspace               # run all tests
+cargo nextest run --workspace        # run all tests
 cargo clippy --workspace -- -D warnings  # lints (must pass)
 cargo fmt --check --all              # formatting check
 cargo deny check                     # dependency audit
@@ -95,7 +95,7 @@ chore/update-deps
 
 PR checklist:
 
-- [ ] All CI checks (`cargo test`, `clippy`, `fmt`, `deny`, layer deps) pass locally before pushing
+- [ ] All CI checks (`cargo nextest run`, `clippy`, `fmt`, `deny`, layer deps) pass locally before pushing
 - [ ] Each commit is atomic and passes tests on its own
 - [ ] Commit messages follow the convention above
 - [ ] New behaviour is covered by tests written before the implementation

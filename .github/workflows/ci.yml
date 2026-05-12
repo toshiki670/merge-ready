@@ -57,8 +57,9 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: "ci"
+      - uses: taiki-e/install-action@1cb9fbf6ce2fc2a2f039450cbf9fb50ff4402cfe # cargo-nextest
       - run: cargo check --workspace
-      - run: cargo test --workspace
+      - run: cargo nextest run --workspace
 
   dependency-rules:
     name: dependency-rules

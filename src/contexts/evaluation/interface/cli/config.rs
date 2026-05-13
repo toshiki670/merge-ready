@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -10,7 +11,10 @@ pub fn run(config_path: Option<&Path>) -> ExitCode {
         );
         return ExitCode::FAILURE;
     };
-    if let Err(e) = edit::run(path) {
+    let editor = std::env::var_os("VISUAL")
+        .or_else(|| std::env::var_os("EDITOR"))
+        .unwrap_or_else(|| OsString::from("vi"));
+    if let Err(e) = edit::run(path, &editor) {
         eprintln!("failed to edit config: {e}");
         return ExitCode::FAILURE;
     }

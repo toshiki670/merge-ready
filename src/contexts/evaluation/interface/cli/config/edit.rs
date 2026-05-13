@@ -1,13 +1,9 @@
+use std::ffi::OsStr;
 use std::path::Path;
 
-pub fn run(path: &Path) -> Result<(), std::io::Error> {
-    use std::ffi::OsString;
-    let editor = std::env::var_os("VISUAL")
-        .or_else(|| std::env::var_os("EDITOR"))
-        .unwrap_or_else(|| OsString::from("vi"));
-
+pub fn run(path: &Path, editor: &OsStr) -> Result<(), std::io::Error> {
     ensure_config_file(path)?;
-    let status = std::process::Command::new(&editor)
+    let status = std::process::Command::new(editor)
         .arg(path)
         .status()
         .map_err(|e| {
@@ -33,4 +29,20 @@ fn ensure_config_file(path: &Path) -> Result<(), std::io::Error> {
     let content = toml::to_string_pretty(&config)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     std::fs::write(path, content.as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn run_returns_error_when_editor_not_found() {
+        let dir = TempDir::new().unwrap();
+        let config_path = dir.path().join("merge-ready.toml");
+        let result = run(&config_path, OsStr::new("this-editor-does-not-exist-xyz"));
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("failed to launch editor"), "got: {msg}");
+    }
 }

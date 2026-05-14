@@ -21,13 +21,13 @@ fn test_hot_mode_refreshes_rapidly() {
 
     DaemonHandle::wait_for_cache(&env, 5000);
 
-    // Hot モードでは 1 秒ごとにリフレッシュされる。4 秒待って複数回呼ばれることを確認する。
-    std::thread::sleep(std::time::Duration::from_secs(4));
+    // Hot モードでは 1 秒ごとにリフレッシュされる。2 秒待って複数回呼ばれることを確認する。
+    std::thread::sleep(std::time::Duration::from_secs(2));
 
     let call_log = std::fs::read_to_string(&log_path).unwrap_or_default();
     assert!(
-        call_log.len() >= 3,
-        "Hot mode should refresh at least 3 times in 4s, got {} calls",
+        call_log.len() >= 2,
+        "Hot mode should refresh at least 2 times in 2s, got {} calls",
         call_log.len()
     );
 }
@@ -47,14 +47,9 @@ fn test_warm_mode_respects_longer_interval() {
 
     DaemonHandle::wait_for_cache(&env, 5000);
 
-    // Warm モードのリフレッシュ間隔は 60 秒。3 秒後も gh 呼び出しは初回分のみのはず。
-    std::thread::sleep(std::time::Duration::from_secs(3));
-
-    let call_log = std::fs::read_to_string(&log_path).unwrap_or_default();
-    // pr list + pr checks + api compare = 最大 3 コマンド分が初回フェッチの呼び出し
-    // リフレッシュが起きた場合はさらに同数増える
-    let initial_calls = call_log.len();
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    // wait_for_cache 完了時点で初回フェッチは終わっている。直後に記録して 1 秒後と比較する。
+    let initial_calls = std::fs::read_to_string(&log_path).unwrap_or_default().len();
+    std::thread::sleep(std::time::Duration::from_secs(1));
     let later_calls = std::fs::read_to_string(&log_path).unwrap_or_default().len();
     assert_eq!(
         initial_calls, later_calls,

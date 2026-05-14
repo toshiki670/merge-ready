@@ -6,7 +6,6 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
-use super::lifecycle_fixtures::FakeDaemonHandle;
 
 const BIN: &str = "merge-ready";
 const PROMPT_BIN: &str = "merge-ready-prompt";
@@ -153,6 +152,53 @@ fn prompt_output_with_timeout(
     }
 }
 
+/// バージョン override 付きでデーモンを起動し、socket が出現するまで待つ。
+/// Drop 時に `daemon stop` を実行しない生の Child を返す。
+/// バージョンミスマッチで自己終了する旧デーモンのテスト用。
+fn start_versioned_daemon(env: &TestEnv, version_override: &str) -> std::process::Child {
+    let bin = assert_cmd::cargo::cargo_bin(BIN);
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.args(["daemon", "start"])
+        .env("PATH", env.path_env())
+        .env("HOME", env.home())
+        .env("TMPDIR", env.home())
+        .env("MERGE_READY_BASE_DIR", env.home())
+        .env("XDG_CONFIG_HOME", env.home().join(".config"))
+        .env("MERGE_READY_DAEMON_VERSION_OVERRIDE", version_override)
+        .current_dir(env.repo.path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let mut child = cmd.spawn().expect("versioned daemon spawn failed");
+    let socket = env.home_tmp.path().join("daemon.sock");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {
+        if socket.exists() {
+            return child;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    panic!("versioned daemon did not start within 2s");
+}
+
+/// プロセスが自然終了するまで最大 `timeout_ms` 待つ。タイムアウト時は強制終了する。
+fn wait_for_process_exit(child: &mut std::process::Child, timeout_ms: u64) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    loop {
+        if child.try_wait().is_ok_and(|s| s.is_some()) {
+            return;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
 // ── #7: daemon start ─────────────────────────────────────────────────────────
 
 /// #7: `daemon start` → "daemon started" を出力して exit 0
@@ -296,9 +342,11 @@ fn test_daemon_status_not_running() {
 #[test]
 fn test_prompt_restarts_daemon_on_version_mismatch() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
-    let old = FakeDaemonHandle::start_versioned(&env, "0.0.0");
 
-    // 古い daemon が応答することを確認
+    // MERGE_READY_DAEMON_VERSION_OVERRIDE=0.0.0 でバージョン不一致をシミュレートする
+    let mut old = start_versioned_daemon(&env, "0.0.0");
+
+    // 古い daemon が version=0.0.0 で応答することを確認
     let mut before = Command::cargo_bin(BIN).unwrap();
     env.apply(&mut before);
     before
@@ -308,13 +356,13 @@ fn test_prompt_restarts_daemon_on_version_mismatch() {
         .stdout(predicate::str::contains("version=0.0.0"));
 
     // merge-ready-prompt を実行すると version mismatch を検知し、
-    // fake daemon が新 daemon を spawn して自己シャットダウンする
+    // 旧 daemon がレスポンス返却後に spawn_self_as_daemon() を呼び自己シャットダウンする
     let mut prompt = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut prompt);
     prompt.assert().success(); // "? loading" が返る
 
-    // fake daemon がシャットダウンするのを待つ
-    drop(old);
+    // 旧 daemon が自然終了するのを待つ（restart_once が exit_tx.send() で終了させる）
+    wait_for_process_exit(&mut old, 5000);
 
     // 新 daemon が起動するまでポーリング（最大 5 秒）
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -407,8 +455,8 @@ fn test_concurrent_version_mismatch_starts_only_one_daemon() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
     let prompt_bin = assert_cmd::cargo::cargo_bin(PROMPT_BIN);
 
-    // バージョン不一致の fake daemon を起動
-    let old = FakeDaemonHandle::start_versioned(&env, "0.0.0");
+    // MERGE_READY_DAEMON_VERSION_OVERRIDE=0.0.0 でバージョン不一致をシミュレートする
+    let mut old = start_versioned_daemon(&env, "0.0.0");
 
     // 複数本の merge-ready-prompt を同時実行してバージョンミスマッチを並列でトリガーする
     let handles: Vec<_> = (0..CONCURRENT_PROMPTS)
@@ -425,7 +473,9 @@ fn test_concurrent_version_mismatch_starts_only_one_daemon() {
         let output = h.join().expect("prompt thread panicked");
         assert_prompt_succeeded(&output);
     }
-    drop(old);
+
+    // 旧 daemon が自然終了するのを待つ
+    wait_for_process_exit(&mut old, 5000);
 
     // 新 daemon が起動するまでポーリング（最大 5 秒）
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);

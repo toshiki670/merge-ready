@@ -5,6 +5,10 @@ use std::path::PathBuf;
 /// `restart::spawn_self_as_daemon()` で参照する。
 pub const DAEMON_INNER_ENV: &str = "MERGE_READY_DAEMON_INNER";
 
+/// テスト用: この環境変数が設定されているとき、デーモンは自身のバージョンをこの値として扱う。
+/// バージョンミスマッチによる自動再起動を E2E テストで再現するために使用する。
+pub const DAEMON_VERSION_OVERRIDE_ENV: &str = "MERGE_READY_DAEMON_VERSION_OVERRIDE";
+
 #[derive(Clone)]
 pub struct Paths {
     base_dir: PathBuf,

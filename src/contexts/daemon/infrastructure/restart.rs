@@ -20,6 +20,7 @@ pub(super) fn spawn_self_as_daemon() {
     let _ = std::process::Command::new(&exe)
         .args(["daemon", "start"])
         .env(paths::DAEMON_INNER_ENV, "1")
+        .env_remove(paths::DAEMON_VERSION_OVERRIDE_ENV)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

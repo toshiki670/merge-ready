@@ -4,6 +4,7 @@ use std::time::Instant;
 
 mod mapping;
 
+use super::paths;
 use super::protocol::{EntryDto, PrOutputDto, Request, Response};
 use super::repo_id;
 use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode, RepoId};
@@ -45,7 +46,9 @@ pub(super) fn process(
             cwd,
             client_version,
         } => {
-            let version_mismatch = client_version.as_str() != env!("CARGO_PKG_VERSION");
+            let own_version = std::env::var(paths::DAEMON_VERSION_OVERRIDE_ENV)
+                .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_owned());
+            let version_mismatch = client_version.as_str() != own_version.as_str();
 
             let Some((repo_id_str, branch)) = repo_id::repo_info_from_cwd(cwd) else {
                 return ActionResult {
@@ -93,11 +96,13 @@ pub(super) fn process(
         Request::Status => {
             let uptime_secs = started_at.elapsed().as_secs();
             let entry_count = entries.len();
+            let version = std::env::var(paths::DAEMON_VERSION_OVERRIDE_ENV)
+                .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_owned());
             ActionResult {
                 response: Response::Status {
                     entries: entry_count,
                     uptime_secs,
-                    version: env!("CARGO_PKG_VERSION").to_owned(),
+                    version,
                 },
                 refresh_repo_id: None,
                 refresh_cwd: None,

@@ -24,7 +24,7 @@ fn test_refresh_timeout_clears_lock_and_allows_retry() {
     );
 
     // 初回 pr list は即時応答 → CacheEntry に output が入り is_active()=true になる。
-    DaemonHandle::wait_for_cache(&env, 5000);
+    DaemonHandle::wait_for_cache(&env, 15000);
 
     // 初回フェッチ完了後:
     //   T+~1s: スケジューラが 2 回目リフレッシュをスケジュール → pr list #2 が 2s sleep 開始

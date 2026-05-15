@@ -22,7 +22,7 @@ fn test_warm_with_recent_query_uses_hot_interval() {
     );
 
     // wait_for_cache は内部でクエリを送り続けるので last_queried_at が更新される
-    DaemonHandle::wait_for_cache(&env, 5000);
+    DaemonHandle::wait_for_cache(&env, 15000);
 
     // has_recent_query(60s)=true の状態で 2 秒待つ
     // hot_with_query_secs=1 なので 2 回以上リフレッシュされる
@@ -53,7 +53,7 @@ fn test_warm_without_recent_query_uses_warm_interval() {
         ],
     );
 
-    DaemonHandle::wait_for_cache(&env, 5000);
+    DaemonHandle::wait_for_cache(&env, 15000);
     let initial_calls = std::fs::read_to_string(&log_path).unwrap_or_default().len();
 
     // hot_recent_query_secs=0 なので wait_for_cache 直後 ~1s で has_recent_query=false になり

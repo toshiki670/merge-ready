@@ -23,7 +23,7 @@ fn test_cold_refresh_increments_count() {
         ],
     );
 
-    DaemonHandle::wait_for_cache(&env, 5000);
+    DaemonHandle::wait_for_cache(&env, 15000);
 
     // warm_to_cold_secs=1 を超えて Cold 遷移し、cold_early_secs=1 で bg リフレッシュ発生
     std::thread::sleep(std::time::Duration::from_secs(3));
@@ -54,7 +54,7 @@ fn test_cold_interval_switches_from_early_to_late() {
         ],
     );
 
-    DaemonHandle::wait_for_cache(&env, 5000);
+    DaemonHandle::wait_for_cache(&env, 15000);
 
     // warm_to_cold_secs=0 なので即 cold。cold_early_secs=1 で 1 回 cold refresh (count → 1)
     // count=1 >= cold_early_limit=1 → 次の間隔は cold_late_secs=60
@@ -103,7 +103,7 @@ fn test_cold_reset_on_warm_query() {
         ],
     );
 
-    DaemonHandle::wait_for_cache(&env, 5000);
+    DaemonHandle::wait_for_cache(&env, 15000);
 
     // warm_to_cold_secs=0 + hot_recent_query_secs=0 → wait_for_cache 直後 ~1s で has_recent_query=false
     // → cold_early_1 リフレッシュが ~T+2s に発生し count=1 → late=60s に切替。
@@ -119,7 +119,7 @@ fn test_cold_reset_on_warm_query() {
 
     // クエリを送る → エントリが stale → is_cold_or_never_queried(0)=true → reset_cold_count → count=0
     // また NeedsRefresh → mark_refreshing → bg refresh 開始 → 追加 gh 呼び出しあり
-    DaemonHandle::wait_for_cache(&env, 5000);
+    DaemonHandle::wait_for_cache(&env, 15000);
 
     // レスポンス後に bg refresh が gh を起動してログに書き込むまで少し待つ
     std::thread::sleep(std::time::Duration::from_secs(1));

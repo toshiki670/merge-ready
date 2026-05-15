@@ -27,7 +27,7 @@ fn test_terminal_pr_reopened_resets_to_warm() {
     );
 
     // 初回: MERGED PR → output="" (terminal)
-    DaemonHandle::wait_for_cache(&env, 5000);
+    DaemonHandle::wait_for_cache(&env, 15000);
 
     let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);

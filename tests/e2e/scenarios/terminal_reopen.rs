@@ -19,10 +19,9 @@ fn test_terminal_pr_reopened_resets_to_warm() {
         &env,
         &[
             // Terminal エントリの effective_ttl = warm_refresh_secs
-            // stale_ttl も同値にし、reset_to_warm 後の再フェッチ完了を
-            // is_fresh で確認できるようにする
-            ("MERGE_READY_WARM_REFRESH_SECS", "2"),
-            ("MERGE_READY_STALE_TTL", "2"),
+            // stale_ttl=0 にして reset_to_warm 後の OPEN PR フェッチが完了すれば即座に出力が得られるようにする
+            ("MERGE_READY_WARM_REFRESH_SECS", "1"),
+            ("MERGE_READY_STALE_TTL", "0"),
             ("MERGE_READY_SCHEDULER_TICK_SECS", "1"),
         ],
     );
@@ -34,8 +33,8 @@ fn test_terminal_pr_reopened_resets_to_warm() {
     env.apply_with_cache(&mut cmd);
     cmd.assert().success().stdout(predicate::str::is_empty());
 
-    // warm_refresh_secs=2 かつ stale_ttl=2 を超えると Terminal エントリは stale になる
-    std::thread::sleep(std::time::Duration::from_secs(3));
+    // warm_refresh_secs=1 → Terminal エントリは is_fresh(1) = elapsed.as_secs() <= 1 → elapsed >= 2s で stale
+    std::thread::sleep(std::time::Duration::from_secs(2));
 
     // クエリ → is_terminal=true かつ NeedsRefresh → reset_to_warm → bg refresh (OPEN PR) 開始
     // この時点では Refreshing 状態で古い "" が返る

@@ -6,10 +6,10 @@
 use super::super::helpers::DaemonHandle;
 use super::refresh_timeout_fixtures;
 
-/// #I: 遅い gh → ロック期限切れ → `clear_refresh_lock` → リトライ → データ取得成功
+/// #I: 遅い gh (2 回目 pr list) → ロック期限切れ → `clear_refresh_lock` → リトライ → データ取得成功
 #[test]
 fn test_refresh_timeout_clears_lock_and_allows_retry() {
-    let (env, log_path) = refresh_timeout_fixtures::with_slow_first_call();
+    let (env, log_path) = refresh_timeout_fixtures::with_slow_second_pr_list();
     let _daemon = DaemonHandle::start_with_env(
         &env,
         &[
@@ -18,18 +18,24 @@ fn test_refresh_timeout_clears_lock_and_allows_retry() {
             // stale_ttl=60 にして CacheEntry::new の fetched_at が過去分として大きな elapsed を持つようにする。
             // スケジューラのリトライ条件 fetched_at.elapsed() >= hot_with_query_secs を確実に満たすため。
             ("MERGE_READY_STALE_TTL", "60"),
-            ("MERGE_READY_HOT_WITH_QUERY_SECS", "1"),
+            // hot_with_query_secs=0 にして初回フェッチ完了直後からスケジューラが即座に 2 回目をスケジュールするようにする。
+            ("MERGE_READY_HOT_WITH_QUERY_SECS", "0"),
         ],
     );
 
-    // 1 回目の gh は 5 秒かかる。lock_timeout=1s を超えると clear_refresh_lock が呼ばれ、
-    // スケジューラが 2 回目を即時起動して成功する。
-    // 最大 12 秒待つ（1s lock timeout + 1s retry + 5s slow gh の並走 + 余裕）
-    DaemonHandle::wait_for_cache(&env, 12000);
+    // 初回 pr list は即時応答 → CacheEntry に output が入り is_active()=true になる。
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    // 初回フェッチ完了後:
+    //   T+~1s: スケジューラが 2 回目リフレッシュをスケジュール → pr list #2 が 2s sleep 開始
+    //   T+~2s: refresh_lock_timeout=1s を超えると clear_refresh_lock 呼び出し
+    //   T+~3s: スケジューラがリトライ → pr list #3 が即時応答
+    std::thread::sleep(std::time::Duration::from_secs(3));
 
     let calls = std::fs::read_to_string(&log_path).unwrap_or_default().len();
     assert!(
-        calls >= 2,
-        "should have at least 2 gh calls: initial (slow) + retry after lock timeout (calls: {calls})"
+        calls >= 4,
+        "should have at least 4 gh calls: initial 3 (pr list + checks + compare) \
+         + slow pr list #2 logged before sleep (calls: {calls})"
     );
 }

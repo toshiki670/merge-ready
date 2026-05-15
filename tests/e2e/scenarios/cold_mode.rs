@@ -14,7 +14,7 @@ fn test_cold_refresh_increments_count() {
     let _daemon = DaemonHandle::start_with_env(
         &env,
         &[
-            ("MERGE_READY_WARM_TO_COLD_SECS", "2"),
+            ("MERGE_READY_WARM_TO_COLD_SECS", "1"),
             ("MERGE_READY_COLD_EARLY_SECS", "1"),
             ("MERGE_READY_WARM_REFRESH_SECS", "60"),
             ("MERGE_READY_HOT_RECENT_QUERY_SECS", "1"),
@@ -25,9 +25,8 @@ fn test_cold_refresh_increments_count() {
 
     DaemonHandle::wait_for_cache(&env, 5000);
 
-    // 3 秒クエリしない → warm_to_cold_secs=2 を超えて Cold 遷移
-    // cold_early_secs=1 を経過するたびにスケジューラが cold リフレッシュ
-    std::thread::sleep(std::time::Duration::from_secs(4));
+    // warm_to_cold_secs=1 を超えて Cold 遷移し、cold_early_secs=1 で bg リフレッシュ発生
+    std::thread::sleep(std::time::Duration::from_secs(3));
 
     let calls = std::fs::read_to_string(&log_path).unwrap_or_default().len();
     assert!(
@@ -43,12 +42,13 @@ fn test_cold_interval_switches_from_early_to_late() {
     let _daemon = DaemonHandle::start_with_env(
         &env,
         &[
-            ("MERGE_READY_WARM_TO_COLD_SECS", "1"),
+            // warm_to_cold_secs=0 → 常に cold。warm → cold 遷移待ちを省いて cold_early を素早く発火させる。
+            ("MERGE_READY_WARM_TO_COLD_SECS", "0"),
             ("MERGE_READY_COLD_EARLY_SECS", "1"),
             ("MERGE_READY_COLD_LATE_SECS", "60"),
             ("MERGE_READY_COLD_EARLY_LIMIT", "1"),
             ("MERGE_READY_WARM_REFRESH_SECS", "60"),
-            ("MERGE_READY_HOT_RECENT_QUERY_SECS", "1"),
+            ("MERGE_READY_HOT_RECENT_QUERY_SECS", "0"),
             ("MERGE_READY_STALE_TTL", "60"),
             ("MERGE_READY_SCHEDULER_TICK_SECS", "1"),
         ],
@@ -56,10 +56,10 @@ fn test_cold_interval_switches_from_early_to_late() {
 
     DaemonHandle::wait_for_cache(&env, 5000);
 
-    // warm_to_cold_secs=1 を過ぎたあと、cold_early_secs=1 で 1 回 cold refresh (count → 1)
+    // warm_to_cold_secs=0 なので即 cold。cold_early_secs=1 で 1 回 cold refresh (count → 1)
     // count=1 >= cold_early_limit=1 → 次の間隔は cold_late_secs=60
-    // 余裕を見て 3 秒待つ
-    std::thread::sleep(std::time::Duration::from_secs(3));
+    // hot_recent_query_secs=0 なので wait_for_cache 直後も has_recent_query=false
+    std::thread::sleep(std::time::Duration::from_secs(2));
 
     let calls_after_early = std::fs::read_to_string(&log_path).unwrap_or_default().len();
     assert!(
@@ -67,8 +67,8 @@ fn test_cold_interval_switches_from_early_to_late() {
         "should have at least 1 cold-early refresh after initial fetch (calls: {calls_after_early})"
     );
 
-    // cold_early_limit=1 に到達 → 次は cold_late_secs=60 → この 2 秒では追加リフレッシュなし
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    // cold_early_limit=1 に到達 → 次は cold_late_secs=60 → この 1 秒では追加リフレッシュなし
+    std::thread::sleep(std::time::Duration::from_secs(1));
 
     let calls_after_late = std::fs::read_to_string(&log_path).unwrap_or_default().len();
     assert_eq!(
@@ -85,14 +85,15 @@ fn test_cold_reset_on_warm_query() {
     let _daemon = DaemonHandle::start_with_env(
         &env,
         &[
-            ("MERGE_READY_WARM_TO_COLD_SECS", "1"),
+            // warm_to_cold_secs=0 → 常に cold。is_cold_or_never_queried が必ず true になる。
+            ("MERGE_READY_WARM_TO_COLD_SECS", "0"),
             ("MERGE_READY_COLD_EARLY_SECS", "1"),
             ("MERGE_READY_COLD_LATE_SECS", "60"),
             ("MERGE_READY_COLD_EARLY_LIMIT", "1"),
             // recent query でも間隔が長いため、リセット後の early 間隔適用をノイズなく確認できる
             ("MERGE_READY_HOT_WITH_QUERY_SECS", "60"),
             ("MERGE_READY_WARM_REFRESH_SECS", "60"),
-            ("MERGE_READY_HOT_RECENT_QUERY_SECS", "1"),
+            ("MERGE_READY_HOT_RECENT_QUERY_SECS", "0"),
             // stale_ttl=1 にして cold カウンタリセット用クエリが Stale パスを通るようにする。
             // reset_cold_count は process_query の Stale パスで is_cold_or_never_queried=true のときのみ呼ばれる。
             // is_fresh(1) は fetched_at.elapsed().as_secs() <= 1 = elapsed < 2s のとき true。
@@ -104,8 +105,11 @@ fn test_cold_reset_on_warm_query() {
 
     DaemonHandle::wait_for_cache(&env, 5000);
 
-    // warm_to_cold_secs=1 を過ぎたあと cold_early_1 リフレッシュが発生し count=1 → late=60s に切替。
-    std::thread::sleep(std::time::Duration::from_secs(3));
+    // warm_to_cold_secs=0 + hot_recent_query_secs=0 → wait_for_cache 直後 ~1s で has_recent_query=false
+    // → cold_early_1 リフレッシュが ~T+2s に発生し count=1 → late=60s に切替。
+    // cold_early_1 から 2s 以上待ってエントリを stale にする必要がある。
+    // sleep(4s): cold_early_1 は ~T+2s, 4s 後の elapsed ≈ 2s → as_secs()=2 > 1 → stale ✓
+    std::thread::sleep(std::time::Duration::from_secs(4));
 
     let calls_before_reset = std::fs::read_to_string(&log_path).unwrap_or_default().len();
     assert!(
@@ -113,11 +117,7 @@ fn test_cold_reset_on_warm_query() {
         "should have initial + at least 1 cold-early refresh (calls: {calls_before_reset})"
     );
 
-    // cold_early_1 リフレッシュ後 fetched_at が stale_ttl=1 を確実に超えるよう 2s 追加待機。
-    // is_fresh(1) は elapsed.as_secs() <= 1 なので、stale には elapsed >= 2s が必要。
-    std::thread::sleep(std::time::Duration::from_secs(2));
-
-    // クエリを送る → エントリが stale → is_cold_or_never_queried=true → reset_cold_count → count=0
+    // クエリを送る → エントリが stale → is_cold_or_never_queried(0)=true → reset_cold_count → count=0
     // また NeedsRefresh → mark_refreshing → bg refresh 開始 → 追加 gh 呼び出しあり
     DaemonHandle::wait_for_cache(&env, 5000);
 

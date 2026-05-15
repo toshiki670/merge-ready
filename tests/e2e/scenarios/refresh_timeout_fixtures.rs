@@ -5,9 +5,9 @@ use super::super::helpers::{TestEnv, setup_git_dirs, write_executable};
 /// 初回 pr list は即時応答し、2 回目の pr list は 2 秒 sleep してから応答する fixture。
 ///
 /// `clear_refresh_lock` のシナリオ用。
-/// - 初回フェッチ (pr list #1) が素早く完了 → CacheEntry に output が入り is_active()=true になる。
+/// - 初回フェッチ (pr list #1) が素早く完了 → `CacheEntry` に output が入り `is_active()=true` になる。
 /// - スケジューラが次のリフレッシュをスケジュール → pr list #2 がスロー (2s sleep)。
-/// - refresh_lock_timeout=1s を超えると clear_refresh_lock が呼ばれ、スケジューラがリトライ。
+/// - `refresh_lock_timeout=1s` を超えると `clear_refresh_lock` が呼ばれ、スケジューラがリトライ。
 /// - pr list #3 以降は即時応答 → リトライ成功。
 ///
 /// カウンタファイルは `pr list` 呼び出し専用。`home_tmp` 配下に置く。

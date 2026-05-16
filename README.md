@@ -91,6 +91,14 @@ On the first query the daemon has no cache yet, so `? loading` is printed while 
 
 The daemon exits automatically after 30 minutes of inactivity.
 
+### Rate-Limit-Aware Refresh
+
+The daemon polls `gh api rate_limit` every 60 seconds and stretches its Hot / Warm / Cold refresh intervals when the bottleneck quota (the smaller of `core` and `graphql` remaining ratios) is depleting. The default refresh intervals are always the floor — scaling only lengthens them.
+
+If the bottleneck remaining ratio drops to ~5% or hits zero, the daemon pauses all background refreshes globally until the reset timestamp reported by GitHub, then resumes automatically.
+
+Set `MERGE_READY_RATE_LIMIT_AWARE=0` (or `false`) to disable this behaviour entirely; the daemon will then use the fixed Hot / Warm / Cold intervals regardless of quota.
+
 ### Watch Mode
 
 To inspect all cached entries in real time, use the `watch` subcommand:

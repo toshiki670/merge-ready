@@ -28,7 +28,7 @@ fn query_daemon() -> Option<String> {
         .ok()?;
     let mut stream = stream;
 
-    let msg = encode_query(&cwd, env!("CARGO_PKG_VERSION"));
+    let msg = encode_query(&cwd);
     stream.write_all(msg.as_bytes()).ok()?;
 
     // レスポンスはスタックバッファで受け取る（8KB BufReader ヒープ確保を回避）
@@ -38,18 +38,16 @@ fn query_daemon() -> Option<String> {
     decode_query_response(&buf[..n])
 }
 
-/// `{"action":"query","cwd":"...","client_version":"..."}\n`
-fn encode_query(cwd: &str, client_version: &str) -> String {
+/// `{"action":"query","cwd":"..."}\n`
+fn encode_query(cwd: &str) -> String {
     #[derive(serde::Serialize)]
     struct QueryMsg<'a> {
         action: &'a str,
         cwd: &'a str,
-        client_version: &'a str,
     }
     let mut s = serde_json::to_string(&QueryMsg {
         action: "query",
         cwd,
-        client_version,
     })
     .unwrap_or_default();
     s.push('\n');
@@ -73,7 +71,7 @@ fn decode_query_response(bytes: &[u8]) -> Option<String> {
 fn socket_path() -> PathBuf {
     std::env::var("MERGE_READY_BASE_DIR")
         .map_or_else(|_| std::env::temp_dir().join(dir_name()), PathBuf::from)
-        .join("daemon.sock")
+        .join(format!("daemon-{}.sock", env!("CARGO_PKG_VERSION")))
 }
 
 fn dir_name() -> String {

@@ -50,7 +50,7 @@ impl DaemonHandle {
         }
         let mut child = cmd.spawn().expect("daemon spawn failed");
 
-        let socket = env.home_tmp.path().join("daemon.sock");
+        let socket = socket_path(env.home_tmp.path());
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while std::time::Instant::now() < deadline {
             if socket.exists() {
@@ -142,8 +142,16 @@ impl Drop for DaemonHandle {
     }
 }
 
+fn pid_path(base_dir: &Path) -> std::path::PathBuf {
+    base_dir.join(format!("daemon-{}.pid", env!("CARGO_PKG_VERSION")))
+}
+
+fn socket_path(base_dir: &Path) -> std::path::PathBuf {
+    base_dir.join(format!("daemon-{}.sock", env!("CARGO_PKG_VERSION")))
+}
+
 fn read_pid(base_dir: &Path) -> Option<u32> {
-    fs::read_to_string(base_dir.join("daemon.pid"))
+    fs::read_to_string(pid_path(base_dir))
         .ok()
         .and_then(|s| s.trim().parse().ok())
 }
@@ -170,7 +178,7 @@ fn is_pid_alive(pid: u32) -> bool {
 }
 
 fn wait_until_socket_removed(base_dir: &Path, max_ms: u64) -> bool {
-    let socket = base_dir.join("daemon.sock");
+    let socket = socket_path(base_dir);
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
     loop {
         if !socket.exists() {

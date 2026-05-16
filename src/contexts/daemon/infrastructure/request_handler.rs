@@ -16,14 +16,12 @@ pub(super) struct ActionResult {
     pub(super) refresh_repo_id: Option<RepoId>,
     pub(super) refresh_cwd: Option<PathBuf>,
     pub(super) stop: bool,
-    /// レスポンス返却後に自己再起動する（version mismatch 時）
-    pub(super) restart_after_response: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
 enum RefreshState {
-    NeedsRefresh { restart_after: bool },
-    Refreshing { restart_after: bool },
+    NeedsRefresh,
+    Refreshing,
 }
 
 struct StaleQueryParams {
@@ -41,12 +39,7 @@ pub(super) fn process(
     ttl: u64,
 ) -> ActionResult {
     match request {
-        Request::Query {
-            cwd,
-            client_version,
-        } => {
-            let version_mismatch = client_version.as_str() != env!("CARGO_PKG_VERSION");
-
+        Request::Query { cwd } => {
             let Some((repo_id_str, branch)) = repo_id::repo_info_from_cwd(cwd) else {
                 return ActionResult {
                     response: Response::Output {
@@ -55,21 +48,12 @@ pub(super) fn process(
                     refresh_repo_id: None,
                     refresh_cwd: None,
                     stop: false,
-                    restart_after_response: version_mismatch,
                 };
             };
 
             let repo_id = RepoId::new(repo_id_str);
             let cwd_path = PathBuf::from(cwd);
-            process_query(
-                &repo_id,
-                branch,
-                cwd_path,
-                ttl,
-                version_mismatch,
-                entries,
-                policy,
-            )
+            process_query(&repo_id, branch, cwd_path, ttl, entries, policy)
         }
         Request::Update {
             repo_id,
@@ -88,7 +72,6 @@ pub(super) fn process(
             refresh_repo_id: None,
             refresh_cwd: None,
             stop: true,
-            restart_after_response: false,
         },
         Request::Status => {
             let uptime_secs = started_at.elapsed().as_secs();
@@ -102,7 +85,6 @@ pub(super) fn process(
                 refresh_repo_id: None,
                 refresh_cwd: None,
                 stop: false,
-                restart_after_response: false,
             }
         }
         Request::Entries => {
@@ -112,7 +94,6 @@ pub(super) fn process(
                 refresh_repo_id: None,
                 refresh_cwd: None,
                 stop: false,
-                restart_after_response: false,
             }
         }
     }
@@ -123,7 +104,6 @@ fn process_query(
     branch: String,
     cwd_path: PathBuf,
     ttl: u64,
-    restart_after_response: bool,
     entries: &mut HashMap<RepoId, CacheEntry>,
     policy: &RefreshPolicy,
 ) -> ActionResult {
@@ -138,7 +118,6 @@ fn process_query(
                 refresh_repo_id: None,
                 refresh_cwd: None,
                 stop: false,
-                restart_after_response,
             }
         }
         Some(entry) => {
@@ -147,13 +126,9 @@ fn process_query(
             let has_fetched = entry.has_fetched();
             let stored_cwd = entry.cwd().to_path_buf();
             let refresh_state = if entry.is_refreshing() {
-                RefreshState::Refreshing {
-                    restart_after: restart_after_response,
-                }
+                RefreshState::Refreshing
             } else {
-                RefreshState::NeedsRefresh {
-                    restart_after: restart_after_response,
-                }
+                RefreshState::NeedsRefresh
             };
             let is_terminal = entry.refresh_mode() == RefreshMode::Terminal;
             // Query を受けたので last_queried_at を更新し Cold カウンタをリセット
@@ -162,7 +137,7 @@ fn process_query(
                 entry.reset_cold_count();
             }
             entry.record_query();
-            if is_terminal && matches!(refresh_state, RefreshState::NeedsRefresh { .. }) {
+            if is_terminal && matches!(refresh_state, RefreshState::NeedsRefresh) {
                 // Terminal が stale になったらモードをリセットして再確認
                 entry.reset_to_warm();
             }
@@ -190,7 +165,6 @@ fn process_query(
                 refresh_repo_id: Some(repo_id.to_owned()),
                 refresh_cwd: Some(cwd_path),
                 stop: false,
-                restart_after_response,
             }
         }
     }
@@ -209,23 +183,21 @@ fn process_stale_query(
     } = params;
 
     match (refresh_state, has_fetched) {
-        (RefreshState::Refreshing { restart_after }, false) => ActionResult {
+        (RefreshState::Refreshing, false) => ActionResult {
             response: Response::Output {
                 output: "? loading".to_owned(),
             },
             refresh_repo_id: None,
             refresh_cwd: None,
             stop: false,
-            restart_after_response: restart_after,
         },
-        (RefreshState::Refreshing { restart_after }, true) => ActionResult {
+        (RefreshState::Refreshing, true) => ActionResult {
             response: Response::Output { output },
             refresh_repo_id: None,
             refresh_cwd: None,
             stop: false,
-            restart_after_response: restart_after,
         },
-        (RefreshState::NeedsRefresh { restart_after }, _) => {
+        (RefreshState::NeedsRefresh, _) => {
             entries
                 .get_mut(repo_id)
                 .expect("entry exists")
@@ -235,7 +207,6 @@ fn process_stale_query(
                 refresh_repo_id: Some(repo_id.to_owned()),
                 refresh_cwd: Some(stored_cwd),
                 stop: false,
-                restart_after_response: restart_after,
             }
         }
     }
@@ -260,6 +231,5 @@ fn process_update(
         refresh_repo_id: None,
         refresh_cwd: None,
         stop: false,
-        restart_after_response: false,
     }
 }

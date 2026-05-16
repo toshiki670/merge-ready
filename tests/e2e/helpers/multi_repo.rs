@@ -83,7 +83,9 @@ impl MultiRepoEnv {
             .spawn()
             .expect("daemon spawn failed");
 
-        let socket = self.home().join("daemon.sock");
+        let socket = self
+            .home()
+            .join(format!("daemon-{}.sock", env!("CARGO_PKG_VERSION")));
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while std::time::Instant::now() < deadline {
             if socket.exists() {

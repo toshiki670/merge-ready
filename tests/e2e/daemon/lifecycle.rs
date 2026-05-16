@@ -1,12 +1,11 @@
 //! `merge-ready daemon` サブコマンドの操作 E2E テスト（シナリオ #7–15）
 //!
-//! daemon の起動・停止・ステータス確認、およびバージョン不一致時の自動再起動を検証する。
+//! daemon の起動・停止・ステータス確認、およびバージョンアップ時のクリーンアップを検証する。
 
 use assert_cmd::Command;
 use predicates::prelude::*;
 
 use super::super::helpers::{DaemonHandle, TestEnv};
-use super::lifecycle_fixtures::FakeDaemonHandle;
 
 const BIN: &str = "merge-ready";
 const PROMPT_BIN: &str = "merge-ready-prompt";
@@ -15,6 +14,22 @@ const OPEN_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"
 const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
 const COMMAND_TIMEOUT_MS: u64 = 5000;
 const CONCURRENT_PROMPTS: usize = 8;
+
+fn versioned_socket(base: &std::path::Path) -> std::path::PathBuf {
+    base.join(format!("daemon-{}.sock", env!("CARGO_PKG_VERSION")))
+}
+
+fn versioned_pid(base: &std::path::Path) -> std::path::PathBuf {
+    base.join(format!("daemon-{}.pid", env!("CARGO_PKG_VERSION")))
+}
+
+fn is_pid_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
 
 fn status_output_with_timeout(env: &TestEnv) -> std::process::Output {
     let bin = assert_cmd::cargo::cargo_bin(BIN);
@@ -289,62 +304,42 @@ fn test_daemon_status_not_running() {
         .stdout(predicate::str::diff("not running\n"));
 }
 
-// ── #14: バージョン不一致 ────────────────────────────────────────────────────
+// ── #14: 旧バージョン stale ファイルのクリーンアップ ───────────────────────
 
-/// #14: バージョン不一致の旧 daemon が存在する状態で `merge-ready-prompt` を実行すると
-/// 旧 daemon がレスポンス返却後に自己再起動し、最終的に現バージョンの daemon が応答する
+/// #14: 旧バージョンのクラッシュ残骸（空ソケット + 死んだ PID）がある状態で
+/// 新バージョンの `daemon start` を実行すると、stale ファイルが削除される
 #[test]
-fn test_prompt_restarts_daemon_on_version_mismatch() {
+fn test_daemon_start_cleans_up_old_version_stale_files() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
-    let old = FakeDaemonHandle::start_versioned(&env, "0.0.0");
+    let base = env.home().to_path_buf();
 
-    // 古い daemon が応答することを確認
-    let mut before = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut before);
-    before
-        .args(["daemon", "status"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("version=0.0.0"));
+    // 旧バージョンの残骸を作る（空ソケット + 死んだ PID）
+    let old_sock = base.join("daemon-0.0.0.sock");
+    let old_pid_path = base.join("daemon-0.0.0.pid");
+    std::fs::create_dir_all(&base).expect("create base dir");
+    std::fs::File::create(&old_sock).expect("write stale socket placeholder");
+    let mut dead = std::process::Command::new("true")
+        .spawn()
+        .expect("spawn true");
+    let dead_pid = dead.id();
+    dead.wait().expect("wait for dead process");
+    std::fs::write(&old_pid_path, dead_pid.to_string()).expect("write stale pid file");
 
-    // merge-ready-prompt を実行すると version mismatch を検知し、
-    // fake daemon が新 daemon を spawn して自己シャットダウンする
-    let mut prompt = Command::cargo_bin(PROMPT_BIN).unwrap();
-    env.apply_with_cache(&mut prompt);
-    prompt.assert().success(); // "? loading" が返る
+    // 新バージョンのデーモンを起動 → 非同期で旧バージョンファイルを掃除する
+    let _guard = DaemonHandle::start(&env);
 
-    // fake daemon がシャットダウンするのを待つ
-    drop(old);
-
-    // 新 daemon が起動するまでポーリング（最大 5 秒）
+    // 非同期クリーンアップが完了するまでポーリング（最大 5 秒）
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        let out = status_output_with_timeout(&env);
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        if stdout.contains(&format!("version={}", env!("CARGO_PKG_VERSION"))) {
+        if !old_sock.exists() && !old_pid_path.exists() {
             break;
         }
         assert!(
             std::time::Instant::now() < deadline,
-            "new daemon did not start within 5s: {stdout}"
+            "stale old-version files were not cleaned up within 5s"
         );
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
-
-    // 現バージョンの daemon が応答しており、旧バージョンではないこと
-    let mut after = Command::cargo_bin(BIN).unwrap();
-    env.apply(&mut after);
-    after
-        .args(["daemon", "status"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(format!(
-            "version={}",
-            env!("CARGO_PKG_VERSION")
-        )))
-        .stdout(predicate::str::contains("version=0.0.0").not());
-
-    DaemonHandle::stop_for_env(&env);
 }
 
 // ── #15: 同時起動レース ──────────────────────────────────────────────────────
@@ -392,73 +387,75 @@ fn test_concurrent_prompt_starts_only_one_daemon() {
     }
 
     // ソケットファイルが 1 つだけ存在することを確認（複数 daemon は起動していない）
-    let socket_path = env.home_tmp.path().join("daemon.sock");
+    let socket_path = versioned_socket(env.home_tmp.path());
     assert!(socket_path.exists(), "daemon socket should exist");
 
     DaemonHandle::stop_for_env(&env);
 }
 
-// ── #16: バージョンミスマッチ並列再起動 ─────────────────────────────────────
+// ── #16: 生きている旧バージョンデーモンの非同期クリーンアップ ───────────────
 
-/// #16: バージョン不一致の状態で複数の `merge-ready-prompt` を並列実行しても、
-/// 新デーモンは 1 プロセスだけ起動する
+/// #16: 旧バージョンのデーモンが実際に動いている状態で新バージョンの `daemon start`
+/// を実行すると、新デーモンは自身をバインドした後、非同期で旧デーモンに Stop を送信する
+///
+/// Unix ドメインソケットはバインド後にファイル名を変更してもプロセスのファイルディスクリプタは有効なので、
+/// 起動済みデーモンの socket / pid をリネームすることで「旧バージョンが生きている状態」を再現する。
 #[test]
-fn test_concurrent_version_mismatch_starts_only_one_daemon() {
+fn test_daemon_start_sends_stop_to_live_old_version_daemon() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
-    let prompt_bin = assert_cmd::cargo::cargo_bin(PROMPT_BIN);
+    let base = env.home().to_path_buf();
 
-    // バージョン不一致の fake daemon を起動
-    let old = FakeDaemonHandle::start_versioned(&env, "0.0.0");
+    // デーモンを起動して、ソケット・PID ファイルのパスを取得
+    let old_guard = DaemonHandle::start(&env);
+    let current_sock = versioned_socket(&base);
+    let current_pid_path = versioned_pid(&base);
 
-    // 複数本の merge-ready-prompt を同時実行してバージョンミスマッチを並列でトリガーする
-    let handles: Vec<_> = (0..CONCURRENT_PROMPTS)
-        .map(|_| {
-            let bin = prompt_bin.clone();
-            let path = env.path_env();
-            let home = env.home().to_path_buf();
-            let repo = env.repo.path().to_path_buf();
-            std::thread::spawn(move || prompt_output_with_timeout(&bin, &path, &home, &repo))
-        })
-        .collect();
+    let old_pid: u32 = std::fs::read_to_string(&current_pid_path)
+        .expect("read current pid")
+        .trim()
+        .parse()
+        .expect("parse pid");
 
-    for h in handles {
-        let output = h.join().expect("prompt thread panicked");
-        assert_prompt_succeeded(&output);
-    }
-    drop(old);
+    // 旧バージョンをシミュレート: ファイルを daemon-0.0.0.* に rename
+    // プロセスは FD を保持しているので socket は有効のまま
+    let old_sock = base.join("daemon-0.0.0.sock");
+    let old_pid_path = base.join("daemon-0.0.0.pid");
+    std::fs::rename(&current_sock, &old_sock).expect("rename sock");
+    std::fs::rename(&current_pid_path, &old_pid_path).expect("rename pid");
 
-    // 新 daemon が起動するまでポーリング（最大 5 秒）
+    // old_guard の Drop は rename された socket/pid を参照できず graceful failure。
+    // 新デーモンが起動する前に Drop されてしまうと daemon stop が無害な空振りになるのみ。
+    // 安全のため std::mem::forget で Drop をスキップしておく。
+    std::mem::forget(old_guard);
+
+    // 新デーモンを起動 → 旧バージョンのソケットに非同期で Stop を送信する
+    let _new_guard = DaemonHandle::start(&env);
+
+    // 旧 PID が終了するまで最大 5 秒待つ
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if !is_pid_alive(old_pid) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(
+        !is_pid_alive(old_pid),
+        "old daemon (pid={old_pid}) should be stopped by new daemon"
+    );
+
+    // 旧バージョンのファイルがクリーンアップされていること
+    let cleanup_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        let out = status_output_with_timeout(&env);
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        if stdout.contains(&format!("version={}", env!("CARGO_PKG_VERSION"))) {
+        if !old_sock.exists() && !old_pid_path.exists() {
             break;
         }
         assert!(
-            std::time::Instant::now() < deadline,
-            "new daemon did not start within 5s: {stdout}"
+            std::time::Instant::now() < cleanup_deadline,
+            "old daemon files were not cleaned up within 5s"
         );
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
-
-    // socket ファイルが存在すること（1 daemon だけが bind している）
-    let socket_path = env.home_tmp.path().join("daemon.sock");
-    assert!(socket_path.exists(), "daemon socket should exist");
-
-    // 現バージョンの daemon が応答しており、旧バージョンではないこと
-    let final_status = status_output_with_timeout(&env);
-    let final_stdout = String::from_utf8_lossy(&final_status.stdout);
-    assert!(
-        final_stdout.contains(&format!("version={}", env!("CARGO_PKG_VERSION"))),
-        "expected current version in status: {final_stdout}"
-    );
-    assert!(
-        !final_stdout.contains("version=0.0.0"),
-        "old version still in status: {final_stdout}"
-    );
-
-    DaemonHandle::stop_for_env(&env);
 }
 
 // ── #17: daemon status の出力フォーマット ────────────────────────────────────
@@ -494,9 +491,8 @@ fn test_daemon_start_cleans_up_stale_pid_file() {
     dead.wait().expect("wait for dead process");
 
     let daemon_dir = env.home();
-    std::fs::write(daemon_dir.join("daemon.pid"), dead_pid.to_string())
-        .expect("write stale pid file");
-    std::fs::write(daemon_dir.join("daemon.sock"), b"").expect("write stale socket placeholder");
+    std::fs::write(versioned_pid(daemon_dir), dead_pid.to_string()).expect("write stale pid file");
+    std::fs::write(versioned_socket(daemon_dir), b"").expect("write stale socket placeholder");
 
     let mut cmd = Command::cargo_bin(BIN).unwrap();
     env.apply(&mut cmd);

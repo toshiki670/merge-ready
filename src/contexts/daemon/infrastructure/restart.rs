@@ -1,73 +1,88 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
 use std::time::Duration;
 
-use super::paths::{self, Paths};
+use super::daemon_client::DaemonClient;
+use super::paths::Paths;
 use super::pid;
 
-const RESTART_GRACE_MS: u64 = 30;
+/// 旧バージョンのデーモン停止待ちタイムアウト。
+const OLD_DAEMON_STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// 現バージョンの socket/pid ファイルを削除する。
+///
+/// `daemon_server::run` が異常終了したときの後始末で使う。
+/// 正常終了（Stop 経由）でも `connection::handle` がこれを呼ぶ。
 pub(super) fn cleanup(paths: &Paths) {
     let _ = std::fs::remove_file(paths.socket_path());
     pid::remove(&paths.pid_path());
 }
 
-pub(super) fn spawn_self_as_daemon() {
-    let Ok(exe) = std::env::current_exe() else {
-        return;
-    };
-    let _ = std::process::Command::new(&exe)
-        .args(["daemon", "start"])
-        .env(paths::DAEMON_INNER_ENV, "1")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
+/// 旧バージョンのデーモンファイルを非同期でクリーンアップする。
+///
+/// - PID が生きていれば socket 経由で Stop を送り、終了を待つ
+/// - PID が死んでいる stale ファイルは即削除する
+///
+/// 新デーモンが自分のソケットを bind した後にバックグラウンドスレッドで実行することで、
+/// `merge-ready-prompt` のレスポンスを旧デーモン停止の完了まで待たせない。
+pub(super) fn cleanup_old_versions(paths: &Paths) {
+    for old_pid_path in paths.old_daemon_pid_files() {
+        cleanup_one(&old_pid_path);
+    }
 }
 
-pub(super) fn restart_once(
-    restart_started: &Arc<AtomicBool>,
-    exit_tx: &mpsc::Sender<()>,
-    paths: &Paths,
-) {
-    if restart_started
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_ok()
-    {
-        std::thread::sleep(Duration::from_millis(RESTART_GRACE_MS));
-        cleanup(paths);
-        spawn_self_as_daemon();
-        let _ = exit_tx.send(());
+fn cleanup_one(old_pid_path: &std::path::Path) {
+    let Some(stem) = old_pid_path.file_stem().and_then(|s| s.to_str()) else {
+        return;
+    };
+    let old_sock = old_pid_path.with_file_name(format!("{stem}.sock"));
+
+    match pid::read(old_pid_path) {
+        Some(p) if pid::is_alive(p) => {
+            let client = DaemonClient::new(old_sock.clone());
+            let _ = client.stop();
+            // 旧デーモンが Stop を完了するまで待ち、ファイルを掃除する
+            let _ = pid::wait_until_gone(p, old_pid_path, OLD_DAEMON_STOP_TIMEOUT);
+            let _ = std::fs::remove_file(&old_sock);
+            // pid::wait_until_gone は成功時に pid ファイルを削除するが、失敗時にも残骸を残さない
+            let _ = std::fs::remove_file(old_pid_path);
+        }
+        _ => {
+            // stale: ファイルだけ削除
+            let _ = std::fs::remove_file(&old_sock);
+            let _ = std::fs::remove_file(old_pid_path);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicU32;
+    use std::fs;
 
     #[test]
-    fn restart_gate_allows_only_one_thread() {
-        let restart_started = Arc::new(AtomicBool::new(false));
-        let count = Arc::new(AtomicU32::new(0));
-        let handles: Vec<_> = (0..10)
-            .map(|_| {
-                let rs = Arc::clone(&restart_started);
-                let c = Arc::clone(&count);
-                std::thread::spawn(move || {
-                    if rs
-                        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                        .is_ok()
-                    {
-                        c.fetch_add(1, Ordering::Relaxed);
-                    }
-                })
-            })
-            .collect();
-        for h in handles {
-            h.join().unwrap();
-        }
-        assert_eq!(count.load(Ordering::Relaxed), 1);
+    fn cleanup_old_versions_removes_stale_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let version = env!("CARGO_PKG_VERSION");
+
+        // 現バージョン（残す）
+        fs::write(
+            dir.path().join(format!("daemon-{version}.sock")),
+            b"current",
+        )
+        .unwrap();
+        fs::write(dir.path().join(format!("daemon-{version}.pid")), b"1").unwrap();
+
+        // 旧バージョン stale（削除対象、死んだ PID）
+        fs::write(dir.path().join("daemon-0.0.0.sock"), b"old").unwrap();
+        fs::write(dir.path().join("daemon-0.0.0.pid"), b"9999999").unwrap();
+
+        let paths = Paths::new(dir.path().to_path_buf());
+        cleanup_old_versions(&paths);
+
+        // 旧バージョンは削除
+        assert!(!dir.path().join("daemon-0.0.0.sock").exists());
+        assert!(!dir.path().join("daemon-0.0.0.pid").exists());
+        // 現バージョンは残る
+        assert!(dir.path().join(format!("daemon-{version}.sock")).exists());
+        assert!(dir.path().join(format!("daemon-{version}.pid")).exists());
     }
 }

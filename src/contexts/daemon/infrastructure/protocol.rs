@@ -35,7 +35,6 @@ pub enum Request {
     /// `merge-ready-prompt` から送られるクエリ。`cwd` から daemon が `repo_id` を導出する。
     Query {
         cwd: String,
-        client_version: String,
     },
     /// バックグラウンドワーカーがキャッシュを更新するときに送るリクエスト。
     /// `gh` CLI で取得した PR 評価結果（`output`）を daemon のインメモリキャッシュに書き込む。

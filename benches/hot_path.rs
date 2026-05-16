@@ -144,7 +144,11 @@ fn setup_bench_env() -> BenchEnv {
     env.daemon_process = Some(child);
 
     // socket 出現を待つ（計測対象外）
-    let socket = env.tmp_dir.path().join(dir_name()).join("daemon.sock");
+    let socket = env
+        .tmp_dir
+        .path()
+        .join(dir_name())
+        .join(format!("daemon-{}.sock", env!("CARGO_PKG_VERSION")));
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
     while std::time::Instant::now() < deadline {
         if socket.exists() {

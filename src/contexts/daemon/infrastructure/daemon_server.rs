@@ -1,4 +1,3 @@
-use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -37,10 +36,20 @@ pub fn run(on_refresh: &RefreshFn, paths: Paths) -> Result<(), DaemonError> {
     }
 
     let paths = Arc::new(paths);
+
+    // 旧バージョンのデーモンを非同期でクリーンアップする。
+    // 自身のソケットを bind した後に走らせることで、prompt のレスポンスを
+    // 旧デーモンの停止完了まで待たせない（生きている旧デーモンには Stop を送信）。
+    {
+        let cleanup_paths = Arc::clone(&paths);
+        std::thread::spawn(move || {
+            restart::cleanup_old_versions(&cleanup_paths);
+        });
+    }
+
     let state = Arc::new(Mutex::new(DaemonState::new(config)));
     let (exit_tx, exit_rx) = mpsc::channel::<()>();
     let (scheduler_stop_tx, scheduler_stop_rx) = mpsc::channel::<()>();
-    let restart_started = Arc::new(AtomicBool::new(false));
 
     let scheduler = {
         let state = Arc::clone(&state);
@@ -74,10 +83,9 @@ pub fn run(on_refresh: &RefreshFn, paths: Paths) -> Result<(), DaemonError> {
                 let state = Arc::clone(&state);
                 let on_refresh = Arc::clone(on_refresh);
                 let exit_tx = exit_tx.clone();
-                let restart_started = Arc::clone(&restart_started);
                 let paths = Arc::clone(&paths);
                 std::thread::spawn(move || {
-                    connection::handle(s, &state, &on_refresh, &exit_tx, &restart_started, &paths);
+                    connection::handle(s, &state, &on_refresh, &exit_tx, &paths);
                 });
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {

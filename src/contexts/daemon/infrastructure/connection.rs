@@ -1,6 +1,5 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
-use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -17,7 +16,6 @@ pub(super) fn handle(
     state: &Arc<Mutex<DaemonState>>,
     on_refresh: &RefreshFn,
     exit_tx: &mpsc::Sender<()>,
-    restart_started: &Arc<AtomicBool>,
     paths: &Paths,
 ) {
     let mut buf = String::new();
@@ -38,7 +36,6 @@ pub(super) fn handle(
         refresh_repo_id,
         refresh_cwd,
         stop,
-        restart_after_response,
     } = {
         let mut s = state
             .lock()
@@ -61,11 +58,6 @@ pub(super) fn handle(
 
     if let (Some(repo_id), Some(cwd)) = (refresh_repo_id, refresh_cwd) {
         super::daemon_server::spawn_refresh(&repo_id, &cwd, on_refresh);
-    }
-
-    if restart_after_response {
-        restart::restart_once(restart_started, exit_tx, paths);
-        return;
     }
 
     if stop {

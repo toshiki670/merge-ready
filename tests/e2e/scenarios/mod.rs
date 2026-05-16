@@ -17,6 +17,7 @@ mod refresh_interval_fixtures;
 mod refresh_timeout;
 mod refresh_timeout_fixtures;
 mod stale;
+mod sub_repo;
 mod terminal_pr;
 mod terminal_pr_fixtures;
 mod terminal_reopen;

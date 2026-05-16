@@ -15,10 +15,6 @@ use super::socket_listener;
 use crate::contexts::daemon::domain::cache::RepoId;
 use crate::contexts::daemon::domain::daemon::DaemonError;
 
-/// `gh api rate_limit` を取得する間隔。
-const RATE_LIMIT_FETCH_INTERVAL: Duration = Duration::from_mins(1);
-/// `RateLimitClient` の内部キャッシュ TTL（取得間隔と一致させる）。
-const RATE_LIMIT_CACHE_TTL: Duration = Duration::from_mins(1);
 /// ボトルネック残量比率がこの値（basis points）以下になったとき、
 /// reset 時刻まで backoff に入る。
 const BACKOFF_THRESHOLD_BP: u64 = 500; // 5%
@@ -82,9 +78,11 @@ pub fn run(on_refresh: &RefreshFn, paths: Paths) -> Result<(), DaemonError> {
     };
 
     let rate_limit_thread: Option<JoinHandle<()>> = if config.rate_limit_aware {
+        let interval = Duration::from_secs(config.rate_limit_fetch_interval_secs);
         Some(spawn_rate_limit_fetcher(
             Arc::clone(&state),
-            Arc::new(RateLimitClient::new(RATE_LIMIT_CACHE_TTL)),
+            Arc::new(RateLimitClient::new(interval)),
+            interval,
             rate_limit_stop_rx,
         ))
     } else {
@@ -140,15 +138,16 @@ pub fn run(on_refresh: &RefreshFn, paths: Paths) -> Result<(), DaemonError> {
 fn spawn_rate_limit_fetcher(
     state: Arc<Mutex<DaemonState>>,
     client: Arc<RateLimitClient>,
+    interval: Duration,
     stop_rx: mpsc::Receiver<()>,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         loop {
-            // 初回は起動直後に取得し、その後は RATE_LIMIT_FETCH_INTERVAL 間隔で
+            // 初回は起動直後に取得し、その後は `interval` 間隔で繰り返す
             if let Some(snapshot) = client.fetch_or_cached() {
                 update_state_from_snapshot(&state, &snapshot);
             }
-            match stop_rx.recv_timeout(RATE_LIMIT_FETCH_INTERVAL) {
+            match stop_rx.recv_timeout(interval) {
                 Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }

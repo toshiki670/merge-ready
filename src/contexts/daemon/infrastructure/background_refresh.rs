@@ -152,6 +152,7 @@ mod tests {
                 cold_early_limit: 10,
             },
             rate_limit_aware: true,
+            rate_limit_fetch_interval_secs: 60,
         }
     }
 

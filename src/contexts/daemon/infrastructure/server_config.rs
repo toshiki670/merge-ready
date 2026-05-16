@@ -32,6 +32,8 @@ const DEFAULT_SCHEDULER_TICK_SECS: u64 = 2;
 // ── rate_limit 連動スケジューリング ────────────────────────────────────────
 /// `MERGE_READY_RATE_LIMIT_AWARE` のデフォルト値。`0` / `false` で OFF。
 const DEFAULT_RATE_LIMIT_AWARE: bool = true;
+/// `gh api rate_limit` の取得間隔（秒）。E2E テストで短縮可能。
+const DEFAULT_RATE_LIMIT_FETCH_INTERVAL_SECS: u64 = 60;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct DaemonServerConfig {
@@ -42,6 +44,8 @@ pub(super) struct DaemonServerConfig {
     pub(super) policy: RefreshPolicy,
     /// `gh api rate_limit` を観測して動的スケーリングと枯渇時 backoff を有効化する。
     pub(super) rate_limit_aware: bool,
+    /// `gh api rate_limit` の取得間隔（秒）。
+    pub(super) rate_limit_fetch_interval_secs: u64,
 }
 
 impl DaemonServerConfig {
@@ -86,6 +90,10 @@ impl DaemonServerConfig {
                 cold_early_limit: env_u32("MERGE_READY_COLD_EARLY_LIMIT", DEFAULT_COLD_EARLY_LIMIT),
             },
             rate_limit_aware: env_bool("MERGE_READY_RATE_LIMIT_AWARE", DEFAULT_RATE_LIMIT_AWARE),
+            rate_limit_fetch_interval_secs: env_u64(
+                "MERGE_READY_RATE_LIMIT_FETCH_INTERVAL_SECS",
+                DEFAULT_RATE_LIMIT_FETCH_INTERVAL_SECS,
+            ),
         }
     }
 }

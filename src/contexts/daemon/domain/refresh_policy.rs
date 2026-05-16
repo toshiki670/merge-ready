@@ -10,9 +10,13 @@ const RATIO_SCALE: u64 = 10_000;
 const SAFETY_NUM: u64 = 95;
 const SAFETY_DEN: u64 = 100;
 
+/// 予算ベース項の計算で `secs_until_reset` をキャップする上限秒数。
+/// GitHub の主要レート制限は 1 時間ウィンドウなので、未来極端な `reset_at`
+/// （テスト `fixture` 等）が来たときに `budget_term` が膨張するのを防ぐ。
+const RESET_WINDOW_CAP_SECS: u64 = 3_600;
+
 /// エントリの現在状態から導かれる、スケーリング上の実効モード。
 /// Warm + 最近 Query あり は Hot 相当、Warm + Cold 圏 は Cold 相当として扱う。
-#[allow(dead_code)] // 後続コミットで background_refresh が呼ぶまでの間
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EffectiveMode {
     Hot,
@@ -30,7 +34,6 @@ struct ScalingParams {
 
 const SCALE_X10: u64 = 10;
 
-#[allow(dead_code)]
 fn scaling_params(mode: EffectiveMode) -> ScalingParams {
     match mode {
         EffectiveMode::Hot => ScalingParams {
@@ -129,7 +132,6 @@ impl RefreshPolicy {
     /// 計算は浮動小数を使わず、basis points（10000=1.0）と 10 倍スケールの整数
     /// 演算のみで完結させる（プロジェクトの clippy pedantic / clippy allow 禁止
     /// ルールへの適合のため）。
-    #[allow(dead_code)] // 後続コミットで background_refresh が呼ぶまでの間
     #[must_use]
     pub fn effective_refresh_interval_secs_scaled(
         &self,
@@ -149,7 +151,7 @@ impl RefreshPolicy {
         let mode = self.effective_mode(entry);
         let params = scaling_params(mode);
         let ratio_bp = bottleneck_ratio_bp(snapshot);
-        let secs_until_reset = snapshot.secs_until_reset(now);
+        let secs_until_reset = snapshot.secs_until_reset(now).min(RESET_WINDOW_CAP_SECS);
 
         let ratio_term = compute_ratio_term(base, ratio_bp, params.alpha_x10);
         let budget_term = compute_budget_term(
@@ -157,6 +159,7 @@ impl RefreshPolicy {
             secs_until_reset,
             bottleneck_budget(snapshot),
             params.weight_x10,
+            ratio_bp,
         );
 
         let scaled = base.max(ratio_term).max(budget_term);
@@ -168,7 +171,6 @@ impl RefreshPolicy {
         }
     }
 
-    #[allow(dead_code)]
     fn effective_mode(&self, entry: &CacheEntry) -> EffectiveMode {
         match entry.refresh_mode() {
             // 呼び出し元は Terminal 前に return しているはずだが、フォールバックとして Cold 扱い
@@ -187,7 +189,6 @@ impl RefreshPolicy {
     }
 }
 
-#[allow(dead_code)]
 fn bottleneck_budget(snapshot: &RateLimitSnapshot) -> u32 {
     snapshot.core_remaining.min(snapshot.graphql_remaining)
 }
@@ -195,7 +196,6 @@ fn bottleneck_budget(snapshot: &RateLimitSnapshot) -> u32 {
 /// `min(remaining/limit)` を basis points（0..=`RATIO_SCALE`）で返す。
 /// `limit == 0` のリソースは比率不定として `RATIO_SCALE`（=1.0）を採用し、
 /// 採用優先順位から外す。両方 0 なら `RATIO_SCALE`。
-#[allow(dead_code)]
 fn bottleneck_ratio_bp(snapshot: &RateLimitSnapshot) -> u64 {
     let core = ratio_bp(snapshot.core_remaining, snapshot.core_limit);
     let graphql = ratio_bp(snapshot.graphql_remaining, snapshot.graphql_limit);
@@ -213,7 +213,6 @@ fn ratio_bp(remaining: u32, limit: u32) -> u64 {
 
 /// `base * (1 + alpha * (1 - ratio)^2)` を整数演算で計算する。
 /// `alpha_x10` は α を 10 倍したスケール、`ratio_bp` は ratio を `RATIO_SCALE` 倍したスケール。
-#[allow(dead_code)]
 fn compute_ratio_term(base: u64, ratio_bp: u64, alpha_x10: u64) -> u64 {
     let one_minus_r = RATIO_SCALE.saturating_sub(ratio_bp);
     // (1 - r)^2 in basis points
@@ -227,22 +226,31 @@ fn compute_ratio_term(base: u64, ratio_bp: u64, alpha_x10: u64) -> u64 {
 }
 
 /// 予算ベース項を整数演算で計算する。
-/// `total_cost * secs_until_reset / safety_budget * weight` を `weight_x10` 経由で求める。
+///
+/// 基本式: `total_cost * secs_until_reset / safety_budget * weight`。
+/// これに「残量豊富時はスケーリングを無効化する」ゲートとして `(1 - ratio)` を乗じる。
+/// `ratio=1.0` のときゲート=0 で項は 0 になり、`base` が支配的になる（要件:
+/// 「下限＝現デフォルト値」を満たす）。`ratio=0.0` で full effect。
+///
 /// `budget_remaining == 0` のときは `safety_budget = 1` にフォールバック（呼び出し側で
 /// `is_exhausted()` 後処理として `cold_late_secs` 下界が追加される）。
-#[allow(dead_code)]
 fn compute_budget_term(
     total_cost_per_cycle: u64,
     secs_until_reset: u64,
     budget_remaining: u32,
     weight_x10: u64,
+    ratio_bp: u64,
 ) -> u64 {
     let safety = u64::from(budget_remaining).saturating_mul(SAFETY_NUM) / SAFETY_DEN;
     let safety = safety.max(1);
+    let depletion_bp = RATIO_SCALE.saturating_sub(ratio_bp);
+    // numer = cost * window * weight_x10 * depletion_bp
     let numer = total_cost_per_cycle
         .saturating_mul(secs_until_reset)
-        .saturating_mul(weight_x10);
-    let denom = safety.saturating_mul(SCALE_X10);
+        .saturating_mul(weight_x10)
+        .saturating_mul(depletion_bp);
+    // denom = safety * SCALE_X10 * RATIO_SCALE
+    let denom = safety.saturating_mul(SCALE_X10).saturating_mul(RATIO_SCALE);
     if denom == 0 {
         return u64::MAX;
     }

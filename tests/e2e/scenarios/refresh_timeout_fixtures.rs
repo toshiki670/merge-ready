@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use super::super::helpers::{TestEnv, setup_git_dirs, write_executable};
+use super::super::helpers::{
+    FAKE_GH_RATE_LIMIT_OK_SNIPPET, TestEnv, setup_git_dirs, write_executable,
+};
 
 /// 初回 pr list は即時応答し、2 回目の pr list は 2 秒 sleep してから応答する fixture。
 ///
@@ -23,6 +25,7 @@ pub fn with_slow_second_pr_list() -> (TestEnv, PathBuf) {
 
     let script = format!(
         "#!/bin/sh\n\
+         {FAKE_GH_RATE_LIMIT_OK_SNIPPET}\
          printf '1' >> \"{log}\"\n\
          case \"$*\" in\n\
            *'pr list'*)\n\

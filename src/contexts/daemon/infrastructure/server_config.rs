@@ -41,7 +41,6 @@ pub(super) struct DaemonServerConfig {
     pub(super) scheduler_tick_secs: u64,
     pub(super) policy: RefreshPolicy,
     /// `gh api rate_limit` を観測して動的スケーリングと枯渇時 backoff を有効化する。
-    #[allow(dead_code)] // 後続コミットで daemon_server が参照するまでの間
     pub(super) rate_limit_aware: bool,
 }
 

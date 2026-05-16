@@ -11,11 +11,8 @@ pub(super) struct DaemonState {
     pub(super) config: DaemonServerConfig,
     /// Rate limit 枯渇により全リフレッシュを停止する Instant。
     /// `None` のとき停止しない。`Some(t)` のとき `Instant::now() < t` ならスキップ。
-    // 後続コミットで background_refresh / daemon_server から実利用するまでの間。
-    #[allow(dead_code)]
     pub(super) backoff_until: Option<Instant>,
     /// 直近の `gh api rate_limit` スナップショット。`None` は未取得 or 取得失敗中。
-    #[allow(dead_code)]
     pub(super) latest_rate_limit: Option<RateLimitSnapshot>,
 }
 
@@ -31,19 +28,16 @@ impl DaemonState {
     }
 
     /// `now` の時点で backoff 中なら true を返す。
-    #[allow(dead_code)]
     pub(super) fn should_backoff(&self, now: Instant) -> bool {
         self.backoff_until.is_some_and(|t| now < t)
     }
 
     /// Rate limit 枯渇を観測した時点で `reset_instant` まで backoff を設定する。
-    #[allow(dead_code)]
     pub(super) fn set_backoff(&mut self, reset_instant: Instant) {
         self.backoff_until = Some(reset_instant);
     }
 
     /// backoff が `now` を過ぎていればクリアする。
-    #[allow(dead_code)]
     pub(super) fn clear_backoff_if_expired(&mut self, now: Instant) {
         if self.backoff_until.is_some_and(|t| now >= t) {
             self.backoff_until = None;

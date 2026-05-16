@@ -1,10 +1,12 @@
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant, SystemTime};
 
 use super::background_refresh;
 use super::connection;
 use super::paths::Paths;
+use super::rate_limit_client::RateLimitClient;
 use super::repo_id;
 use super::restart;
 use super::server_config;
@@ -12,6 +14,14 @@ use super::server_state::DaemonState;
 use super::socket_listener;
 use crate::contexts::daemon::domain::cache::RepoId;
 use crate::contexts::daemon::domain::daemon::DaemonError;
+
+/// `gh api rate_limit` を取得する間隔。
+const RATE_LIMIT_FETCH_INTERVAL: Duration = Duration::from_mins(1);
+/// `RateLimitClient` の内部キャッシュ TTL（取得間隔と一致させる）。
+const RATE_LIMIT_CACHE_TTL: Duration = Duration::from_mins(1);
+/// ボトルネック残量比率がこの値（basis points）以下になったとき、
+/// reset 時刻まで backoff に入る。
+const BACKOFF_THRESHOLD_BP: u64 = 500; // 5%
 
 pub(super) type RefreshFn = Arc<dyn Fn(&RepoId, &std::path::Path) + Send + Sync + 'static>;
 
@@ -50,6 +60,7 @@ pub fn run(on_refresh: &RefreshFn, paths: Paths) -> Result<(), DaemonError> {
     let state = Arc::new(Mutex::new(DaemonState::new(config)));
     let (exit_tx, exit_rx) = mpsc::channel::<()>();
     let (scheduler_stop_tx, scheduler_stop_rx) = mpsc::channel::<()>();
+    let (rate_limit_stop_tx, rate_limit_stop_rx) = mpsc::channel::<()>();
 
     let scheduler = {
         let state = Arc::clone(&state);
@@ -68,6 +79,18 @@ pub fn run(on_refresh: &RefreshFn, paths: Paths) -> Result<(), DaemonError> {
                 }
             }
         })
+    };
+
+    let rate_limit_thread: Option<JoinHandle<()>> = if config.rate_limit_aware {
+        Some(spawn_rate_limit_fetcher(
+            Arc::clone(&state),
+            Arc::new(RateLimitClient::new(RATE_LIMIT_CACHE_TTL)),
+            rate_limit_stop_rx,
+        ))
+    } else {
+        // OFF 時もスレッドを生やさないが、stop チャネルは drop しても害なし
+        drop(rate_limit_stop_rx);
+        None
     };
 
     // non-blocking で accept し、終了シグナルを 10ms ごとにポーリングする
@@ -100,11 +123,83 @@ pub fn run(on_refresh: &RefreshFn, paths: Paths) -> Result<(), DaemonError> {
 
     let _ = scheduler_stop_tx.send(());
     let _ = scheduler.join();
+    let _ = rate_limit_stop_tx.send(());
+    if let Some(t) = rate_limit_thread {
+        let _ = t.join();
+    }
 
     if should_cleanup {
         restart::cleanup(&paths);
     }
     Ok(())
+}
+
+/// `gh api rate_limit` を定期取得して `DaemonState.latest_rate_limit` を更新する。
+/// 残量が枯渇／閾値以下まで落ちたとき、`DaemonState.backoff_until` を reset 時刻に
+/// セットして daemon 全体のバックグラウンドリフレッシュを停止する。
+fn spawn_rate_limit_fetcher(
+    state: Arc<Mutex<DaemonState>>,
+    client: Arc<RateLimitClient>,
+    stop_rx: mpsc::Receiver<()>,
+) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        loop {
+            // 初回は起動直後に取得し、その後は RATE_LIMIT_FETCH_INTERVAL 間隔で
+            if let Some(snapshot) = client.fetch_or_cached() {
+                update_state_from_snapshot(&state, &snapshot);
+            }
+            match stop_rx.recv_timeout(RATE_LIMIT_FETCH_INTERVAL) {
+                Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+        }
+    })
+}
+
+fn update_state_from_snapshot(
+    state: &Arc<Mutex<DaemonState>>,
+    snapshot: &crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot,
+) {
+    let mut s = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    s.latest_rate_limit = Some(*snapshot);
+
+    // ボトルネック残量が閾値以下なら reset 時刻まで backoff
+    if should_enter_backoff(snapshot)
+        && let Some(reset_instant) = reset_instant_from_snapshot(snapshot)
+    {
+        s.set_backoff(reset_instant);
+    }
+}
+
+fn should_enter_backoff(
+    snapshot: &crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot,
+) -> bool {
+    if snapshot.is_exhausted() {
+        return true;
+    }
+    let core_bp = ratio_bp(snapshot.core_remaining, snapshot.core_limit);
+    let graphql_bp = ratio_bp(snapshot.graphql_remaining, snapshot.graphql_limit);
+    core_bp.min(graphql_bp) <= BACKOFF_THRESHOLD_BP
+}
+
+fn ratio_bp(remaining: u32, limit: u32) -> u64 {
+    if limit == 0 {
+        return 10_000;
+    }
+    (u64::from(remaining).saturating_mul(10_000)) / u64::from(limit)
+}
+
+/// `snapshot.reset_at`（壁時計）を `Instant`（モノトニック）へ変換する。
+/// `SystemTime` のジャンプにロバストにするため、`now_wall` と `now_instant` の差分で換算する。
+fn reset_instant_from_snapshot(
+    snapshot: &crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot,
+) -> Option<Instant> {
+    let now_wall = SystemTime::now();
+    let now_instant = Instant::now();
+    let delta = snapshot.reset_at.duration_since(now_wall).ok()?;
+    Some(now_instant + delta)
 }
 
 /// リフレッシュ後に `cwd` から `repo_id` を再導出してコールバックを呼ぶ。

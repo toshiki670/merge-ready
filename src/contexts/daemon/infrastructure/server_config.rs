@@ -29,6 +29,10 @@ const DEFAULT_STALE_TTL_SECS: u64 = 5;
 const DEFAULT_REFRESH_LOCK_TIMEOUT_SECS: u64 = 120;
 const DEFAULT_SCHEDULER_TICK_SECS: u64 = 2;
 
+// ── rate_limit 連動スケジューリング ────────────────────────────────────────
+/// `MERGE_READY_RATE_LIMIT_AWARE` のデフォルト値。`0` / `false` で OFF。
+const DEFAULT_RATE_LIMIT_AWARE: bool = true;
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct DaemonServerConfig {
     pub(super) stale_ttl_secs: u64,
@@ -36,6 +40,9 @@ pub(super) struct DaemonServerConfig {
     pub(super) entry_max_age_secs: u64,
     pub(super) scheduler_tick_secs: u64,
     pub(super) policy: RefreshPolicy,
+    /// `gh api rate_limit` を観測して動的スケーリングと枯渇時 backoff を有効化する。
+    #[allow(dead_code)] // 後続コミットで daemon_server が参照するまでの間
+    pub(super) rate_limit_aware: bool,
 }
 
 impl DaemonServerConfig {
@@ -79,6 +86,7 @@ impl DaemonServerConfig {
                 cold_late_secs: env_u64("MERGE_READY_COLD_LATE_SECS", DEFAULT_COLD_LATE_SECS),
                 cold_early_limit: env_u32("MERGE_READY_COLD_EARLY_LIMIT", DEFAULT_COLD_EARLY_LIMIT),
             },
+            rate_limit_aware: env_bool("MERGE_READY_RATE_LIMIT_AWARE", DEFAULT_RATE_LIMIT_AWARE),
         }
     }
 }
@@ -91,10 +99,57 @@ fn env_u32(key: &str, default: u32) -> u32 {
     parse_u32(std::env::var(key).ok().as_deref(), default)
 }
 
+fn env_bool(key: &str, default: bool) -> bool {
+    parse_bool(std::env::var(key).ok().as_deref(), default)
+}
+
 fn parse_u64(value: Option<&str>, default: u64) -> u64 {
     value.and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
 fn parse_u32(value: Option<&str>, default: u32) -> u32 {
     value.and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// `"0"`、`"false"`（大文字小文字無視）を false に解釈する。それ以外は default。
+fn parse_bool(value: Option<&str>, default: bool) -> bool {
+    match value {
+        None => default,
+        Some(v) => match v.trim().to_ascii_lowercase().as_str() {
+            "0" | "false" | "no" | "off" => false,
+            "1" | "true" | "yes" | "on" => true,
+            _ => default,
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_bool_unset_returns_default() {
+        assert!(parse_bool(None, true));
+        assert!(!parse_bool(None, false));
+    }
+
+    #[test]
+    fn parse_bool_recognises_false_tokens() {
+        for v in ["0", "false", "FALSE", "False", "no", "off"] {
+            assert!(!parse_bool(Some(v), true), "expected false for {v:?}");
+        }
+    }
+
+    #[test]
+    fn parse_bool_recognises_true_tokens() {
+        for v in ["1", "true", "TRUE", "yes", "on"] {
+            assert!(parse_bool(Some(v), false), "expected true for {v:?}");
+        }
+    }
+
+    #[test]
+    fn parse_bool_unknown_returns_default() {
+        assert!(parse_bool(Some("maybe"), true));
+        assert!(!parse_bool(Some("xyz"), false));
+    }
 }

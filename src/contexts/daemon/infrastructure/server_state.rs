@@ -73,6 +73,7 @@ mod tests {
                 cold_late_secs: 3600,
                 cold_early_limit: 10,
             },
+            rate_limit_aware: true,
         }
     }
 

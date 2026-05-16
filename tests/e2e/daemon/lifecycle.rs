@@ -5,7 +5,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-use super::super::helpers::{DaemonHandle, TestEnv};
+use super::super::helpers::{DaemonHandle, TestEnv, apply_coverage_env};
 
 const BIN: &str = "merge-ready";
 const PROMPT_BIN: &str = "merge-ready-prompt";
@@ -33,17 +33,17 @@ fn is_pid_alive(pid: u32) -> bool {
 
 fn status_output_with_timeout(env: &TestEnv) -> std::process::Output {
     let bin = assert_cmd::cargo::cargo_bin(BIN);
-    let mut child = std::process::Command::new(bin)
-        .args(["daemon", "status"])
+    let mut cmd = std::process::Command::new(bin);
+    cmd.args(["daemon", "status"])
         .env("PATH", env.path_env())
         .env("HOME", env.home())
         .env("TMPDIR", env.home())
         .env("MERGE_READY_BASE_DIR", env.home())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("spawn daemon status");
+        .stderr(std::process::Stdio::piped());
+    apply_coverage_env(&mut cmd);
+    let mut child = cmd.spawn().expect("spawn daemon status");
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(COMMAND_TIMEOUT_MS);
     loop {
         if child.try_wait().is_ok_and(|status| status.is_some()) {
@@ -62,8 +62,8 @@ fn status_output_with_timeout(env: &TestEnv) -> std::process::Output {
 
 fn daemon_stop_output(env: &TestEnv) -> std::process::Output {
     let bin = assert_cmd::cargo::cargo_bin(BIN);
-    let mut child = std::process::Command::new(bin)
-        .args(["daemon", "stop"])
+    let mut cmd = std::process::Command::new(bin);
+    cmd.args(["daemon", "stop"])
         .env("PATH", env.path_env())
         .env("HOME", env.home())
         .env("TMPDIR", env.home())
@@ -72,9 +72,9 @@ fn daemon_stop_output(env: &TestEnv) -> std::process::Output {
         .current_dir(env.repo.path())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("spawn daemon stop");
+        .stderr(std::process::Stdio::piped());
+    apply_coverage_env(&mut cmd);
+    let mut child = cmd.spawn().expect("spawn daemon stop");
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(COMMAND_TIMEOUT_MS);
     loop {
         if child.try_wait().is_ok_and(|status| status.is_some()) {
@@ -128,17 +128,17 @@ fn prompt_output_with_timeout(
     let stdout_for_child = stdout_file.try_clone().expect("clone stdout file");
     let stderr_for_child = stderr_file.try_clone().expect("clone stderr file");
 
-    let mut child = std::process::Command::new(bin)
-        .env("PATH", path)
+    let mut cmd = std::process::Command::new(bin);
+    cmd.env("PATH", path)
         .env("HOME", home)
         .env("TMPDIR", home)
         .env("MERGE_READY_BASE_DIR", home)
         .current_dir(repo)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(stdout_for_child))
-        .stderr(std::process::Stdio::from(stderr_for_child))
-        .spawn()
-        .expect("run prompt");
+        .stderr(std::process::Stdio::from(stderr_for_child));
+    apply_coverage_env(&mut cmd);
+    let mut child = cmd.spawn().expect("run prompt");
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(COMMAND_TIMEOUT_MS);
     let status = loop {

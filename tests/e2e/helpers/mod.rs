@@ -1,7 +1,9 @@
+mod coverage;
 mod daemon_handle;
 mod env;
 mod multi_repo;
 
+pub(crate) use coverage::{apply_coverage_env, apply_coverage_env_assert};
 pub use daemon_handle::DaemonHandle;
 pub use env::TestEnv;
 pub(crate) use env::{setup_empty_dirs, setup_git_dirs};

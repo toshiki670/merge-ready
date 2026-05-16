@@ -28,6 +28,7 @@ simplelog = "0.12"
 toml = "1.1.2"
 crossterm = "0.29.0"
 bitflags = "2.11.1"
+signal-hook = { version = "0.3.18", default-features = false }
 
 [lib]
 name = "merge_ready"

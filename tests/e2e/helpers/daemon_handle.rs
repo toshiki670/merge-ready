@@ -4,7 +4,7 @@ use std::fs;
 use std::io::Read;
 use std::path::Path;
 
-use super::{TestEnv, run_prompt_with_timeout};
+use super::{TestEnv, apply_coverage_env, run_prompt_with_timeout};
 
 /// daemon プロセスを管理するテストヘルパー。
 ///
@@ -52,6 +52,7 @@ impl DaemonHandle {
         for (k, v) in extra_envs {
             cmd.env(k, v);
         }
+        apply_coverage_env(&mut cmd);
         let mut child = cmd.spawn().expect("daemon spawn failed");
 
         // CLI 親プロセスの exit を待つ。socket ファイル存在ポーリングだと
@@ -95,14 +96,14 @@ impl DaemonHandle {
         let bin = assert_cmd::cargo::cargo_bin("merge-ready-prompt");
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
         loop {
-            let out = run_prompt_with_timeout(
-                std::process::Command::new(&bin)
-                    .env("PATH", env.path_env())
-                    .env("HOME", env.home())
-                    .env("TMPDIR", env.home())
-                    .env("MERGE_READY_BASE_DIR", env.home())
-                    .current_dir(env.repo.path()),
-            );
+            let mut cmd = std::process::Command::new(&bin);
+            cmd.env("PATH", env.path_env())
+                .env("HOME", env.home())
+                .env("TMPDIR", env.home())
+                .env("MERGE_READY_BASE_DIR", env.home())
+                .current_dir(env.repo.path());
+            apply_coverage_env(&mut cmd);
+            let out = run_prompt_with_timeout(&mut cmd);
             let stdout = String::from_utf8_lossy(&out.stdout);
             if stdout != "? loading" {
                 return;
@@ -129,6 +130,7 @@ impl DaemonHandle {
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
+        apply_coverage_env(&mut stop);
         let _ = run_command_to_exit(&mut stop, STOP_WAIT_MS);
 
         if let Some(pid) = pid

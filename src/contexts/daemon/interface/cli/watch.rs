@@ -1,5 +1,7 @@
 use std::fmt::Write as _;
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossterm::{
@@ -11,15 +13,42 @@ use crate::contexts::daemon::application::port::{EntryView, WatchPort};
 use crate::contexts::daemon::application::watch;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
+// POLL_INTERVAL を細切れに sleep し、間で shutdown フラグをポーリングする。
+// SIGINT 受信から終了までの遅延上限 = SHUTDOWN_TICK。
+const SHUTDOWN_TICK: Duration = Duration::from_millis(50);
 
 pub fn run(port: &impl WatchPort) -> ExitCode {
-    loop {
+    let shutdown = Arc::new(AtomicBool::new(false));
+    register_shutdown_signals(&shutdown);
+
+    while !shutdown.load(Ordering::SeqCst) {
         clear_screen();
         if !draw(port) {
             return ExitCode::FAILURE;
         }
-        std::thread::sleep(POLL_INTERVAL);
+        if !sleep_until(POLL_INTERVAL, &shutdown) {
+            break;
+        }
     }
+    ExitCode::SUCCESS
+}
+
+fn register_shutdown_signals(shutdown: &Arc<AtomicBool>) {
+    for sig in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
+        let _ = signal_hook::flag::register(sig, Arc::clone(shutdown));
+    }
+}
+
+/// 指定 duration を細切れに sleep する。途中で shutdown が立てば false を返す。
+fn sleep_until(duration: Duration, shutdown: &AtomicBool) -> bool {
+    let deadline = std::time::Instant::now() + duration;
+    while std::time::Instant::now() < deadline {
+        if shutdown.load(Ordering::SeqCst) {
+            return false;
+        }
+        std::thread::sleep(SHUTDOWN_TICK);
+    }
+    true
 }
 
 fn clear_screen() {

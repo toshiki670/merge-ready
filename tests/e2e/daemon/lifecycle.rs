@@ -475,6 +475,83 @@ fn test_daemon_status_format() {
     );
 }
 
+// ── #S1: stale PID のみ・socket 無しでの daemon stop ────────────────────────
+
+/// #S1: 死んだ PID ファイルだけが残り socket が存在しない状態で `daemon stop` を実行すると、
+/// stale PID ファイルを削除して "daemon is not running" を stderr に出力する。
+///
+/// `DaemonLifecycle::stop` の dead-PID クリーンアップ経路を覆う。
+#[test]
+fn test_daemon_stop_with_stale_pid_and_no_socket() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+
+    let mut dead = std::process::Command::new("true")
+        .spawn()
+        .expect("spawn true");
+    let dead_pid = dead.id();
+    dead.wait().expect("wait for dead process");
+
+    let pid_path = versioned_pid(env.home());
+    std::fs::write(&pid_path, dead_pid.to_string()).expect("write stale pid file");
+    assert!(
+        !versioned_socket(env.home()).exists(),
+        "socket should not exist for this scenario"
+    );
+
+    let output = daemon_stop_output(&env);
+    assert!(output.status.success(), "daemon stop should exit 0");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("daemon is not running"),
+        "expected 'daemon is not running' in stderr, got: {stderr:?}"
+    );
+    assert!(
+        !pid_path.exists(),
+        "stale pid file should be removed by daemon stop"
+    );
+}
+
+// ── #S2: socket 削除済み・daemon プロセス生存での daemon stop ────────────────
+
+/// #S2: 起動済み daemon の socket ファイルだけを外部から削除した状態で `daemon stop` を実行すると、
+/// SIGTERM フォールバックで daemon プロセスを停止させる。
+///
+/// `DaemonLifecycle::stop` の `terminate_and_wait` 経路を覆う。
+#[test]
+fn test_daemon_stop_falls_back_to_sigterm_when_socket_removed() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+    let _daemon = DaemonHandle::start(&env);
+
+    let pid: u32 = std::fs::read_to_string(versioned_pid(env.home()))
+        .expect("read pid file")
+        .trim()
+        .parse()
+        .expect("parse pid");
+    assert!(is_pid_alive(pid), "daemon should be alive before stop");
+
+    std::fs::remove_file(versioned_socket(env.home())).expect("remove socket file");
+
+    let output = daemon_stop_output(&env);
+    assert!(output.status.success(), "daemon stop should exit 0");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("stopped"),
+        "expected 'stopped' in stdout, got: {stdout:?}"
+    );
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while std::time::Instant::now() < deadline {
+        if !is_pid_alive(pid) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(
+        !is_pid_alive(pid),
+        "daemon (pid={pid}) should be terminated by SIGTERM fallback"
+    );
+}
+
 // ── #18: stale PID ファイルのクリーンアップ ──────────────────────────────────
 
 /// #18: 前回クラッシュした daemon が残した stale な PID ファイルがある状態で

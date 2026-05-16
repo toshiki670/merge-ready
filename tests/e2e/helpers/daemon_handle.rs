@@ -1,13 +1,16 @@
 //! daemon プロセスを管理するテストヘルパー。
 
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 
 use super::{TestEnv, run_prompt_with_timeout};
 
 /// daemon プロセスを管理するテストヘルパー。
 ///
-/// socket ファイルの出現をポーリングして起動完了を検知する（固定 sleep は使わない）。
+/// `merge-ready daemon start` CLI の正常終了を起動完了シグナルとして使う。
+/// CLI は内部 daemon の `"ready\n"` ハンドシェイクを読んだ後に exit するため、
+/// pid と socket が両方書き込まれてから起動完了とみなせる。
 /// Drop 時に daemon を停止する。
 pub struct DaemonHandle {
     process: std::process::Child,
@@ -21,9 +24,10 @@ impl DaemonHandle {
 }
 
 const STOP_WAIT_MS: u64 = 2000;
+const START_WAIT_MS: u64 = 5000;
 
 impl DaemonHandle {
-    /// daemon を起動し、socket が出現するまで最大 2000ms ポーリングする。
+    /// daemon を起動し、CLI が exit するまで最大 5000ms 待機する。
     #[must_use]
     pub fn start(env: &TestEnv) -> Self {
         Self::start_with_env(env, &[])
@@ -43,24 +47,47 @@ impl DaemonHandle {
             .env("XDG_CONFIG_HOME", env.home().join(".config"))
             .current_dir(env.repo.path())
             .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
         for (k, v) in extra_envs {
             cmd.env(k, v);
         }
         let mut child = cmd.spawn().expect("daemon spawn failed");
 
-        let socket = socket_path(env.home_tmp.path());
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        while std::time::Instant::now() < deadline {
-            if socket.exists() {
-                return DaemonHandle::new(child, env.home_tmp.path().to_path_buf());
+        // CLI 親プロセスの exit を待つ。socket ファイル存在ポーリングだと
+        // (1) pid 書き込み前に socket が観測される race と
+        // (2) 同一バージョンの旧 daemon stop ハンドラが新 daemon の socket を
+        //     消してしまう race の双方を引き当てる。CLI の "ready" ハンドシェイク
+        //     完了後の exit を待つことで両方を回避する。
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(START_WAIT_MS);
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    if status.success() {
+                        return DaemonHandle::new(child, env.home_tmp.path().to_path_buf());
+                    }
+                    let stderr = read_pipe(child.stderr.as_mut());
+                    let stdout = read_pipe(child.stdout.as_mut());
+                    panic!(
+                        "daemon CLI exited non-zero: status={:?}, stdout={stdout:?}, stderr={stderr:?}",
+                        status.code()
+                    );
+                }
+                Ok(None) => {
+                    if std::time::Instant::now() >= deadline {
+                        let _ = child.kill();
+                        let stderr = read_pipe(child.stderr.as_mut());
+                        let stdout = read_pipe(child.stdout.as_mut());
+                        let _ = child.wait();
+                        panic!(
+                            "daemon did not start within {START_WAIT_MS}ms; stdout={stdout:?}, stderr={stderr:?}"
+                        );
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(e) => panic!("daemon try_wait failed: {e}"),
             }
-            std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        let _ = child.kill();
-        let _ = child.wait();
-        panic!("daemon did not start within 2000ms");
     }
 
     /// キャッシュに有効な値が入るまで最大 `max_ms` ミリ秒ポーリングする。
@@ -175,6 +202,15 @@ fn is_pid_alive(pid: u32) -> bool {
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|s| s.success())
+}
+
+fn read_pipe<R: Read>(pipe: Option<&mut R>) -> String {
+    let Some(pipe) = pipe else {
+        return String::new();
+    };
+    let mut buf = String::new();
+    let _ = pipe.read_to_string(&mut buf);
+    buf
 }
 
 fn wait_until_socket_removed(base_dir: &Path, max_ms: u64) -> bool {

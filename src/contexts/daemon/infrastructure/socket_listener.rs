@@ -32,6 +32,10 @@ fn bind_with(
             eprintln!("merge-ready daemon: failed to open lock file: {e}");
             DaemonError::Failure
         })?;
+    // `File::lock()` はブロッキングのため、ロック競合では Err にならず待機する。
+    // Err になるのは flock 非対応 FS / ENOLCK / EIO 等 OS・FS レベル異常時のみで、
+    // 通常のテスト環境では再現手段が無いため、この map_err 経路は意図的に未カバー。
+    // `try_lock()` に変えると起動直列化の意図が壊れるため変更しない。
     startup_lock.lock().map_err(|e| {
         log::error!("failed to lock daemon startup: {e}");
         eprintln!("merge-ready daemon: failed to acquire startup lock: {e}");

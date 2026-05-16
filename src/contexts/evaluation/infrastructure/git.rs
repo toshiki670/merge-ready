@@ -28,3 +28,15 @@ pub fn current_branch(cwd: &Path) -> Option<String> {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn is_git_repo_returns_false_when_no_git_dir() {
+        let dir = tempdir().unwrap();
+        assert!(!is_git_repo(dir.path()));
+    }
+}

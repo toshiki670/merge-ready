@@ -522,14 +522,7 @@ fn test_daemon_stop_falls_back_to_sigterm_when_socket_removed() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
     let _daemon = DaemonHandle::start(&env);
 
-    // DaemonHandle::start は socket 出現で完了判定するが、pid ファイルは bind 直後の
-    // 別ステップで書かれるため、ごく短い窓で pid が未書き込みのことがある。
-    let pid_path = versioned_pid(env.home());
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    while !pid_path.exists() && std::time::Instant::now() < deadline {
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-    let pid: u32 = std::fs::read_to_string(&pid_path)
+    let pid: u32 = std::fs::read_to_string(versioned_pid(env.home()))
         .expect("read pid file")
         .trim()
         .parse()

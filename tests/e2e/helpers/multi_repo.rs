@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use tempfile::{TempDir, tempdir};
 
-use super::{DaemonHandle, run_prompt_with_timeout, write_executable};
+use super::{DaemonHandle, apply_coverage_env, run_prompt_with_timeout, write_executable};
 
 pub struct MultiRepoEnv {
     pub bin: TempDir,
@@ -70,8 +70,8 @@ impl MultiRepoEnv {
     /// daemon を `repo_a` の cwd で起動し、socket 出現まで最大 2000ms 待つ。
     pub fn start_daemon(&self) -> DaemonHandle {
         let bin = assert_cmd::cargo::cargo_bin("merge-ready");
-        let mut child = std::process::Command::new(&bin)
-            .args(["daemon", "start"])
+        let mut cmd = std::process::Command::new(&bin);
+        cmd.args(["daemon", "start"])
             .env("PATH", self.path_env())
             .env("HOME", self.home())
             .env("TMPDIR", self.home())
@@ -79,9 +79,9 @@ impl MultiRepoEnv {
             .current_dir(self.repo_a.path())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .expect("daemon spawn failed");
+            .stderr(std::process::Stdio::null());
+        apply_coverage_env(&mut cmd);
+        let mut child = cmd.spawn().expect("daemon spawn failed");
 
         let socket = self
             .home()
@@ -103,14 +103,14 @@ impl MultiRepoEnv {
         let bin = assert_cmd::cargo::cargo_bin("merge-ready-prompt");
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
         loop {
-            let out = run_prompt_with_timeout(
-                std::process::Command::new(&bin)
-                    .env("PATH", self.path_env())
-                    .env("HOME", self.home())
-                    .env("TMPDIR", self.home())
-                    .env("MERGE_READY_BASE_DIR", self.home())
-                    .current_dir(repo.path()),
-            );
+            let mut cmd = std::process::Command::new(&bin);
+            cmd.env("PATH", self.path_env())
+                .env("HOME", self.home())
+                .env("TMPDIR", self.home())
+                .env("MERGE_READY_BASE_DIR", self.home())
+                .current_dir(repo.path());
+            apply_coverage_env(&mut cmd);
+            let out = run_prompt_with_timeout(&mut cmd);
             let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
             if stdout != "? loading" {
                 return;
@@ -126,14 +126,14 @@ impl MultiRepoEnv {
     /// `repo` から `merge-ready-prompt` を実行してその出力を返す。
     pub fn prompt_output(&self, repo: &TempDir) -> String {
         let bin = assert_cmd::cargo::cargo_bin("merge-ready-prompt");
-        let out = run_prompt_with_timeout(
-            std::process::Command::new(&bin)
-                .env("PATH", self.path_env())
-                .env("HOME", self.home())
-                .env("TMPDIR", self.home())
-                .env("MERGE_READY_BASE_DIR", self.home())
-                .current_dir(repo.path()),
-        );
+        let mut cmd = std::process::Command::new(&bin);
+        cmd.env("PATH", self.path_env())
+            .env("HOME", self.home())
+            .env("TMPDIR", self.home())
+            .env("MERGE_READY_BASE_DIR", self.home())
+            .current_dir(repo.path());
+        apply_coverage_env(&mut cmd);
+        let out = run_prompt_with_timeout(&mut cmd);
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
 }

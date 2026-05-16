@@ -8,7 +8,7 @@ use std::time::Duration;
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-use super::super::helpers::{DaemonHandle, MultiRepoEnv, TestEnv};
+use super::super::helpers::{DaemonHandle, MultiRepoEnv, TestEnv, apply_coverage_env};
 
 const BIN: &str = "merge-ready";
 const OPEN_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
@@ -18,8 +18,8 @@ const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","l
 /// 読み取り後に SIGINT を送りプロセスを終了させる。
 fn spawn_watch_and_read(env: &TestEnv, n: usize, timeout: Duration) -> String {
     let bin = assert_cmd::cargo::cargo_bin(BIN);
-    let mut child = std::process::Command::new(bin)
-        .args(["watch"])
+    let mut cmd = std::process::Command::new(bin);
+    cmd.args(["watch"])
         .env("PATH", env.path_env())
         .env("HOME", env.home())
         .env("TMPDIR", env.home())
@@ -27,9 +27,9 @@ fn spawn_watch_and_read(env: &TestEnv, n: usize, timeout: Duration) -> String {
         .env("XDG_CONFIG_HOME", env.home().join(".config"))
         .current_dir(env.repo.path())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("failed to spawn merge-ready watch");
+        .stderr(Stdio::null());
+    apply_coverage_env(&mut cmd);
+    let mut child = cmd.spawn().expect("failed to spawn merge-ready watch");
 
     let stdout = child.stdout.take().expect("stdout not captured");
     let (tx, rx) = mpsc::channel::<String>();
@@ -145,8 +145,8 @@ fn test_watch_leaves_pr_column_empty_without_pr() {
 
 fn spawn_watch_and_read_multi(env: &MultiRepoEnv, n: usize, timeout: Duration) -> String {
     let bin = assert_cmd::cargo::cargo_bin(BIN);
-    let mut child = std::process::Command::new(bin)
-        .args(["watch"])
+    let mut cmd = std::process::Command::new(bin);
+    cmd.args(["watch"])
         .env("PATH", env.path_env())
         .env("HOME", env.home())
         .env("TMPDIR", env.home())
@@ -154,9 +154,9 @@ fn spawn_watch_and_read_multi(env: &MultiRepoEnv, n: usize, timeout: Duration) -
         .env("XDG_CONFIG_HOME", env.home().join(".config"))
         .current_dir(env.repo_a.path())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("failed to spawn merge-ready watch");
+        .stderr(Stdio::null());
+    apply_coverage_env(&mut cmd);
+    let mut child = cmd.spawn().expect("failed to spawn merge-ready watch");
 
     let stdout = child.stdout.take().expect("stdout not captured");
     let (tx, rx) = mpsc::channel::<String>();

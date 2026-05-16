@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 use tempfile::{TempDir, tempdir};
 
-use super::write_executable;
+use super::{apply_coverage_env_assert, write_executable};
 
 /// `.git` を持つ一時ディレクトリ群を生成する。fixture モジュールからの呼び出し用。
 pub(crate) fn setup_git_dirs(branch: &str) -> (TempDir, TempDir, TempDir) {
@@ -193,6 +193,7 @@ impl TestEnv {
         cmd.env("MERGE_READY_BASE_DIR", self.home());
         cmd.env("XDG_CONFIG_HOME", self.home().join(".config"));
         cmd.current_dir(self.repo.path());
+        apply_coverage_env_assert(cmd);
     }
 
     /// `Command` に環境変数を設定する（`merge-ready-prompt` バイナリ用）。
@@ -204,6 +205,7 @@ impl TestEnv {
         cmd.env("TMPDIR", self.home());
         cmd.env("MERGE_READY_BASE_DIR", self.home());
         cmd.current_dir(self.repo.path());
+        apply_coverage_env_assert(cmd);
     }
 
     /// `~/.config/merge-ready.toml` に TOML 設定を書き込む。

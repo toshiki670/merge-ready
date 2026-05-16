@@ -95,7 +95,11 @@
       "Bash(PR_TITLE=\"test\\(e2e\\): daemon stop の異常系フォールバック経路をカバーする\" bash scripts/check-pr-title.sh)",
       "Bash(PR_TITLE=\"chore\\(coverage\\): subprocess に LLVM_PROFILE_FILE を明示伝播してカバレッジ計測する\" bash scripts/check-pr-title.sh)",
       "Bash(cargo search *)",
-      "Bash(gh repo *)"
+      "Bash(gh repo *)",
+      "Skill(update-config)"
     ]
+  },
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": true
   }
 }

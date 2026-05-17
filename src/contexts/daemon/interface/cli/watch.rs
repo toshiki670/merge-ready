@@ -99,7 +99,7 @@ fn format_table(entries: &[EntryView]) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "{:<cwd_width$}  {:<branch_width$}  {:<pr_width$}  {:<status_width$}  {}",
+        "{:<cwd_width$}  {:<branch_width$}  {:<pr_width$}  {:<status_width$}  {:>cached_at_width$}",
         header.cwd,
         header.branch,
         header.pr,
@@ -109,12 +109,15 @@ fn format_table(entries: &[EntryView]) -> String {
         branch_width = widths.branch,
         pr_width = widths.pr,
         status_width = widths.status,
+        cached_at_width = widths.cached_at,
     );
     for row in &rows {
-        let status_pad = widths.status - visible_len(&row.status) + row.status.len();
+        // Rust の幅指定子は `chars()` 数ベース。ANSI 込みの status を
+        // 見た目幅 `widths.status` で揃えるため、不可視 char 分を足し戻す。
+        let status_pad = widths.status - visible_len(&row.status) + row.status.chars().count();
         let _ = writeln!(
             out,
-            "{:<cwd_width$}  {:<branch_width$}  {:<pr_width$}  {:<status_pad$}  {}",
+            "{:<cwd_width$}  {:<branch_width$}  {:<pr_width$}  {:<status_pad$}  {:>cached_at_width$}",
             row.cwd,
             row.branch,
             row.pr,
@@ -123,6 +126,7 @@ fn format_table(entries: &[EntryView]) -> String {
             cwd_width = widths.cwd,
             branch_width = widths.branch,
             pr_width = widths.pr,
+            cached_at_width = widths.cached_at,
         );
     }
     out
@@ -153,6 +157,7 @@ struct TableWidths {
     branch: usize,
     pr: usize,
     status: usize,
+    cached_at: usize,
 }
 
 impl TableWidths {
@@ -164,6 +169,10 @@ impl TableWidths {
             status: max_width(
                 rows.iter().map(|row| visible_len(&row.status)),
                 header.status.len(),
+            ),
+            cached_at: max_width(
+                rows.iter().map(|row| row.cached_at.len()),
+                header.cached_at.len(),
             ),
         }
     }
@@ -344,5 +353,42 @@ mod tests {
     #[case(7200, "2h ago")]
     fn format_elapsed_various_durations(#[case] elapsed_secs: u64, #[case] expected: &str) {
         assert_eq!(format_elapsed(elapsed_secs), expected);
+    }
+
+    #[test]
+    fn format_table_right_aligns_cached_at_column() {
+        // status は ASCII（visible_len == len）にして他列の幅ぶれを排除し、
+        // CACHED AT 列の右揃えのみを検証する。
+        let rows = vec![
+            make_view("/repo", "main", Some(1), "Ready", 5),
+            make_view("/repo", "main", Some(2), "Ready", 7200),
+        ];
+        let table = format_table(&rows);
+        let lines: Vec<&str> = table.lines().collect();
+        assert_eq!(lines.len(), 3, "header + 2 rows: {table:?}");
+
+        let widths: Vec<usize> = lines.iter().map(|l| visible_len(l)).collect();
+        assert!(
+            widths.windows(2).all(|w| w[0] == w[1]),
+            "全行の表示幅が揃うべき: {widths:?} / {table:?}",
+        );
+
+        // "CACHED AT" (9 文字) がヘッダーで最長。短い値 "5s ago" (6 文字) は
+        // 3 文字の左パディングが付与された形で末尾に現れる。
+        assert!(
+            lines[0].ends_with("CACHED AT"),
+            "ヘッダーも右端で揃うべき: {:?}",
+            lines[0],
+        );
+        assert!(
+            lines[1].ends_with("   5s ago"),
+            "短い相対時刻は右揃えされるべき: {:?}",
+            lines[1],
+        );
+        assert!(
+            lines[2].ends_with("   2h ago"),
+            "短い相対時刻は右揃えされるべき: {:?}",
+            lines[2],
+        );
     }
 }

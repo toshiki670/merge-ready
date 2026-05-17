@@ -122,7 +122,7 @@ mod tests {
     use crate::contexts::evaluation::domain::error::RepositoryError;
     use crate::contexts::evaluation::domain::prompt::{
         PrId, Prompt, PromptRepository, PullRequest, State,
-        pull_request::state::blocked::{BlockedState, ci::CiState},
+        pull_request::state::blocked::{BlockedState, CiState},
         pull_request::state::unblocked::UnblockedState,
     };
 

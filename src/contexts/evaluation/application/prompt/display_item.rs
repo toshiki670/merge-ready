@@ -1,9 +1,7 @@
 use crate::contexts::evaluation::domain::prompt::State;
-use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::BlockedState;
-use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::GenericBlockedState;
-use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::branch_sync::BranchSyncState;
-use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::ci::CiState;
-use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::review::ReviewState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::{
+    BlockedState, BranchSyncState, CiState, GenericBlockedState, ReviewState,
+};
 use crate::contexts::evaluation::domain::prompt::pull_request::state::unblocked::UnblockedState;
 
 pub enum DisplayItem {

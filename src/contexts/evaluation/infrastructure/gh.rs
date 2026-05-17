@@ -10,7 +10,7 @@ use schema::{CheckBucket, GhCheckItem, GhPrListItem, GhRepoViewFull, translate_b
 
 use crate::contexts::evaluation::application::port::{ErrorCategory, ErrorLogger, LogRecord};
 use crate::contexts::evaluation::domain::error::RepositoryError;
-use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::ci::CiState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::CiState;
 use crate::contexts::evaluation::domain::prompt::pull_request::state::evaluate;
 use crate::contexts::evaluation::domain::prompt::{
     PrId, Prompt, PromptRepository, PullRequest, State,

@@ -1,7 +1,7 @@
 use super::schema::CheckBucket;
-use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::branch_sync::BranchSyncState;
-use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::ci::CiState;
-use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::review::ReviewState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::{
+    BranchSyncState, CiState, ReviewState,
+};
 use crate::contexts::evaluation::domain::prompt::pull_request::state::unblocked::UnblockedState;
 
 pub(super) fn translate_sync(mergeable: &str, behind_by: Option<u64>) -> Option<BranchSyncState> {

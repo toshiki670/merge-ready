@@ -67,14 +67,14 @@ pub(super) fn collect_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(RepoId, P
             total_cost,
             now_wall,
         );
-        if entry.fetched_at.elapsed().as_secs() < interval {
+        if entry.fetched_at_elapsed().as_secs() < interval {
             continue;
         }
         if entry.refresh_mode() == RefreshMode::Warm && entry.is_cold(policy.warm_to_cold_secs) {
             entry.increment_cold_count();
         }
         entry.mark_refreshing();
-        targets.push((repo_id.clone(), entry.cwd.clone()));
+        targets.push((repo_id.clone(), entry.cwd().to_path_buf()));
     }
     targets
 }

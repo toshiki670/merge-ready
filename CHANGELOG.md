@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.4] - 2026-05-17
+### Features
+- Scale refresh interval based on gh rate limit ([#274](https://github.com/toshiki670/merge-ready/pull/274)) ([#328](https://github.com/toshiki670/merge-ready/pull/328)) ([`3af5c0e`](https://github.com/toshiki670/merge-ready/commit/3af5c0efea01dbff260faf545bdb0949bfc01ac9))
+- Self-terminate inner daemon when own socket disappears ([#332](https://github.com/toshiki670/merge-ready/pull/332)) ([`a858803`](https://github.com/toshiki670/merge-ready/commit/a858803825f39c1b58d2f276f9fc0264b00deb45))
+
+
 ## [0.7.3] - 2026-05-07
 ### Bug Fixes
 - Daemon の終了処理を安定化して coverage 実行のハングを防ぐ ([#281](https://github.com/toshiki670/merge-ready/pull/281)) ([`4ac2309`](https://github.com/toshiki670/merge-ready/commit/4ac230922b56146d6689448efd25a05309345ebf))

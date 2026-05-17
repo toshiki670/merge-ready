@@ -3,7 +3,6 @@ pub(super) mod connection;
 pub mod daemon_client;
 pub mod daemon_lifecycle;
 pub mod daemon_server;
-pub(super) mod gh_command;
 pub mod paths;
 pub mod pid;
 pub(super) mod rate_limit_client;

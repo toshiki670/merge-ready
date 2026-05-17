@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use super::command::run_gh;
 use super::schema::{GhCompare, GhRepoView};
+use crate::shared::process_gh::run_gh;
 
 /// GitHub Compare API でベースブランチとの差分コミット数を取得する。
 ///

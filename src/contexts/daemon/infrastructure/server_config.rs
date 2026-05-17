@@ -28,6 +28,11 @@ const DEFAULT_ENTRY_MAX_AGE_SECS: u64 = 2 * 24 * 60 * 60;
 const DEFAULT_STALE_TTL_SECS: u64 = 5;
 const DEFAULT_REFRESH_LOCK_TIMEOUT_SECS: u64 = 120;
 const DEFAULT_SCHEDULER_TICK_SECS: u64 = 2;
+/// 自身の socket ファイル消失を検査する間隔（秒）。
+/// テスト異常終了や外部からの `rm` で消えたら daemon は自己終了する。
+/// `daemon stop` の `terminate_and_wait` 経路 (`STOP_TIMEOUT=2s`) より長く保つことで、
+/// 通常の停止フローと競合しないようにする。
+const DEFAULT_SOCKET_CHECK_INTERVAL_SECS: u64 = 5;
 
 // ── rate_limit 連動スケジューリング ────────────────────────────────────────
 /// `MERGE_READY_RATE_LIMIT_AWARE` のデフォルト値。`0` / `false` で OFF。
@@ -41,6 +46,8 @@ pub(super) struct DaemonServerConfig {
     pub(super) refresh_lock_timeout_secs: u64,
     pub(super) entry_max_age_secs: u64,
     pub(super) scheduler_tick_secs: u64,
+    /// 自身の socket ファイル消失を検査する間隔（秒）。
+    pub(super) socket_check_interval_secs: u64,
     pub(super) policy: RefreshPolicy,
     /// `gh api rate_limit` を観測して動的スケーリングと枯渇時 backoff を有効化する。
     pub(super) rate_limit_aware: bool,
@@ -63,6 +70,10 @@ impl DaemonServerConfig {
             scheduler_tick_secs: env_u64(
                 "MERGE_READY_SCHEDULER_TICK_SECS",
                 DEFAULT_SCHEDULER_TICK_SECS,
+            ),
+            socket_check_interval_secs: env_u64(
+                "MERGE_READY_SOCKET_CHECK_INTERVAL_SECS",
+                DEFAULT_SOCKET_CHECK_INTERVAL_SECS,
             ),
             policy: RefreshPolicy {
                 hot_recent_query_secs: env_u64(

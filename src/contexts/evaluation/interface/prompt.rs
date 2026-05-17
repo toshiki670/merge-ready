@@ -1,4 +1,3 @@
-use crate::contexts::evaluation::application::config_service;
 use crate::contexts::evaluation::application::errors::ErrorToken;
 use crate::contexts::evaluation::application::port::ErrorLogger;
 use crate::contexts::evaluation::application::prompt::display_item::DisplayItem;
@@ -23,7 +22,7 @@ where
     C: DisplayConfigRepository,
     L: ErrorLogger,
 {
-    let config = config_service::load(config_repo);
+    let config = config_repo.load();
     match fetch(repo, logger) {
         Ok(Prompt::NoRepository | Prompt::UnsupportedRepository | Prompt::DefaultBranch) => {
             RenderResult {

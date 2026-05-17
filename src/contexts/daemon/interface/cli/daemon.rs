@@ -3,7 +3,7 @@ use std::process::{ExitCode, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use crate::contexts::daemon::application::lifecycle::{self, Port};
+use crate::contexts::daemon::domain::daemon::DaemonLifecyclePort;
 
 const DAEMON_INNER_ENV: &str = "MERGE_READY_DAEMON_INNER";
 const START_TIMEOUT_SECS: u64 = 2;
@@ -18,9 +18,9 @@ const START_TIMEOUT_SECS: u64 = 2;
 // 欠点は setsid() を呼べないため SIGHUP を受ける可能性があること。
 // ただしプロンプト統合の用途では端末クローズ時にデーモンが終了しても
 // 次回 prompt 呼び出し時に lazy_start() が再起動するため実害はない。
-pub(crate) fn start(port: &impl Port) -> ExitCode {
+pub(crate) fn start(port: &impl DaemonLifecyclePort) -> ExitCode {
     if std::env::var(DAEMON_INNER_ENV).is_ok() {
-        return match lifecycle::start(port) {
+        return match port.start() {
             Ok(()) => ExitCode::SUCCESS,
             Err(_) => ExitCode::FAILURE,
         };
@@ -91,8 +91,8 @@ pub(crate) fn start(port: &impl Port) -> ExitCode {
     }
 }
 
-pub(crate) fn stop(port: &impl Port) -> ExitCode {
-    if lifecycle::stop(port) {
+pub(crate) fn stop(port: &impl DaemonLifecyclePort) -> ExitCode {
+    if port.stop() {
         println!("daemon stopped");
     } else {
         eprintln!("daemon is not running");
@@ -100,10 +100,12 @@ pub(crate) fn stop(port: &impl Port) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-pub(crate) fn status(port: &impl Port) -> ExitCode {
-    match lifecycle::get_status(port) {
+pub(crate) fn status(port: &impl DaemonLifecyclePort) -> ExitCode {
+    match port.get_status() {
         Some(s) => {
-            let pid = lifecycle::get_pid(port).map_or_else(|| "-".to_owned(), |p| p.to_string());
+            let pid = port
+                .get_pid()
+                .map_or_else(|| "-".to_owned(), |p| p.to_string());
             println!(
                 "running  pid={}  entries={}  uptime={}s  version={}",
                 pid, s.entries, s.uptime_secs, s.version

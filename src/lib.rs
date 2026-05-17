@@ -5,8 +5,7 @@ pub(crate) mod shared;
 
 use std::process::ExitCode;
 
-use crate::contexts::daemon::application::cache as daemon_cache_app;
-use crate::contexts::daemon::domain::cache::RepoId;
+use crate::contexts::daemon::domain::cache::{CachePort, RepoId};
 use crate::contexts::daemon::infrastructure::daemon_client::DaemonClient;
 use crate::contexts::daemon::infrastructure::daemon_lifecycle::DaemonLifecycle;
 use crate::contexts::daemon::infrastructure::paths::Paths;
@@ -32,8 +31,7 @@ fn build_daemon_lifecycle() -> DaemonLifecycle {
                     output,
                 })
                 .collect();
-            daemon_cache_app::update(
-                &DaemonClient::new(Paths::default().socket_path()),
+            DaemonClient::new(Paths::default().socket_path()).update(
                 repo_id,
                 &result.output,
                 result.refresh_mode,

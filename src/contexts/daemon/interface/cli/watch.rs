@@ -10,7 +10,6 @@ use crossterm::{
 };
 
 use crate::contexts::daemon::application::port::{EntryView, WatchPort};
-use crate::contexts::daemon::application::watch;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 // POLL_INTERVAL を細切れに sleep し、間で shutdown フラグをポーリングする。
@@ -61,7 +60,7 @@ fn clear_screen() {
 }
 
 fn draw(port: &impl WatchPort) -> bool {
-    match watch::entries(port) {
+    match port.entries() {
         None => {
             println!("daemon is not running");
             false

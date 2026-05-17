@@ -185,6 +185,51 @@ fn spawn_watch_and_read_multi(env: &MultiRepoEnv, n: usize, timeout: Duration) -
     output
 }
 
+/// 画面クリア + カーソル移動の CSI。watch は描画ごとに先頭に挿入する。
+const SCREEN_CLEAR: &str = "\x1b[2J\x1b[1;1H";
+
+/// SGR カラーコード（`...m` 終端）を除いた可視文字数を返す。
+fn visible_len(s: &str) -> usize {
+    let mut len = 0;
+    let mut in_esc = false;
+    for c in s.chars() {
+        if c == '\x1b' {
+            in_esc = true;
+        } else if in_esc {
+            if c == 'm' {
+                in_esc = false;
+            }
+        } else {
+            len += 1;
+        }
+    }
+    len
+}
+
+/// CACHED AT 列はヘッダーも値も右揃えで描画される（末尾位置で揃う）
+#[test]
+fn test_watch_right_aligns_cached_at_column() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    let output = spawn_watch_and_read(&env, 2, Duration::from_secs(5));
+    let lines: Vec<&str> = output.lines().collect();
+    assert!(lines.len() >= 2, "header + data 行が読めるべき: {output:?}");
+
+    let header = lines[0].strip_prefix(SCREEN_CLEAR).unwrap_or(lines[0]);
+    let data = lines[1];
+
+    assert!(header.ends_with("CACHED AT"), "header tail: {header:?}");
+    assert!(data.ends_with("ago"), "data tail: {data:?}");
+
+    assert_eq!(
+        visible_len(header),
+        visible_len(data),
+        "ヘッダー行とデータ行の表示幅が一致すべき (右端揃え): header={header:?}, data={data:?}",
+    );
+}
+
 /// #W7: 複数リポジトリがある場合、watch は CWD 昇順でソートして表示する
 #[test]
 fn test_watch_entries_sorted_by_cwd() {

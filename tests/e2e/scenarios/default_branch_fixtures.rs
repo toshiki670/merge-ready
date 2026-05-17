@@ -1,4 +1,6 @@
-use super::super::helpers::{TestEnv, setup_git_dirs, write_executable};
+use super::super::helpers::{
+    FAKE_GH_RATE_LIMIT_OK_SNIPPET, TestEnv, setup_git_dirs, write_executable,
+};
 
 /// デフォルトブランチ上シナリオ: 現在ブランチ == デフォルトブランチ、PR なし。
 ///
@@ -9,6 +11,7 @@ pub fn with_default_branch_no_pr(branch: &str) -> TestEnv {
     let (bin, home_tmp, repo) = setup_git_dirs(branch);
     let script = format!(
         "#!/bin/sh\n\
+         {FAKE_GH_RATE_LIMIT_OK_SNIPPET}\
          case \"$*\" in\n\
            *'pr list'*)\n\
              printf '[]'\n\

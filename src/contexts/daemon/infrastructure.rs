@@ -6,7 +6,6 @@ pub mod daemon_server;
 pub(super) mod gh_command;
 pub mod paths;
 pub mod pid;
-pub(super) mod protocol;
 pub(super) mod rate_limit_client;
 pub(super) mod repo_id;
 pub(super) mod request_handler;

@@ -1,4 +1,6 @@
-use crate::contexts::daemon::domain::cache::{CachePort, PrOutput, RefreshMode, RepoId};
+use crate::contexts::daemon::domain::cache::{CachePort, RepoId};
+use crate::shared::protocol::PrOutput;
+use crate::shared::refresh_mode::RefreshMode;
 
 /// キャッシュを更新するユースケース
 pub fn update(

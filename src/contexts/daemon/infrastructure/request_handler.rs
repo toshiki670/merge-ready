@@ -4,11 +4,12 @@ use std::time::Instant;
 
 mod mapping;
 
-use super::protocol::{EntryDto, PrOutputDto, Request, Response};
 use super::repo_id;
-use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode, RepoId};
+use crate::contexts::daemon::domain::cache::{CacheEntry, RepoId};
 use crate::contexts::daemon::domain::refresh_policy::RefreshPolicy;
-use mapping::{entry_to_dtos, pr_outputs_from_dtos};
+use crate::shared::protocol::{EntryDto, PrOutput, Request, Response};
+use crate::shared::refresh_mode::RefreshMode;
+use mapping::entry_to_dtos;
 
 pub(super) struct ActionResult {
     pub(super) response: Response,
@@ -63,7 +64,7 @@ pub(super) fn process(
         } => process_update(
             &RepoId::new(repo_id.clone()),
             output,
-            RefreshMode::from(*refresh_mode),
+            *refresh_mode,
             pr_outputs,
             entries,
         ),
@@ -219,11 +220,17 @@ fn process_update(
     repo_id: &RepoId,
     output: &str,
     refresh_mode: RefreshMode,
-    pr_outputs_dto: &[PrOutputDto],
+    pr_outputs: &[PrOutput],
     entries: &mut HashMap<RepoId, CacheEntry>,
 ) -> ActionResult {
     if let Some(entry) = entries.get_mut(repo_id) {
-        let pr_outputs = pr_outputs_from_dtos(pr_outputs_dto);
+        let pr_outputs = pr_outputs
+            .iter()
+            .map(|p| PrOutput {
+                pr_id: p.pr_id,
+                output: p.output.clone(),
+            })
+            .collect();
         entry.update(output.to_owned(), pr_outputs, refresh_mode);
     }
     ActionResult {

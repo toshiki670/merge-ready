@@ -1,15 +1,5 @@
-use super::super::protocol::{EntryDto, PrOutputDto, RefreshModeDto};
-use crate::contexts::daemon::domain::cache::{CacheEntry, PrOutput, RefreshMode};
-
-impl From<RefreshModeDto> for RefreshMode {
-    fn from(dto: RefreshModeDto) -> Self {
-        match dto {
-            RefreshModeDto::Hot => RefreshMode::Hot,
-            RefreshModeDto::Warm => RefreshMode::Warm,
-            RefreshModeDto::Terminal => RefreshMode::Terminal,
-        }
-    }
-}
+use crate::contexts::daemon::domain::cache::CacheEntry;
+use crate::shared::protocol::EntryDto;
 
 pub(super) fn entry_to_dtos(entry: &CacheEntry) -> Vec<EntryDto> {
     let cwd = entry.cwd().to_string_lossy().into_owned();
@@ -41,16 +31,6 @@ pub(super) fn entry_to_dtos(entry: &CacheEntry) -> Vec<EntryDto> {
         .collect()
 }
 
-pub(super) fn pr_outputs_from_dtos(pr_outputs_dto: &[PrOutputDto]) -> Vec<PrOutput> {
-    pr_outputs_dto
-        .iter()
-        .map(|p| PrOutput {
-            pr_id: p.pr_id,
-            output: p.output.clone(),
-        })
-        .collect()
-}
-
 fn entry_dto(
     cwd: String,
     branch: String,
@@ -78,6 +58,8 @@ fn cached_at_secs(entry: &CacheEntry) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::protocol::PrOutput;
+    use crate::shared::refresh_mode::RefreshMode;
     use std::path::PathBuf;
 
     #[test]

@@ -7,23 +7,12 @@ use crate::contexts::evaluation::domain::display_config::{
     DisplayConfig, DisplayConfigRepository, TokenConfig, render_error_token, render_token,
 };
 use crate::contexts::evaluation::domain::prompt::{PrId, Prompt, PromptRepository};
-
-/// daemon のキャッシュ更新頻度を制御するヒント。
-/// evaluation ドメインの知識（CI 状態・終端状態）を daemon に伝える interface 層の出力型。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CacheHint {
-    /// CI 実行中。素早いリフレッシュが必要。
-    Hot,
-    /// CI 完了・通常監視中。
-    Warm,
-    /// PR が merged / closed。リフレッシュ不要。
-    Terminal,
-}
+use crate::shared::refresh_mode::RefreshMode;
 
 /// `render()` の戻り値。
 pub struct RenderResult {
     pub output: String,
-    pub cache_hint: CacheHint,
+    pub refresh_mode: RefreshMode,
     /// PR 別のレンダリング済み文字列。watch 表示用。
     pub pr_outputs: Vec<(PrId, String)>,
 }
@@ -39,18 +28,18 @@ where
         Ok(Prompt::NoRepository | Prompt::UnsupportedRepository | Prompt::DefaultBranch) => {
             RenderResult {
                 output: String::new(),
-                cache_hint: CacheHint::Warm,
+                refresh_mode: RefreshMode::Warm,
                 pr_outputs: vec![],
             }
         }
         Ok(Prompt::NoPullRequest) => RenderResult {
             output: render_token(&config.no_pull_request, None),
-            cache_hint: CacheHint::Warm,
+            refresh_mode: RefreshMode::Warm,
             pr_outputs: vec![],
         },
         Ok(ref p) if p.is_terminal() => RenderResult {
             output: String::new(),
-            cache_hint: CacheHint::Terminal,
+            refresh_mode: RefreshMode::Terminal,
             pr_outputs: vec![],
         },
         Ok(Prompt::PullRequests(prs)) => {
@@ -71,24 +60,24 @@ where
                 all_outputs.push(prompt_out);
             }
 
-            let cache_hint = if items.iter().any(|(_, dis)| {
+            let refresh_mode = if items.iter().any(|(_, dis)| {
                 dis.iter()
                     .any(|i| matches!(i, DisplayItem::CiPending | DisplayItem::StatusCalculating))
             }) {
-                CacheHint::Hot
+                RefreshMode::Hot
             } else {
-                CacheHint::Warm
+                RefreshMode::Warm
             };
 
             RenderResult {
                 output: all_outputs.join(" "),
-                cache_hint,
+                refresh_mode,
                 pr_outputs,
             }
         }
         Err(token) => RenderResult {
             output: render_error(&token, &config),
-            cache_hint: CacheHint::Warm,
+            refresh_mode: RefreshMode::Warm,
             pr_outputs: vec![],
         },
     }
@@ -161,7 +150,7 @@ mod tests {
         render(&StubRepoFn(f), &NoOpConfigRepo, &NoOpLogger)
     }
 
-    // ── CacheHint 導出 ──────────────────────────────────────────────────────
+    // ── RefreshMode 導出 ────────────────────────────────────────────────────
 
     #[test]
     fn ci_pending_returns_hot() {
@@ -176,7 +165,7 @@ mod tests {
                 }),
             }]))
         });
-        assert_eq!(result.cache_hint, CacheHint::Hot);
+        assert_eq!(result.refresh_mode, RefreshMode::Hot);
     }
 
     #[test]
@@ -187,7 +176,7 @@ mod tests {
                 state: State::Calculating,
             }]))
         });
-        assert_eq!(result.cache_hint, CacheHint::Hot);
+        assert_eq!(result.refresh_mode, RefreshMode::Hot);
     }
 
     #[test]
@@ -203,7 +192,7 @@ mod tests {
                 }),
             }]))
         });
-        assert_eq!(result.cache_hint, CacheHint::Warm);
+        assert_eq!(result.refresh_mode, RefreshMode::Warm);
     }
 
     #[test]
@@ -214,25 +203,25 @@ mod tests {
                 state: State::Unblocked(UnblockedState::MergeReady),
             }]))
         });
-        assert_eq!(result.cache_hint, CacheHint::Warm);
+        assert_eq!(result.refresh_mode, RefreshMode::Warm);
     }
 
     #[test]
     fn empty_pull_requests_returns_terminal() {
         let result = do_render(|| Ok(Prompt::PullRequests(vec![])));
-        assert_eq!(result.cache_hint, CacheHint::Terminal);
+        assert_eq!(result.refresh_mode, RefreshMode::Terminal);
     }
 
     #[test]
     fn no_pull_request_returns_warm() {
         let result = do_render(|| Ok(Prompt::NoPullRequest));
-        assert_eq!(result.cache_hint, CacheHint::Warm);
+        assert_eq!(result.refresh_mode, RefreshMode::Warm);
     }
 
     #[test]
     fn fetch_error_returns_warm() {
         let result = do_render(|| Err(RepositoryError::Unexpected));
-        assert_eq!(result.cache_hint, CacheHint::Warm);
+        assert_eq!(result.refresh_mode, RefreshMode::Warm);
     }
 
     // ── 複数 PR レンダリング ────────────────────────────────────────────────

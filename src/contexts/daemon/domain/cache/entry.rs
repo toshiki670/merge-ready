@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
-use super::RefreshMode;
+use crate::shared::protocol::PrOutput;
+use crate::shared::refresh_mode::RefreshMode;
 
 /// `CacheEntry` のフェッチ状態を表す状態機械。
 ///
@@ -18,12 +19,6 @@ enum FetchState {
     Ready,
     /// データ取得済み。再リフレッシュ進行中。
     Refreshing,
-}
-
-/// PR 単体のレンダリング済み出力。watch 表示用。
-pub struct PrOutput {
-    pub pr_id: u64,
-    pub output: String,
 }
 
 /// キャッシュエントリのドメインエンティティ。

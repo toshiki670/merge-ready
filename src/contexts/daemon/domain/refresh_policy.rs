@@ -1,7 +1,8 @@
 use std::time::SystemTime;
 
-use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode};
+use crate::contexts::daemon::domain::cache::CacheEntry;
 use crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot;
+use crate::shared::refresh_mode::RefreshMode;
 
 /// `bottleneck_ratio` の basis points スケール（10000 == 1.0）。
 const RATIO_SCALE: u64 = 10_000;
@@ -260,7 +261,7 @@ fn compute_budget_term(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::daemon::domain::cache::PrOutput;
+    use crate::shared::protocol::PrOutput;
     use std::path::PathBuf;
     use std::time::{Duration, Instant};
 

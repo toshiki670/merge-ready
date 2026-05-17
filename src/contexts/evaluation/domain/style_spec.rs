@@ -15,16 +15,6 @@ pub(crate) enum StyleSpec {
     },
 }
 
-impl Default for StyleSpec {
-    fn default() -> Self {
-        Self::Styled {
-            fg: None,
-            bg: None,
-            modifiers: StyleModifiers::empty(),
-        }
-    }
-}
-
 impl StyleSpec {
     pub(crate) fn parse(s: &str) -> Self {
         let mut fg = None;

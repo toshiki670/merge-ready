@@ -20,7 +20,7 @@ pedantic = "warn"
 [dependencies]
 nu-ansi-term = "0.50"
 clap = { version = "4.6.1", features = ["derive", "cargo"] }
-clap_complete = "4.6.4"
+clap_complete = "4.6.5"
 log = "0.4"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
@@ -47,7 +47,7 @@ name = "e2e"
 path = "tests/e2e/mod.rs"
 
 [dev-dependencies]
-assert_cmd = "2.2.1"
+assert_cmd = "2.2.2"
 criterion = { version = "0.8.2", features = ["html_reports"] }
 predicates = "3.1.4"
 rstest = "0.26.1"

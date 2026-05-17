@@ -94,9 +94,23 @@ pub fn run(on_refresh: &RefreshFn, paths: Paths) -> Result<(), DaemonError> {
     // non-blocking で accept し、終了シグナルを 10ms ごとにポーリングする
     listener.set_nonblocking(true).ok();
 
+    // 自身の socket ファイル消失を定期チェックする。テストハーネスが異常終了して
+    // Drop ベースの `daemon stop` が走らず TempDir ごと消えるケースで孤児化しないように、
+    // socket が外部から削除されたら break して自滅する。
+    let socket_check_interval = Duration::from_secs(config.socket_check_interval_secs);
+    let mut last_socket_check = Instant::now();
+
     let should_cleanup = loop {
         if exit_rx.try_recv().is_ok() {
             break false;
+        }
+
+        if last_socket_check.elapsed() >= socket_check_interval {
+            last_socket_check = Instant::now();
+            if !paths.socket_path().exists() {
+                log::info!("daemon socket disappeared, self-terminating");
+                break true;
+            }
         }
 
         match listener.accept() {

@@ -552,6 +552,50 @@ fn test_daemon_stop_falls_back_to_sigterm_when_socket_removed() {
     );
 }
 
+// ── #S3: socket 消失で daemon が自己終了する ─────────────────────────────────
+
+/// #S3: テスト異常終了などで `base_dir` ごと消えたケースの再現。
+///
+/// 起動済み daemon の socket ファイルを外部から削除すると、accept ループに仕込んだ
+/// ポーリングで消失を検知し、daemon プロセスが自己終了する。
+///
+/// 双方向の保証:
+/// - リーク防止: テストハーネスが Drop を走らせられず socket だけ消えるケースで daemon が孤児化しない
+/// - 同一バージョン同期: 旧 daemon の socket を新 daemon の `restart::cleanup` 等で消したときの
+///   フェイルセーフとしても効く
+#[test]
+fn test_daemon_self_terminates_when_socket_disappears() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+    // E2E では検出までの待ち時間を短くしたいので、インターバルを 1 秒に縮める。
+    let _daemon =
+        DaemonHandle::start_with_env(&env, &[("MERGE_READY_SOCKET_CHECK_INTERVAL_SECS", "1")]);
+
+    let pid: u32 = std::fs::read_to_string(versioned_pid(env.home()))
+        .expect("read pid file")
+        .trim()
+        .parse()
+        .expect("parse pid");
+    assert!(
+        is_pid_alive(pid),
+        "daemon should be alive before socket removal"
+    );
+
+    std::fs::remove_file(versioned_socket(env.home())).expect("remove socket file");
+
+    // インターバル 1 秒 + リスポンスの猶予を見て 5 秒以内に exit するはず
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if !is_pid_alive(pid) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(
+        !is_pid_alive(pid),
+        "daemon (pid={pid}) should self-terminate within 5s after socket file removed"
+    );
+}
+
 // ── #18: stale PID ファイルのクリーンアップ ──────────────────────────────────
 
 /// #18: 前回クラッシュした daemon が残した stale な PID ファイルがある状態で

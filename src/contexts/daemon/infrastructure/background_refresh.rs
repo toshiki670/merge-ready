@@ -141,6 +141,7 @@ mod tests {
             refresh_lock_timeout_secs: 120,
             entry_max_age_secs: 60,
             scheduler_tick_secs: 2,
+            socket_check_interval_secs: 5,
             policy: RefreshPolicy {
                 hot_recent_query_secs: 30,
                 hot_with_query_secs: 2,

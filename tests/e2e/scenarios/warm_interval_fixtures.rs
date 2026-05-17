@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use super::super::helpers::{TestEnv, setup_git_dirs, write_executable};
+use super::super::helpers::{
+    FAKE_GH_RATE_LIMIT_OK_SNIPPET, TestEnv, setup_git_dirs, write_executable,
+};
 
 /// Warm (CLEAN) PR + gh 呼び出しカウントログ付き fixture。
 ///
@@ -13,6 +15,7 @@ pub fn with_warm_pr_call_log() -> (TestEnv, PathBuf) {
     let checks_json = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
     let script = format!(
         "#!/bin/sh\n\
+         {FAKE_GH_RATE_LIMIT_OK_SNIPPET}\
          printf '1' >> \"{log}\"\n\
          case \"$*\" in\n\
            *'pr list'*)\n\

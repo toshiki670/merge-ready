@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use super::super::helpers::{TestEnv, setup_git_dirs, write_executable};
+use super::super::helpers::{
+    FAKE_GH_RATE_LIMIT_OK_SNIPPET, TestEnv, setup_git_dirs, write_executable,
+};
 
 /// `mergeStateStatus="UNKNOWN"` → `State::Calculating` → `CacheHint::Hot` の PR。
 /// gh 呼び出し回数をログファイルに記録する。
@@ -11,6 +13,7 @@ pub fn with_calculating_pr_call_log() -> (TestEnv, PathBuf) {
     let pr_list_json = r#"[{"number":1,"state":"OPEN","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null}]"#;
     let script = format!(
         "#!/bin/sh\n\
+         {FAKE_GH_RATE_LIMIT_OK_SNIPPET}\
          printf '1' >> \"{log}\"\n\
          case \"$*\" in\n\
            *'pr list'*)\n\
@@ -43,6 +46,7 @@ pub fn with_warm_pr_call_log() -> (TestEnv, PathBuf) {
     let checks_json = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
     let script = format!(
         "#!/bin/sh\n\
+         {FAKE_GH_RATE_LIMIT_OK_SNIPPET}\
          printf '1' >> \"{log}\"\n\
          case \"$*\" in\n\
            *'pr list'*)\n\

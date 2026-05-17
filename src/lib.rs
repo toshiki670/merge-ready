@@ -3,6 +3,8 @@
 pub(crate) mod contexts;
 pub(crate) mod shared;
 
+pub use shared::protocol::{Request, Response};
+
 use std::process::ExitCode;
 
 use crate::contexts::daemon::domain::cache::{CachePort, RepoId};

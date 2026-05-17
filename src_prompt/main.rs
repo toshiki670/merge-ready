@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
+use merge_ready::{Request, Response};
+
 const READ_TIMEOUT_MS: u64 = 500;
 
 fn main() {
@@ -40,14 +42,8 @@ fn query_daemon() -> Option<String> {
 
 /// `{"action":"query","cwd":"..."}\n`
 fn encode_query(cwd: &str) -> String {
-    #[derive(serde::Serialize)]
-    struct QueryMsg<'a> {
-        action: &'a str,
-        cwd: &'a str,
-    }
-    let mut s = serde_json::to_string(&QueryMsg {
-        action: "query",
-        cwd,
+    let mut s = serde_json::to_string(&Request::Query {
+        cwd: cwd.to_owned(),
     })
     .unwrap_or_default();
     s.push('\n');
@@ -56,16 +52,11 @@ fn encode_query(cwd: &str) -> String {
 
 /// `{"tag":"output","output":"..."}` → output フィールドを返す
 fn decode_query_response(bytes: &[u8]) -> Option<String> {
-    #[derive(serde::Deserialize)]
-    struct ResponseMsg {
-        tag: String,
-        output: Option<String>,
+    let line = bytes.split(|&b| b == b'\n').next()?;
+    match serde_json::from_slice::<Response>(line).ok()? {
+        Response::Output { output } => Some(output),
+        _ => None,
     }
-    let msg: ResponseMsg = serde_json::from_slice(bytes.split(|&b| b == b'\n').next()?).ok()?;
-    if msg.tag != "output" {
-        return None;
-    }
-    Some(msg.output.unwrap_or_default())
 }
 
 fn socket_path() -> PathBuf {

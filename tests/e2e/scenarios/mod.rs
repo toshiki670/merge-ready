@@ -12,6 +12,8 @@ mod no_pr;
 mod no_pr_fixtures;
 mod no_repo;
 mod no_repo_fixtures;
+mod rate_limit_aware;
+mod rate_limit_aware_fixtures;
 mod refresh_interval;
 mod refresh_interval_fixtures;
 mod refresh_timeout;

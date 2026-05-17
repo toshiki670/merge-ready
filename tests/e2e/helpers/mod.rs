@@ -45,3 +45,17 @@ pub(crate) fn write_executable(path: impl AsRef<Path>, content: &str) {
     fs::write(path, content).expect("failed to write script");
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("failed to chmod script");
 }
+
+/// fake `gh` バイナリ用に `api rate_limit` を「クォータ十分」の静的 JSON で返す
+/// シェルスクリプト断片。各 fixture の `case "$*"` よりも前に挿入することで、
+/// daemon の `rate_limit` fetcher による予期しないコール記録を防ぐ。
+///
+/// reset を遠未来（2286 年）に設定しているため、スナップショットは常に「枯渇しない／
+/// 残量比率ほぼ 1.0」と扱われ、既存テストの間隔判定に影響しない。
+pub(crate) const FAKE_GH_RATE_LIMIT_OK_SNIPPET: &str = r#"case "$*" in
+  *'api rate_limit'*)
+    printf '%s' '{"resources":{"core":{"limit":5000,"remaining":4999,"reset":9999999999},"graphql":{"limit":5000,"remaining":4999,"reset":9999999999}}}'
+    exit 0
+    ;;
+esac
+"#;

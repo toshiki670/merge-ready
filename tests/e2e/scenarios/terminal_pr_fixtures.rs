@@ -1,4 +1,6 @@
-use super::super::helpers::{TestEnv, setup_git_dirs, write_executable};
+use super::super::helpers::{
+    FAKE_GH_RATE_LIMIT_OK_SNIPPET, TestEnv, setup_git_dirs, write_executable,
+};
 
 /// terminal PR シナリオ（呼び出しカウンタ付き）
 ///
@@ -12,6 +14,7 @@ pub fn with_terminal_pr_call_log(state: &str) -> (TestEnv, std::path::PathBuf) {
     );
     let script = format!(
         "#!/bin/sh\n\
+         {FAKE_GH_RATE_LIMIT_OK_SNIPPET}\
          printf '1' >> \"{log}\"\n\
          case \"$*\" in\n\
            *'pr list'*)\n\

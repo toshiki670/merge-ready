@@ -265,7 +265,7 @@ impl CacheEntryState {
     }
 
     /// `update` の純粋版（バックグラウンドリフレッシュ完了時）。
-    pub(super) fn with_refresh_completed(
+    pub(in crate::contexts::daemon::domain) fn with_refresh_completed(
         mut self,
         output: String,
         pr_outputs: Vec<PrOutput>,
@@ -284,7 +284,7 @@ impl CacheEntryState {
     }
 
     /// 初回ミス時の純粋コンストラクタ。`new` の `now` 引数化版。
-    pub(super) fn new_loading(
+    pub(in crate::contexts::daemon::domain) fn new_loading(
         cwd: PathBuf,
         branch: String,
         stale_ttl: u64,

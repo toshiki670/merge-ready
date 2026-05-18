@@ -211,6 +211,7 @@ pub fn on_scheduler_tick(
             &e,
             snapshot.as_ref(),
             total_cost,
+            input.now,
             input.now_wall,
         );
         if fetched_at_elapsed(&e, now).as_secs() < interval {
@@ -312,24 +313,37 @@ fn reset_instant_from_snapshot(
 }
 
 // ───────────────────────────────────────────────────────────────
-// crate-private 述語ヘルパ（旧 getter の `now` 引数化版）
+// 純粋述語ヘルパ（旧 getter の `now` 引数化版）。daemon::domain 内で共有する
+// （`RefreshPolicy` も同じヘルパを呼ぶ）。
 // ───────────────────────────────────────────────────────────────
 
-pub(super) fn is_fresh(s: &CacheEntryState, ttl: u64, now: Instant) -> bool {
+pub(in crate::contexts::daemon::domain) fn is_fresh(
+    s: &CacheEntryState,
+    ttl: u64,
+    now: Instant,
+) -> bool {
     elapsed_secs(s.fetched_at(), now) <= ttl
 }
 
-pub(super) fn is_expired(s: &CacheEntryState, max_age_secs: u64, now: Instant) -> bool {
+pub(in crate::contexts::daemon::domain) fn is_expired(
+    s: &CacheEntryState,
+    max_age_secs: u64,
+    now: Instant,
+) -> bool {
     s.last_queried_at()
         .is_some_and(|t| elapsed_secs(t, now) >= max_age_secs)
 }
 
-pub(super) fn is_cold(s: &CacheEntryState, warm_to_cold_secs: u64, now: Instant) -> bool {
+pub(in crate::contexts::daemon::domain) fn is_cold(
+    s: &CacheEntryState,
+    warm_to_cold_secs: u64,
+    now: Instant,
+) -> bool {
     s.last_queried_at()
         .is_some_and(|t| elapsed_secs(t, now) >= warm_to_cold_secs)
 }
 
-pub(super) fn is_cold_or_never_queried(
+pub(in crate::contexts::daemon::domain) fn is_cold_or_never_queried(
     s: &CacheEntryState,
     warm_to_cold_secs: u64,
     now: Instant,
@@ -338,12 +352,28 @@ pub(super) fn is_cold_or_never_queried(
         .is_none_or(|t| elapsed_secs(t, now) >= warm_to_cold_secs)
 }
 
-pub(super) fn refresh_lock_expired(s: &CacheEntryState, timeout_secs: u64, now: Instant) -> bool {
+pub(in crate::contexts::daemon::domain) fn has_recent_query(
+    s: &CacheEntryState,
+    recent_secs: u64,
+    now: Instant,
+) -> bool {
+    s.last_queried_at()
+        .is_some_and(|t| elapsed_secs(t, now) <= recent_secs)
+}
+
+pub(in crate::contexts::daemon::domain) fn refresh_lock_expired(
+    s: &CacheEntryState,
+    timeout_secs: u64,
+    now: Instant,
+) -> bool {
     s.refresh_started_at()
         .is_some_and(|t| elapsed_secs(t, now) >= timeout_secs)
 }
 
-pub(super) fn fetched_at_elapsed(s: &CacheEntryState, now: Instant) -> Duration {
+pub(in crate::contexts::daemon::domain) fn fetched_at_elapsed(
+    s: &CacheEntryState,
+    now: Instant,
+) -> Duration {
     now.saturating_duration_since(s.fetched_at())
 }
 

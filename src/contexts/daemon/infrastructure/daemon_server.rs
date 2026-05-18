@@ -174,13 +174,13 @@ fn update_state_from_snapshot(
     let mut s = state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    s.latest_rate_limit = Some(*snapshot);
+    s.cache_store.set_latest_rate_limit(Some(*snapshot));
 
     // ボトルネック残量が閾値以下なら reset 時刻まで backoff
     if should_enter_backoff(snapshot)
         && let Some(reset_instant) = reset_instant_from_snapshot(snapshot)
     {
-        s.set_backoff(reset_instant);
+        s.cache_store.set_backoff(reset_instant);
     }
 }
 

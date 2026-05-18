@@ -10,7 +10,7 @@ use crate::shared::refresh_mode::RefreshMode;
 /// `Loading` → (`update`) → `Ready` → (`mark_refreshing`) → `Refreshing` → (`update`) → `Ready`
 /// `Loading` → (`clear_refresh_lock`) → `PendingRetry` → (`mark_refreshing`) → `Loading`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FetchState {
+pub enum FetchState {
     /// 初回リフレッシュ進行中。データ未取得。
     Loading,
     /// 初回リフレッシュがタイムアウト。再スケジュール待ち。データ未取得。
@@ -22,6 +22,7 @@ enum FetchState {
 }
 
 /// キャッシュエントリのドメインエンティティ。
+#[derive(Debug, Clone)]
 pub struct CacheEntryState {
     output: String,
     pr_outputs: Vec<PrOutput>,
@@ -192,6 +193,105 @@ impl CacheEntryState {
     pub fn is_cold(&self, warm_to_cold_secs: u64) -> bool {
         self.last_queried_at
             .is_some_and(|t| t.elapsed().as_secs() >= warm_to_cold_secs)
+    }
+
+    /// `FetchState` を読み出す。
+    pub fn fetch_state(&self) -> FetchState {
+        self.fetch_state
+    }
+
+    /// `fetched_at` を `Instant` で読み出す（transition / RefreshPolicy で `now` 比較に使用）。
+    pub fn fetched_at(&self) -> Instant {
+        self.fetched_at
+    }
+
+    /// `last_queried_at` を `Option<Instant>` で読み出す。
+    pub fn last_queried_at(&self) -> Option<Instant> {
+        self.last_queried_at
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    // 純粋ビルダ（`transition` モジュールから呼び出される）。
+    // 旧 `&mut self` メソッドは Step 6 で削除予定。
+    // ───────────────────────────────────────────────────────────────
+
+    /// `record_query` の純粋版。`last_queried_at = now` を反映した新しい値を返す。
+    pub(super) fn with_record_query(mut self, now: Instant) -> Self {
+        self.last_queried_at = Some(now);
+        self
+    }
+
+    /// `mark_refreshing` の純粋版。
+    pub(super) fn with_mark_refreshing(mut self, now: Instant) -> Self {
+        self.fetch_state = match self.fetch_state {
+            FetchState::Loading | FetchState::PendingRetry => FetchState::Loading,
+            FetchState::Ready | FetchState::Refreshing => FetchState::Refreshing,
+        };
+        self.refresh_started_at = Some(now);
+        self
+    }
+
+    /// `reset_cold_count` の純粋版。
+    pub(super) fn with_reset_cold_count(mut self) -> Self {
+        self.cold_refresh_count = 0;
+        self
+    }
+
+    /// `increment_cold_count` の純粋版。
+    pub(super) fn with_increment_cold_count(mut self) -> Self {
+        self.cold_refresh_count = self.cold_refresh_count.saturating_add(1);
+        self
+    }
+
+    /// `reset_to_warm` の純粋版。
+    pub(super) fn with_reset_to_warm(mut self) -> Self {
+        self.refresh_mode = RefreshMode::Warm;
+        self
+    }
+
+    /// `update` の純粋版（バックグラウンドリフレッシュ完了時）。
+    pub(super) fn with_refresh_completed(
+        mut self,
+        output: String,
+        pr_outputs: Vec<PrOutput>,
+        refresh_mode: RefreshMode,
+        now: Instant,
+        now_wall: SystemTime,
+    ) -> Self {
+        self.output = output;
+        self.pr_outputs = pr_outputs;
+        self.fetch_state = FetchState::Ready;
+        self.fetched_at = now;
+        self.fetched_at_wall = now_wall;
+        self.refresh_started_at = None;
+        self.refresh_mode = refresh_mode;
+        self
+    }
+
+    /// 初回ミス時の純粋コンストラクタ。`new` の `now` 引数化版。
+    pub(super) fn new_loading(
+        cwd: PathBuf,
+        branch: String,
+        stale_ttl: u64,
+        now: Instant,
+        now_wall: SystemTime,
+    ) -> Self {
+        let past = now
+            .checked_sub(Duration::from_secs(stale_ttl.saturating_add(1)))
+            .unwrap_or(now);
+        Self {
+            output: String::new(),
+            pr_outputs: Vec::new(),
+            fetch_state: FetchState::Loading,
+            fetched_at: past,
+            fetched_at_wall: now_wall,
+            refresh_started_at: Some(now),
+            cwd,
+            branch,
+            refresh_mode: RefreshMode::Warm,
+            last_queried_at: Some(now),
+            cold_refresh_count: 0,
+        }
     }
 
     #[cfg(test)]

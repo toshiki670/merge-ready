@@ -32,26 +32,27 @@ pub(super) fn collect_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(RepoId, P
     let policy = config.policy;
 
     // 期限切れ backoff のクリーンアップ
-    s.clear_backoff_if_expired(Instant::now());
+    s.cache_store.clear_backoff_if_expired(Instant::now());
 
     // backoff 中はリフレッシュを一切行わない（rate_limit 枯渇時の保護）
-    if s.should_backoff(Instant::now()) {
+    if s.cache_store.should_backoff(Instant::now()) {
         return Vec::new();
     }
 
-    s.entries
+    s.cache_store
+        .entries_mut()
         .retain(|_, entry| !entry.is_expired(config.entry_max_age_secs));
 
-    let total_cost = total_refresh_cost(s.entries.values());
+    let total_cost = total_refresh_cost(s.cache_store.entries().values());
     let snapshot = if config.rate_limit_aware {
-        s.latest_rate_limit
+        s.cache_store.latest_rate_limit().copied()
     } else {
         None
     };
     let now_wall = SystemTime::now();
 
     let mut targets = Vec::new();
-    for (repo_id, entry) in &mut s.entries {
+    for (repo_id, entry) in s.cache_store.entries_mut() {
         if !entry.is_active() {
             continue;
         }
@@ -162,10 +163,13 @@ mod tests {
     fn collect_targets_returns_empty_when_in_backoff() {
         let mut state = DaemonState::new(test_config());
         state
-            .entries
+            .cache_store
+            .entries_mut()
             .insert(RepoId::new("test".to_owned()), entry_with_prs(1, true));
         // backoff を未来に設定
-        state.set_backoff(Instant::now() + Duration::from_mins(1));
+        state
+            .cache_store
+            .set_backoff(Instant::now() + Duration::from_mins(1));
         let state = Arc::new(Mutex::new(state));
         let targets = collect_targets(&state);
         assert!(targets.is_empty());
@@ -178,12 +182,12 @@ mod tests {
         let past = Instant::now()
             .checked_sub(Duration::from_secs(10))
             .expect("past");
-        state.set_backoff(past);
+        state.cache_store.set_backoff(past);
         let state = Arc::new(Mutex::new(state));
         let _ = collect_targets(&state);
         let s = state.lock().unwrap();
         assert!(
-            s.backoff_until.is_none(),
+            s.cache_store.backoff_until().is_none(),
             "expired backoff should be cleared"
         );
     }

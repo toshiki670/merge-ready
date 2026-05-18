@@ -12,7 +12,7 @@ pub use event::{QueryEvent, RateLimitObservedEvent, RefreshCompletedEvent, Sched
 pub use port::CachePort;
 pub use repo_id::RepoId;
 pub use store::CacheStore;
-pub use transition::{on_query, on_refresh_completed, on_scheduler_tick};
+pub use transition::{on_query, on_rate_limit_observed, on_refresh_completed, on_scheduler_tick};
 
 /// 旧名互換 alias。`CacheEntryState` への段階移行のために残す。
 /// Issue #339 の最終 Phase で削除する。

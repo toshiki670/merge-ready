@@ -7,15 +7,21 @@
 //! drain して副作用（リフレッシュ起動、ソケット書き込み、ログ）を実行する。
 
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use super::effect::Effect;
 use super::entry::CacheEntryState;
-use super::event::{QueryEvent, RefreshCompletedEvent, SchedulerTickInput};
+use super::event::{QueryEvent, RateLimitObservedEvent, RefreshCompletedEvent, SchedulerTickInput};
 use super::repo_id::RepoId;
 use super::store::CacheStore;
+use crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot;
 use crate::contexts::daemon::domain::refresh_policy::RefreshPolicy;
 use crate::shared::refresh_mode::RefreshMode;
+
+/// `bottleneck_ratio` の basis points スケール（10000 == 1.0）。
+const RATIO_SCALE_BP: u64 = 10_000;
+/// ボトルネック残量比率がこの値（basis points）以下になったら backoff へ。
+const BACKOFF_THRESHOLD_BP: u64 = 500; // 5%
 
 // ───────────────────────────────────────────────────────────────
 // 純粋関数: on_query
@@ -237,6 +243,72 @@ fn total_refresh_cost<'a, I: IntoIterator<Item = &'a CacheEntryState>>(entries: 
         total = total.saturating_add(pr_count.saturating_add(2));
     }
     total
+}
+
+// ───────────────────────────────────────────────────────────────
+// 純粋関数: on_rate_limit_observed
+// ───────────────────────────────────────────────────────────────
+
+/// Rate limit スナップショット観測時の純粋遷移。
+///
+/// 振る舞いは旧 `update_state_from_snapshot` と等価:
+/// - `latest_rate_limit` を更新
+/// - ボトルネック残量が枯渇または閾値以下なら、reset 時刻まで `backoff_until` を設定し
+///   `EnterBackoff` Effect を発行（既存 backoff と新規 backoff の時刻が異なる場合のみ）
+#[must_use]
+pub fn on_rate_limit_observed(
+    store: &CacheStore,
+    event: RateLimitObservedEvent,
+) -> (CacheStore, Vec<Effect>) {
+    let mut effects: Vec<Effect> = Vec::new();
+    let snapshot = event.snapshot;
+
+    let new_backoff_until = if should_enter_backoff(&snapshot) {
+        reset_instant_from_snapshot(&snapshot, event.now, event.now_wall)
+            .or_else(|| store.backoff_until())
+    } else {
+        store.backoff_until()
+    };
+
+    if let Some(until) = new_backoff_until
+        && should_enter_backoff(&snapshot)
+        && store.backoff_until() != Some(until)
+    {
+        effects.push(Effect::EnterBackoff { until });
+    }
+
+    let new_store = store
+        .clone()
+        .with_latest_rate_limit(Some(snapshot))
+        .with_backoff_until(new_backoff_until);
+
+    (new_store, effects)
+}
+
+fn should_enter_backoff(snapshot: &RateLimitSnapshot) -> bool {
+    if snapshot.is_exhausted() {
+        return true;
+    }
+    let core_bp = ratio_bp(snapshot.core_remaining, snapshot.core_limit);
+    let graphql_bp = ratio_bp(snapshot.graphql_remaining, snapshot.graphql_limit);
+    core_bp.min(graphql_bp) <= BACKOFF_THRESHOLD_BP
+}
+
+fn ratio_bp(remaining: u32, limit: u32) -> u64 {
+    if limit == 0 {
+        return RATIO_SCALE_BP;
+    }
+    (u64::from(remaining).saturating_mul(RATIO_SCALE_BP)) / u64::from(limit)
+}
+
+/// `snapshot.reset_at`（壁時計）を `Instant`（モノトニック）へ変換する。
+fn reset_instant_from_snapshot(
+    snapshot: &RateLimitSnapshot,
+    now_instant: Instant,
+    now_wall: SystemTime,
+) -> Option<Instant> {
+    let delta = snapshot.reset_at.duration_since(now_wall).ok()?;
+    Some(now_instant + delta)
 }
 
 // ───────────────────────────────────────────────────────────────
@@ -739,5 +811,77 @@ mod tests {
         assert!(!e.is_active());
         let entries = vec![e];
         assert_eq!(super::total_refresh_cost(&entries), 0);
+    }
+
+    // ── on_rate_limit_observed ───────────────────────────────────
+
+    fn make_snapshot(remaining: u32, limit: u32, secs_until_reset: u64) -> RateLimitSnapshot {
+        RateLimitSnapshot {
+            core_remaining: remaining,
+            core_limit: limit,
+            graphql_remaining: remaining,
+            graphql_limit: limit,
+            reset_at: SystemTime::now() + Duration::from_secs(secs_until_reset),
+            fetched_at: Instant::now(),
+        }
+    }
+
+    #[test]
+    fn on_rate_limit_observed_updates_snapshot() {
+        let store = CacheStore::new();
+        // 残量フル (50%) → backoff には入らない
+        let snapshot = make_snapshot(5_000, 10_000, 1_800);
+        let event = RateLimitObservedEvent {
+            snapshot,
+            now: Instant::now(),
+            now_wall: SystemTime::now(),
+        };
+        let (new_store, effects) = on_rate_limit_observed(&store, event);
+
+        assert!(effects.is_empty(), "no backoff effect expected");
+        assert!(new_store.latest_rate_limit().is_some());
+        assert_eq!(new_store.backoff_until(), None);
+    }
+
+    #[test]
+    fn on_rate_limit_observed_enters_backoff_when_exhausted() {
+        let store = CacheStore::new();
+        // 完全枯渇
+        let snapshot = make_snapshot(0, 10_000, 1_800);
+        let event = RateLimitObservedEvent {
+            snapshot,
+            now: Instant::now(),
+            now_wall: SystemTime::now(),
+        };
+        let (new_store, effects) = on_rate_limit_observed(&store, event);
+
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::EnterBackoff { .. })),
+            "EnterBackoff effect expected: {effects:?}"
+        );
+        assert!(new_store.backoff_until().is_some());
+    }
+
+    #[test]
+    fn on_rate_limit_observed_enters_backoff_when_below_threshold() {
+        let store = CacheStore::new();
+        // 残量 4% (= 400 bp < 500 bp の閾値)
+        let snapshot = make_snapshot(400, 10_000, 1_800);
+        let event = RateLimitObservedEvent {
+            snapshot,
+            now: Instant::now(),
+            now_wall: SystemTime::now(),
+        };
+        let (new_store, effects) = on_rate_limit_observed(&store, event);
+
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::EnterBackoff { .. })),
+            "EnterBackoff expected when below threshold: {effects:?}"
+        );
+        assert!(new_store.backoff_until().is_some());
     }
 }

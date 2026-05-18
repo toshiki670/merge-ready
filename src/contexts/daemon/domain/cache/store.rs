@@ -51,6 +51,11 @@ impl CacheStore {
         self
     }
 
+    pub(super) fn with_latest_rate_limit(mut self, r: Option<RateLimitSnapshot>) -> Self {
+        self.latest_rate_limit = r;
+        self
+    }
+
     // ───────────────────────────────────────────────────────────────
     // 段階移行用の mutating API（Issue #339 最終 Phase で削除予定）
     //

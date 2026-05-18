@@ -1,25 +1,19 @@
 //! merge-ready — Show pull request merge blockers as concise prompt tokens.
 
 pub(crate) mod contexts;
+pub(crate) mod shared;
+
+pub use shared::prompt_ipc;
 
 use std::process::ExitCode;
 
-use crate::contexts::daemon::application::cache as daemon_cache_app;
-use crate::contexts::daemon::domain::cache::{PrOutput, RefreshMode, RepoId};
+use crate::contexts::daemon::domain::cache::{CachePort, RepoId};
 use crate::contexts::daemon::infrastructure::daemon_client::DaemonClient;
 use crate::contexts::daemon::infrastructure::daemon_lifecycle::DaemonLifecycle;
 use crate::contexts::daemon::infrastructure::paths::Paths;
 use crate::contexts::evaluation::infrastructure::toml_loader::TomlConfigRepository;
 use crate::contexts::evaluation::infrastructure::{gh::GhClient, logger::Logger};
-use crate::contexts::evaluation::interface::prompt::CacheHint;
-
-fn cache_hint_to_refresh_mode(hint: CacheHint) -> RefreshMode {
-    match hint {
-        CacheHint::Hot => RefreshMode::Hot,
-        CacheHint::Warm => RefreshMode::Warm,
-        CacheHint::Terminal => RefreshMode::Terminal,
-    }
-}
+use crate::shared::protocol::PrOutput;
 
 fn build_daemon_lifecycle() -> DaemonLifecycle {
     DaemonLifecycle::new(
@@ -31,7 +25,6 @@ fn build_daemon_lifecycle() -> DaemonLifecycle {
                 &TomlConfigRepository::new(),
                 &Logger,
             );
-            let refresh_mode = cache_hint_to_refresh_mode(result.cache_hint);
             let pr_outputs = result
                 .pr_outputs
                 .into_iter()
@@ -40,11 +33,10 @@ fn build_daemon_lifecycle() -> DaemonLifecycle {
                     output,
                 })
                 .collect();
-            daemon_cache_app::update(
-                &DaemonClient::new(Paths::default().socket_path()),
+            DaemonClient::new(Paths::default().socket_path()).update(
                 repo_id,
                 &result.output,
-                refresh_mode,
+                result.refresh_mode,
                 pr_outputs,
             );
         },

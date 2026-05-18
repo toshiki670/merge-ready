@@ -6,10 +6,10 @@ use std::time::Duration;
 
 use super::daemon_server::RefreshFn;
 use super::paths::Paths;
-use super::protocol::Request;
 use super::request_handler::{self, ActionResult};
 use super::restart;
 use super::server_state::DaemonState;
+use crate::shared::protocol::Request;
 
 pub(super) fn handle(
     mut stream: UnixStream,

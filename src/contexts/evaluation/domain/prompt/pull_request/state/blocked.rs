@@ -1,12 +1,40 @@
-pub mod branch_sync;
-pub mod ci;
-pub mod generic;
-pub mod review;
+/// ブランチ同期のブロッカー評価状態
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BranchSyncState {
+    /// ベースブランチとのマージ競合が発生している
+    Conflict,
+    /// ベースブランチに対して遅れており更新が必要
+    UpdateBranch,
+    /// 同期状態を判定できない（Compare API が利用不可など）
+    SyncUnknown,
+}
 
-use branch_sync::BranchSyncState;
-use ci::CiState;
-pub use generic::GenericBlockedState;
-use review::ReviewState;
+/// CI のブロッカー評価状態
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CiState {
+    /// チェックが失敗またはキャンセルされている
+    Fail,
+    /// 手動アクションが必要なチェックが存在する
+    ActionRequired,
+    /// チェックが実行中
+    Pending,
+}
+
+/// レビューのブロッカー評価状態
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReviewState {
+    /// レビュアーが変更を要求している
+    ChangesRequested,
+    /// レビュアーがまだアサインされていない
+    ReviewRequired,
+}
+
+/// 汎用ブロッカー評価状態
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GenericBlockedState {
+    /// API で原因を特定できないブロック（`mergeStateStatus == "BLOCKED"` かつ他シグナルすべて None）
+    BlockedUnknown,
+}
 
 /// PR がブロックされているときのブロッカー集合（複数同時に存在できる）
 ///

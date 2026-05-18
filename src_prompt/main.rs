@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
+use merge_ready::prompt_ipc;
+
 const READ_TIMEOUT_MS: u64 = 500;
 
 fn main() {
@@ -28,44 +30,14 @@ fn query_daemon() -> Option<String> {
         .ok()?;
     let mut stream = stream;
 
-    let msg = encode_query(&cwd);
-    stream.write_all(msg.as_bytes()).ok()?;
+    let req = prompt_ipc::Request { cwd };
+    stream.write_all(req.encode().as_bytes()).ok()?;
 
     // レスポンスはスタックバッファで受け取る（8KB BufReader ヒープ確保を回避）
     let mut buf = [0u8; 512];
     let n = stream.read(&mut buf).ok()?;
 
-    decode_query_response(&buf[..n])
-}
-
-/// `{"action":"query","cwd":"..."}\n`
-fn encode_query(cwd: &str) -> String {
-    #[derive(serde::Serialize)]
-    struct QueryMsg<'a> {
-        action: &'a str,
-        cwd: &'a str,
-    }
-    let mut s = serde_json::to_string(&QueryMsg {
-        action: "query",
-        cwd,
-    })
-    .unwrap_or_default();
-    s.push('\n');
-    s
-}
-
-/// `{"tag":"output","output":"..."}` → output フィールドを返す
-fn decode_query_response(bytes: &[u8]) -> Option<String> {
-    #[derive(serde::Deserialize)]
-    struct ResponseMsg {
-        tag: String,
-        output: Option<String>,
-    }
-    let msg: ResponseMsg = serde_json::from_slice(bytes.split(|&b| b == b'\n').next()?).ok()?;
-    if msg.tag != "output" {
-        return None;
-    }
-    Some(msg.output.unwrap_or_default())
+    prompt_ipc::Response::decode(&buf[..n]).map(|r| r.output)
 }
 
 fn socket_path() -> PathBuf {

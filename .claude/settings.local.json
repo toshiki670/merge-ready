@@ -41,7 +41,8 @@
       "Bash(rtk wc *)",
       "WebFetch(domain:github.com)",
       "WebSearch",
-      "Skill(update-config)"
+      "Skill(update-config)",
+      "Bash(cargo doc *)"
     ]
   },
   "enabledPlugins": {

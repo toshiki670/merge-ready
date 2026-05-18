@@ -1,4 +1,6 @@
-use super::{PrOutput, RefreshMode, RepoId};
+use super::RepoId;
+use crate::shared::protocol::PrOutput;
+use crate::shared::refresh_mode::RefreshMode;
 
 /// キャッシュの更新ポート。
 pub trait CachePort {

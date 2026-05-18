@@ -8,8 +8,8 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use serde::Deserialize;
 
-use super::gh_command::{GhCommandError, run_gh};
 use crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot;
+use crate::shared::process_gh::{GhProcessError, run_gh};
 
 #[allow(dead_code)] // 後続コミットで daemon_server が起動するまでの間
 pub(super) struct RateLimitClient {
@@ -73,7 +73,7 @@ impl RateLimitClient {
 }
 
 fn raw_fetch() -> Option<RateLimitSnapshot> {
-    match run_gh(&["api", "rate_limit"]) {
+    match run_gh(&["api", "rate_limit"], None) {
         Ok(bytes) => {
             let parsed = parse_rate_limit_json(&bytes, Instant::now());
             if parsed.is_none() {
@@ -81,15 +81,15 @@ fn raw_fetch() -> Option<RateLimitSnapshot> {
             }
             parsed
         }
-        Err(GhCommandError::ApiError(msg)) => {
-            log::warn!("rate_limit fetch failed: {msg}");
+        Err(GhProcessError::Failed { stderr, .. }) => {
+            log::warn!("rate_limit fetch failed: {stderr}");
             None
         }
-        Err(GhCommandError::NotInstalled) => {
+        Err(GhProcessError::NotInstalled) => {
             log::warn!("rate_limit fetch failed: gh not installed");
             None
         }
-        Err(GhCommandError::Timeout) => {
+        Err(GhProcessError::Timeout) => {
             log::warn!("rate_limit fetch failed: timeout");
             None
         }

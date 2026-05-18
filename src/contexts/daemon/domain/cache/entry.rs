@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
-use super::RefreshMode;
+use crate::shared::protocol::PrOutput;
+use crate::shared::refresh_mode::RefreshMode;
 
 /// `CacheEntry` のフェッチ状態を表す状態機械。
 ///
@@ -20,25 +21,19 @@ enum FetchState {
     Refreshing,
 }
 
-/// PR 単体のレンダリング済み出力。watch 表示用。
-pub struct PrOutput {
-    pub pr_id: u64,
-    pub output: String,
-}
-
 /// キャッシュエントリのドメインエンティティ。
 pub struct CacheEntry {
     output: String,
     pr_outputs: Vec<PrOutput>,
     fetch_state: FetchState,
-    pub(crate) fetched_at: Instant,
+    fetched_at: Instant,
     fetched_at_wall: SystemTime,
-    pub(crate) refresh_started_at: Option<Instant>,
-    pub(crate) cwd: PathBuf,
+    refresh_started_at: Option<Instant>,
+    cwd: PathBuf,
     branch: String,
     refresh_mode: RefreshMode,
-    pub(crate) last_queried_at: Option<Instant>,
-    pub(crate) cold_refresh_count: u32,
+    last_queried_at: Option<Instant>,
+    cold_refresh_count: u32,
 }
 
 impl CacheEntry {
@@ -129,6 +124,11 @@ impl CacheEntry {
         &self.cwd
     }
 
+    /// `fetched_at` からの経過時間。バックグラウンドリフレッシュ判定で使用。
+    pub fn fetched_at_elapsed(&self) -> Duration {
+        self.fetched_at.elapsed()
+    }
+
     pub fn branch(&self) -> &str {
         &self.branch
     }
@@ -192,5 +192,15 @@ impl CacheEntry {
     pub fn is_cold(&self, warm_to_cold_secs: u64) -> bool {
         self.last_queried_at
             .is_some_and(|t| t.elapsed().as_secs() >= warm_to_cold_secs)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_last_queried_at_for_test(&mut self, t: Option<Instant>) {
+        self.last_queried_at = t;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_cold_refresh_count_for_test(&mut self, n: u32) {
+        self.cold_refresh_count = n;
     }
 }

@@ -3,8 +3,9 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use super::protocol::{EntryDto, PrOutputDto, RefreshModeDto, Request, Response};
-use crate::contexts::daemon::domain::cache::{CachePort, PrOutput, RefreshMode, RepoId};
+use crate::contexts::daemon::domain::cache::{CachePort, RepoId};
+use crate::shared::protocol::{EntryDto, PrOutput, Request, Response};
+use crate::shared::refresh_mode::RefreshMode;
 
 /// デーモンソケットへの接続タイムアウト（ms）
 const READ_TIMEOUT_MS: u64 = 500;
@@ -19,16 +20,6 @@ impl DaemonClient {
     }
 }
 
-impl From<RefreshMode> for RefreshModeDto {
-    fn from(m: RefreshMode) -> Self {
-        match m {
-            RefreshMode::Hot => RefreshModeDto::Hot,
-            RefreshMode::Warm => RefreshModeDto::Warm,
-            RefreshMode::Terminal => RefreshModeDto::Terminal,
-        }
-    }
-}
-
 impl CachePort for DaemonClient {
     fn update(
         &self,
@@ -37,18 +28,11 @@ impl CachePort for DaemonClient {
         refresh_mode: RefreshMode,
         pr_outputs: Vec<PrOutput>,
     ) {
-        let pr_outputs_dto = pr_outputs
-            .into_iter()
-            .map(|p| PrOutputDto {
-                pr_id: p.pr_id,
-                output: p.output,
-            })
-            .collect();
         let _ = self.send(&Request::Update {
             repo_id: repo_id.as_str().to_owned(),
             output: output.to_owned(),
-            refresh_mode: RefreshModeDto::from(refresh_mode),
-            pr_outputs: pr_outputs_dto,
+            refresh_mode,
+            pr_outputs,
         });
     }
 }

@@ -1,10 +1,26 @@
+//! `gh` CLI のサブプロセス起動を一本化したラッパ。
+//!
+//! daemon / evaluation 双方の context から `crate::shared::process_gh::run_gh`
+//! で呼び出す。タイムアウトは `MERGE_READY_GH_TIMEOUT_SECS`（既定 30 秒）。
+//!
+//! エラー分類は呼び出し側の関心事として保持し、ここでは
+//! `NotInstalled` / `Timeout` / `Failed { exit_code, stderr }` の 3 種類だけを返す。
+
 use std::io::{ErrorKind, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use super::error::{GhError, classify_gh_error};
+#[derive(Debug)]
+pub enum GhProcessError {
+    /// `gh` バイナリが見つからない
+    NotInstalled,
+    /// `MERGE_READY_GH_TIMEOUT_SECS` を超えた
+    Timeout,
+    /// 非ゼロ終了。`exit_code` と `stderr` を呼び出し側の分類器に渡せる
+    Failed { exit_code: i32, stderr: String },
+}
 
 fn gh_timeout() -> Duration {
     let secs = std::env::var("MERGE_READY_GH_TIMEOUT_SECS")
@@ -14,7 +30,7 @@ fn gh_timeout() -> Duration {
     Duration::from_secs(secs)
 }
 
-pub(super) fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhError> {
+pub fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhProcessError> {
     let mut cmd = Command::new("gh");
     cmd.args(args);
     cmd.stdout(Stdio::piped());
@@ -24,8 +40,13 @@ pub(super) fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhErr
     }
 
     let mut child = match cmd.spawn() {
-        Err(e) if e.kind() == ErrorKind::NotFound => return Err(GhError::NotInstalled),
-        Err(e) => return Err(GhError::ApiError(e.to_string())),
+        Err(e) if e.kind() == ErrorKind::NotFound => return Err(GhProcessError::NotInstalled),
+        Err(e) => {
+            return Err(GhProcessError::Failed {
+                exit_code: -1,
+                stderr: e.to_string(),
+            });
+        }
         Ok(c) => c,
     };
 
@@ -56,15 +77,23 @@ pub(super) fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhErr
                 }
                 let exit_code = status.code().unwrap_or(1);
                 let stderr_str = String::from_utf8_lossy(&stderr).into_owned();
-                return Err(classify_gh_error(exit_code, &stderr_str));
+                return Err(GhProcessError::Failed {
+                    exit_code,
+                    stderr: stderr_str,
+                });
             }
             Ok(None) if Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(GhError::Timeout);
+                return Err(GhProcessError::Timeout);
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(e) => return Err(GhError::ApiError(e.to_string())),
+            Err(e) => {
+                return Err(GhProcessError::Failed {
+                    exit_code: -1,
+                    stderr: e.to_string(),
+                });
+            }
         }
     }
 }

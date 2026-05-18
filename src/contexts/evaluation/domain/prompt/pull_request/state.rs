@@ -1,11 +1,7 @@
 pub mod blocked;
 pub mod unblocked;
 
-use blocked::BlockedState;
-use blocked::GenericBlockedState;
-use blocked::branch_sync::BranchSyncState;
-use blocked::ci::CiState;
-use blocked::review::ReviewState;
+use blocked::{BlockedState, BranchSyncState, CiState, GenericBlockedState, ReviewState};
 use unblocked::UnblockedState;
 
 /// PR の評価状態（排他的）
@@ -52,10 +48,7 @@ pub fn evaluate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use blocked::GenericBlockedState;
-    use blocked::branch_sync::BranchSyncState;
-    use blocked::ci::CiState;
-    use blocked::review::ReviewState;
+    use blocked::{BranchSyncState, CiState, GenericBlockedState, ReviewState};
     use unblocked::UnblockedState;
 
     #[test]

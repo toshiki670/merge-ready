@@ -1,18 +1,16 @@
-mod command;
 mod error;
 mod fetch;
 mod mapper;
 mod schema;
 
-use command::run_gh;
-use error::GhError;
+use error::{GhError, classify_gh_error};
 use fetch::fetch_behind_by;
 use mapper::{aggregate_ci, translate_review, translate_sync, translate_unblocked};
 use schema::{CheckBucket, GhCheckItem, GhPrListItem, GhRepoViewFull, translate_bucket};
 
 use crate::contexts::evaluation::application::port::{ErrorCategory, ErrorLogger, LogRecord};
 use crate::contexts::evaluation::domain::error::RepositoryError;
-use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::ci::CiState;
+use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::CiState;
 use crate::contexts::evaluation::domain::prompt::pull_request::state::evaluate;
 use crate::contexts::evaluation::domain::prompt::{
     PrId, Prompt, PromptRepository, PullRequest, State,
@@ -33,7 +31,16 @@ impl<L: ErrorLogger + Sync> GhClient<L> {
     }
 
     fn run_gh(&self, args: &[&str]) -> Result<Vec<u8>, GhError> {
-        run_gh(args, Some(&self.cwd))
+        match crate::shared::process_gh::run_gh(args, Some(&self.cwd)) {
+            Ok(bytes) => Ok(bytes),
+            Err(crate::shared::process_gh::GhProcessError::NotInstalled) => {
+                Err(GhError::NotInstalled)
+            }
+            Err(crate::shared::process_gh::GhProcessError::Timeout) => Err(GhError::Timeout),
+            Err(crate::shared::process_gh::GhProcessError::Failed { exit_code, stderr }) => {
+                Err(classify_gh_error(exit_code, &stderr))
+            }
+        }
     }
 
     fn cwd(&self) -> &std::path::Path {

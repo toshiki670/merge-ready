@@ -1,7 +1,8 @@
 use std::time::SystemTime;
 
-use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode};
+use crate::contexts::daemon::domain::cache::CacheEntry;
 use crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot;
+use crate::shared::refresh_mode::RefreshMode;
 
 /// `bottleneck_ratio` の basis points スケール（10000 == 1.0）。
 const RATIO_SCALE: u64 = 10_000;
@@ -260,7 +261,7 @@ fn compute_budget_term(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::daemon::domain::cache::PrOutput;
+    use crate::shared::protocol::PrOutput;
     use std::path::PathBuf;
     use std::time::{Duration, Instant};
 
@@ -285,7 +286,9 @@ mod tests {
     }
 
     fn shift_last_queried(entry: &mut CacheEntry, ago_secs: u64) {
-        entry.last_queried_at = Instant::now().checked_sub(Duration::from_secs(ago_secs));
+        entry.set_last_queried_at_for_test(
+            Instant::now().checked_sub(Duration::from_secs(ago_secs)),
+        );
     }
 
     #[test]
@@ -346,7 +349,7 @@ mod tests {
         let policy = test_policy();
         let mut entry = entry_with_mode(RefreshMode::Warm);
         shift_last_queried(&mut entry, policy.warm_to_cold_secs + 60);
-        entry.cold_refresh_count = 0; // 初期
+        entry.set_cold_refresh_count_for_test(0); // 初期
         assert_eq!(
             policy.effective_refresh_interval_secs(&entry),
             policy.cold_early_secs
@@ -358,7 +361,7 @@ mod tests {
         let policy = test_policy();
         let mut entry = entry_with_mode(RefreshMode::Warm);
         shift_last_queried(&mut entry, policy.warm_to_cold_secs + 60);
-        entry.cold_refresh_count = policy.cold_early_limit; // しきい値ちょうど
+        entry.set_cold_refresh_count_for_test(policy.cold_early_limit); // しきい値ちょうど
         assert_eq!(
             policy.effective_refresh_interval_secs(&entry),
             policy.cold_late_secs

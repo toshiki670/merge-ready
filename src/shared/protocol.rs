@@ -1,18 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-/// IPC ワイヤフォーマット上のリフレッシュモード DTO。
-/// Domain 層の `RefreshMode` とは独立して定義する。
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RefreshModeDto {
-    Hot,
-    Warm,
-    Terminal,
-}
+use super::refresh_mode::RefreshMode;
 
-/// PR 単体のレンダリング済み出力 DTO。watch 表示用。
+/// PR 単体のレンダリング済み出力。watch 表示用かつ IPC ワイヤフォーマット上の表現。
 #[derive(Debug, Serialize, Deserialize)]
-pub struct PrOutputDto {
+pub struct PrOutput {
     pub pr_id: u64,
     pub output: String,
 }
@@ -41,8 +33,8 @@ pub enum Request {
     Update {
         repo_id: String,
         output: String,
-        refresh_mode: RefreshModeDto,
-        pr_outputs: Vec<PrOutputDto>,
+        refresh_mode: RefreshMode,
+        pr_outputs: Vec<PrOutput>,
     },
     Stop,
     Status,
@@ -86,5 +78,14 @@ mod tests {
         assert!(json.contains("cached_at_secs"));
         assert!(json.contains("pr_id"));
         assert!(json.contains("/tmp"));
+    }
+
+    #[test]
+    fn refresh_mode_round_trip() {
+        for mode in [RefreshMode::Hot, RefreshMode::Warm, RefreshMode::Terminal] {
+            let json = serde_json::to_string(&mode).unwrap();
+            let parsed: RefreshMode = serde_json::from_str(&json).unwrap();
+            assert_eq!(mode, parsed);
+        }
     }
 }

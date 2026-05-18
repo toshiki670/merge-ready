@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime};
 
 use super::server_state::DaemonState;
-use crate::contexts::daemon::domain::cache::{CacheEntry, RefreshMode, RepoId};
+use crate::contexts::daemon::domain::cache::{CacheEntry, RepoId};
+use crate::shared::refresh_mode::RefreshMode;
 
 /// 全 active エントリの「1 リフレッシュ」当たり API コスト総和を求める。
 /// `pr_count + 2`（pr list 1 + repo view 1 + pr checks N）を集計し、
@@ -66,14 +67,14 @@ pub(super) fn collect_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(RepoId, P
             total_cost,
             now_wall,
         );
-        if entry.fetched_at.elapsed().as_secs() < interval {
+        if entry.fetched_at_elapsed().as_secs() < interval {
             continue;
         }
         if entry.refresh_mode() == RefreshMode::Warm && entry.is_cold(policy.warm_to_cold_secs) {
             entry.increment_cold_count();
         }
         entry.mark_refreshing();
-        targets.push((repo_id.clone(), entry.cwd.clone()));
+        targets.push((repo_id.clone(), entry.cwd().to_path_buf()));
     }
     targets
 }
@@ -81,7 +82,7 @@ pub(super) fn collect_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(RepoId, P
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contexts::daemon::domain::cache::PrOutput;
+    use crate::shared::protocol::PrOutput;
     use std::time::Duration;
 
     fn entry_with_prs(pr_count: usize, active: bool) -> CacheEntry {

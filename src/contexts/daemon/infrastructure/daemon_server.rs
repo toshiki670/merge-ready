@@ -179,7 +179,7 @@ fn update_state_from_snapshot(
         now: Instant::now(),
         now_wall: SystemTime::now(),
     };
-    let (new_store, effects) = on_rate_limit_observed(&s.cache_store, event);
+    let (new_store, effects) = on_rate_limit_observed(&s.cache_store, &event);
     s.cache_store = new_store;
     drop(s);
 

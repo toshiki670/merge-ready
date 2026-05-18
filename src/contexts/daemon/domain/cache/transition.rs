@@ -32,9 +32,9 @@ const BACKOFF_THRESHOLD_BP: u64 = 500; // 5%
 /// 振る舞いは旧 `process_query` / `process_stale_query` と等価。
 /// - 未知の `repo_id` → 新規 Loading エントリ作成 + `SpawnRefresh` + `EmitOutput("? loading")`
 /// - Fresh → `record_query` 反映 + `EmitOutput(stored)`
-/// - Stale + Refreshing + !has_fetched → `EmitOutput("? loading")`
-/// - Stale + Refreshing + has_fetched → `EmitOutput(stored)`
-/// - Stale + NeedsRefresh → `reset_cold_count`(if cold) + `record_query`
+/// - Stale + Refreshing + `!has_fetched` → `EmitOutput("? loading")`
+/// - Stale + Refreshing + `has_fetched` → `EmitOutput(stored)`
+/// - Stale + `NeedsRefresh` → `reset_cold_count`(if cold) + `record_query`
 ///   + `reset_to_warm`(if Terminal) + `mark_refreshing`
 ///   + `SpawnRefresh` + `EmitOutput(stored)`
 #[must_use]
@@ -159,7 +159,7 @@ pub fn on_refresh_completed(
 #[must_use]
 pub fn on_scheduler_tick(
     store: &CacheStore,
-    input: SchedulerTickInput<'_>,
+    input: &SchedulerTickInput<'_>,
 ) -> (CacheStore, Vec<Effect>) {
     let now = input.now;
 
@@ -259,7 +259,7 @@ fn total_refresh_cost<'a, I: IntoIterator<Item = &'a CacheEntryState>>(entries: 
 #[must_use]
 pub fn on_rate_limit_observed(
     store: &CacheStore,
-    event: RateLimitObservedEvent,
+    event: &RateLimitObservedEvent,
 ) -> (CacheStore, Vec<Effect>) {
     let mut effects: Vec<Effect> = Vec::new();
     let snapshot = event.snapshot;
@@ -629,16 +629,15 @@ mod tests {
 
     // ── on_scheduler_tick ────────────────────────────────────────
 
-    fn tick_input<'a>(
-        policy: &'a RefreshPolicy,
+    fn tick_input(
+        policy: &RefreshPolicy,
         now: Instant,
         now_wall: SystemTime,
-    ) -> SchedulerTickInput<'a> {
+    ) -> SchedulerTickInput<'_> {
         SchedulerTickInput {
             now,
             now_wall,
             policy,
-            stale_ttl: 10,
             refresh_lock_timeout_secs: 120,
             entry_max_age_secs: 60,
         }
@@ -658,9 +657,9 @@ mod tests {
         let repo_id = RepoId::new("repo".to_owned());
         let entry = ready_entry(now, now_wall, RefreshMode::Warm);
         let store = put(CacheStore::new(), &repo_id, entry)
-            .with_backoff_until(Some(now + Duration::from_secs(60)));
+            .with_backoff_until(Some(now + Duration::from_mins(1)));
 
-        let (new_store, effects) = on_scheduler_tick(&store, tick_input(&policy, now, now_wall));
+        let (new_store, effects) = on_scheduler_tick(&store, &tick_input(&policy, now, now_wall));
 
         assert!(effects.is_empty());
         // entries は不変
@@ -677,7 +676,7 @@ mod tests {
         let past = now.checked_sub(Duration::from_secs(10)).expect("past");
         let store = CacheStore::new().with_backoff_until(Some(past));
 
-        let (new_store, _effects) = on_scheduler_tick(&store, tick_input(&policy, now, now_wall));
+        let (new_store, _effects) = on_scheduler_tick(&store, &tick_input(&policy, now, now_wall));
 
         assert_eq!(new_store.backoff_until(), None);
     }
@@ -690,14 +689,12 @@ mod tests {
         let repo_id = RepoId::new("repo".to_owned());
 
         // last_queried_at が entry_max_age_secs より過去
-        let very_past = now
-            .checked_sub(Duration::from_secs(120))
-            .expect("very past");
+        let very_past = now.checked_sub(Duration::from_mins(2)).expect("very past");
         let mut entry = ready_entry(very_past, now_wall, RefreshMode::Warm);
         entry = entry.with_record_query(very_past);
         let store = put(CacheStore::new(), &repo_id, entry);
 
-        let (new_store, effects) = on_scheduler_tick(&store, tick_input(&policy, now, now_wall));
+        let (new_store, effects) = on_scheduler_tick(&store, &tick_input(&policy, now, now_wall));
 
         assert!(new_store.entries().is_empty());
         assert!(
@@ -717,7 +714,7 @@ mod tests {
         let entry = ready_entry(now, now_wall, RefreshMode::Terminal);
         let store = put(CacheStore::new(), &repo_id, entry);
 
-        let (new_store, effects) = on_scheduler_tick(&store, tick_input(&policy, now, now_wall));
+        let (new_store, effects) = on_scheduler_tick(&store, &tick_input(&policy, now, now_wall));
 
         // Terminal は active=true だが effective_refresh_interval_secs が MAX
         // のためタイミング条件でスキップされる。SpawnRefresh は発行されない。
@@ -758,7 +755,7 @@ mod tests {
         entry = entry.with_record_query(now);
         let store = put(CacheStore::new(), &repo_id, entry);
 
-        let (new_store, effects) = on_scheduler_tick(&store, tick_input(&policy, now, now_wall));
+        let (new_store, effects) = on_scheduler_tick(&store, &tick_input(&policy, now, now_wall));
 
         assert!(
             effects
@@ -785,7 +782,7 @@ mod tests {
         assert_eq!(entry.fetch_state(), FetchState::Refreshing);
         let store = put(CacheStore::new(), &repo_id, entry);
 
-        let (new_store, _effects) = on_scheduler_tick(&store, tick_input(&policy, now, now_wall));
+        let (new_store, _effects) = on_scheduler_tick(&store, &tick_input(&policy, now, now_wall));
 
         let new_entry = new_store.entries().get(&repo_id).expect("entry present");
         // lock 解除後、interval 超過なら mark_refreshing し直される。
@@ -866,7 +863,7 @@ mod tests {
             now: Instant::now(),
             now_wall: SystemTime::now(),
         };
-        let (new_store, effects) = on_rate_limit_observed(&store, event);
+        let (new_store, effects) = on_rate_limit_observed(&store, &event);
 
         assert!(effects.is_empty(), "no backoff effect expected");
         assert!(new_store.latest_rate_limit().is_some());
@@ -883,7 +880,7 @@ mod tests {
             now: Instant::now(),
             now_wall: SystemTime::now(),
         };
-        let (new_store, effects) = on_rate_limit_observed(&store, event);
+        let (new_store, effects) = on_rate_limit_observed(&store, &event);
 
         assert!(
             effects
@@ -904,7 +901,7 @@ mod tests {
             now: Instant::now(),
             now_wall: SystemTime::now(),
         };
-        let (new_store, effects) = on_rate_limit_observed(&store, event);
+        let (new_store, effects) = on_rate_limit_observed(&store, &event);
 
         assert!(
             effects

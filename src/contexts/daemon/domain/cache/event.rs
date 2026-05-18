@@ -29,7 +29,6 @@ pub struct SchedulerTickInput<'a> {
     pub now: Instant,
     pub now_wall: SystemTime,
     pub policy: &'a RefreshPolicy,
-    pub stale_ttl: u64,
     pub refresh_lock_timeout_secs: u64,
     pub entry_max_age_secs: u64,
 }

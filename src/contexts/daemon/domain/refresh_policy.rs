@@ -264,7 +264,6 @@ fn compute_budget_term(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use std::time::{Duration, Instant};
 
     fn test_policy() -> RefreshPolicy {
@@ -290,20 +289,15 @@ mod tests {
     ) -> CacheEntryState {
         use std::time::SystemTime;
         let now_wall = SystemTime::now();
-        let mut e = CacheEntryState::new_loading(
-            PathBuf::from("/tmp"),
-            "main".to_owned(),
-            5,
-            now,
-            now_wall,
-        );
-        e = e.with_refresh_completed("output".to_owned(), Vec::new(), mode, now, now_wall);
         let past = now
             .checked_sub(Duration::from_secs(last_queried_ago_secs))
             .unwrap_or(now);
-        e.set_last_queried_at_for_test(Some(past));
-        e.set_cold_refresh_count_for_test(cold_refresh_count);
-        e
+        CacheEntryState::builder_for_test(now, now_wall)
+            .output("output".to_owned())
+            .refresh_mode(mode)
+            .last_queried_at(Some(past))
+            .cold_refresh_count(cold_refresh_count)
+            .build()
     }
 
     #[test]

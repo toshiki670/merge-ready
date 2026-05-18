@@ -27,45 +27,24 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn should_backoff_false_when_unset() {
+    fn is_backed_off_false_when_unset() {
         let store = CacheStore::new();
-        assert!(!store.should_backoff(Instant::now()));
+        assert!(!store.is_backed_off(Instant::now()));
     }
 
     #[test]
-    fn should_backoff_true_when_future() {
-        let mut store = CacheStore::new();
-        store.set_backoff(Instant::now() + Duration::from_secs(10));
-        assert!(store.should_backoff(Instant::now()));
+    fn is_backed_off_true_when_future() {
+        let store =
+            CacheStore::new().with_backoff_until(Some(Instant::now() + Duration::from_secs(10)));
+        assert!(store.is_backed_off(Instant::now()));
     }
 
     #[test]
-    fn should_backoff_false_when_past() {
-        let mut store = CacheStore::new();
+    fn is_backed_off_false_when_past() {
         let past = Instant::now()
             .checked_sub(Duration::from_secs(10))
             .expect("past");
-        store.set_backoff(past);
-        assert!(!store.should_backoff(Instant::now()));
-    }
-
-    #[test]
-    fn clear_backoff_if_expired_clears_past() {
-        let mut store = CacheStore::new();
-        let past = Instant::now()
-            .checked_sub(Duration::from_secs(10))
-            .expect("past");
-        store.set_backoff(past);
-        store.clear_backoff_if_expired(Instant::now());
-        assert_eq!(store.backoff_until(), None);
-    }
-
-    #[test]
-    fn clear_backoff_if_expired_keeps_future() {
-        let mut store = CacheStore::new();
-        let future = Instant::now() + Duration::from_secs(10);
-        store.set_backoff(future);
-        store.clear_backoff_if_expired(Instant::now());
-        assert!(store.backoff_until().is_some());
+        let store = CacheStore::new().with_backoff_until(Some(past));
+        assert!(!store.is_backed_off(Instant::now()));
     }
 }

@@ -27,12 +27,11 @@ pub(super) fn collect_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(RepoId, P
         now: Instant::now(),
         now_wall: SystemTime::now(),
         policy: &policy,
-        stale_ttl: config.stale_ttl_secs,
         refresh_lock_timeout_secs: config.refresh_lock_timeout_secs,
         entry_max_age_secs: config.entry_max_age_secs,
     };
 
-    let (new_store, effects) = on_scheduler_tick(&s.cache_store, input);
+    let (new_store, effects) = on_scheduler_tick(&s.cache_store, &input);
     s.cache_store = new_store;
 
     let mut targets = Vec::new();
@@ -46,86 +45,7 @@ pub(super) fn collect_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(RepoId, P
     targets
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::contexts::daemon::domain::cache::CacheEntry;
-    use crate::shared::protocol::PrOutput;
-    use crate::shared::refresh_mode::RefreshMode;
-    use std::time::Duration;
-
-    fn entry_with_prs(pr_count: usize, active: bool) -> CacheEntry {
-        let mut e = CacheEntry::new(PathBuf::from("/tmp"), "main".to_owned(), 5);
-        let prs: Vec<PrOutput> = (0..pr_count)
-            .map(|i| PrOutput {
-                pr_id: i as u64,
-                output: String::new(),
-            })
-            .collect();
-        let mode = if active {
-            RefreshMode::Warm
-        } else {
-            RefreshMode::Terminal
-        };
-        e.update("output".to_owned(), prs, mode);
-        e
-    }
-
-    // ── collect_targets の backoff スキップ ───────────────────────────────────
-
-    use super::super::server_config::DaemonServerConfig;
-    use crate::contexts::daemon::domain::refresh_policy::RefreshPolicy;
-
-    fn test_config() -> DaemonServerConfig {
-        DaemonServerConfig {
-            stale_ttl_secs: 5,
-            refresh_lock_timeout_secs: 120,
-            entry_max_age_secs: 60,
-            scheduler_tick_secs: 2,
-            socket_check_interval_secs: 5,
-            policy: RefreshPolicy {
-                hot_recent_query_secs: 30,
-                hot_with_query_secs: 2,
-                hot_without_query_secs: 10,
-                warm_refresh_secs: 180,
-                warm_to_cold_secs: 1800,
-                cold_early_secs: 1800,
-                cold_late_secs: 3600,
-                cold_early_limit: 10,
-            },
-            rate_limit_aware: true,
-            rate_limit_fetch_interval_secs: 60,
-        }
-    }
-
-    #[test]
-    fn collect_targets_returns_empty_when_in_backoff() {
-        let mut state = DaemonState::new(test_config());
-        state
-            .cache_store
-            .entries_mut()
-            .insert(RepoId::new("test".to_owned()), entry_with_prs(1, true));
-        state
-            .cache_store
-            .set_backoff(Instant::now() + Duration::from_mins(1));
-        let state = Arc::new(Mutex::new(state));
-        let targets = collect_targets(&state);
-        assert!(targets.is_empty());
-    }
-
-    #[test]
-    fn collect_targets_clears_expired_backoff() {
-        let mut state = DaemonState::new(test_config());
-        let past = Instant::now()
-            .checked_sub(Duration::from_secs(10))
-            .expect("past");
-        state.cache_store.set_backoff(past);
-        let state = Arc::new(Mutex::new(state));
-        let _ = collect_targets(&state);
-        let s = state.lock().unwrap();
-        assert!(
-            s.cache_store.backoff_until().is_none(),
-            "expired backoff should be cleared"
-        );
-    }
-}
+// 単体テストは transition::on_scheduler_tick の test モジュールに集約されている
+// （backoff スキップ・期限切れクリア・interval 経過 spawn の振る舞いはすべて
+// 純粋関数側で網羅）。本ファイルは scheduler スレッドの edge 配線（Mutex の
+// lock とロック後の transition 呼び出し）のみを担う。

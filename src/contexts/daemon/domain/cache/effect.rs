@@ -5,7 +5,7 @@ use super::repo_id::RepoId;
 
 /// `transition` モジュールの純粋関数が返す副作用要求。
 ///
-/// `daemon` の各 edge (`connection` ハンドラ / scheduler / rate_limit fetcher)
+/// `daemon` の各 edge (`connection` ハンドラ / scheduler / `rate_limit` fetcher)
 /// が drain して実際の副作用（リフレッシュ起動、ソケット書き込み、ログ）を行う。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {

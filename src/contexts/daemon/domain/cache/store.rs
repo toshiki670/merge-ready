@@ -39,14 +39,20 @@ impl CacheStore {
         self.backoff_until.is_some_and(|t| now < t)
     }
 
-    // ── 構築 API (transition モジュール内部から呼ばれる) ─────────
+    // ── 構築 API ────────────────────────────────────────────────
+    // `transition` モジュール内部からは `pub(super)` で見える。
+    // `daemon` コンテキスト内のテストからも構築できるように
+    // `pub(in crate::contexts::daemon)` で公開する。
 
-    pub(super) fn with_entries(mut self, entries: HashMap<RepoId, CacheEntryState>) -> Self {
+    pub(in crate::contexts::daemon) fn with_entries(
+        mut self,
+        entries: HashMap<RepoId, CacheEntryState>,
+    ) -> Self {
         self.entries = entries;
         self
     }
 
-    pub(super) fn with_backoff_until(mut self, t: Option<Instant>) -> Self {
+    pub(in crate::contexts::daemon) fn with_backoff_until(mut self, t: Option<Instant>) -> Self {
         self.backoff_until = t;
         self
     }
@@ -54,40 +60,5 @@ impl CacheStore {
     pub(super) fn with_latest_rate_limit(mut self, r: Option<RateLimitSnapshot>) -> Self {
         self.latest_rate_limit = r;
         self
-    }
-
-    // ───────────────────────────────────────────────────────────────
-    // 段階移行用の mutating API（Issue #339 最終 Phase で削除予定）
-    //
-    // `collect_targets` / `update_state_from_snapshot` を transition 経由に
-    // 切り替えるまでの暫定。`pub(in crate::contexts::daemon)` で daemon
-    // コンテキスト内部に閉じ込め、外部レイヤへの leak を防ぐ。
-    // ───────────────────────────────────────────────────────────────
-
-    pub(in crate::contexts::daemon) fn entries_mut(
-        &mut self,
-    ) -> &mut HashMap<RepoId, CacheEntryState> {
-        &mut self.entries
-    }
-
-    pub(in crate::contexts::daemon) fn set_latest_rate_limit(
-        &mut self,
-        r: Option<RateLimitSnapshot>,
-    ) {
-        self.latest_rate_limit = r;
-    }
-
-    pub(in crate::contexts::daemon) fn set_backoff(&mut self, t: Instant) {
-        self.backoff_until = Some(t);
-    }
-
-    pub(in crate::contexts::daemon) fn clear_backoff_if_expired(&mut self, now: Instant) {
-        if self.backoff_until.is_some_and(|t| now >= t) {
-            self.backoff_until = None;
-        }
-    }
-
-    pub(in crate::contexts::daemon) fn should_backoff(&self, now: Instant) -> bool {
-        self.is_backed_off(now)
     }
 }

@@ -4,5 +4,6 @@
 //! どの層からも `use crate::shared::*` で参照してよい。
 
 pub mod process_gh;
+pub mod prompt_ipc;
 pub mod protocol;
 pub mod refresh_mode;

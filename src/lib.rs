@@ -3,7 +3,7 @@
 pub(crate) mod contexts;
 pub(crate) mod shared;
 
-pub use shared::protocol::{Request, Response};
+pub use shared::prompt_ipc;
 
 use std::process::ExitCode;
 

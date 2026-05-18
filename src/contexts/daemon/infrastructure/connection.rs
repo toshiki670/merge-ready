@@ -14,7 +14,7 @@ use crate::shared::protocol::Request;
 pub(super) fn handle(
     mut stream: UnixStream,
     state: &Arc<Mutex<DaemonState>>,
-    on_refresh: &RefreshFn,
+    on_refresh: RefreshFn,
     exit_tx: &mpsc::Sender<()>,
     paths: &Paths,
 ) {

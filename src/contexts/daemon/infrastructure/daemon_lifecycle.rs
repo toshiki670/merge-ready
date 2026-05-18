@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::contexts::daemon::application::port::{EntryView, WatchPort};
@@ -9,37 +8,33 @@ use crate::contexts::daemon::domain::daemon::{DaemonError, DaemonLifecyclePort, 
 use super::paths::Paths;
 use super::{daemon_client::DaemonClient, daemon_server, pid};
 
-type RefreshCallback = dyn Fn(&RepoId, &std::path::Path) + Send + Sync + 'static;
+/// Imperative Shell から渡される、副作用を含むリフレッシュ実装。
+/// 関数ポインタとして受け取ることで、キャプチャを禁じ依存を明示する。
+pub type RefreshFn = fn(&RepoId, &Path);
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub struct DaemonLifecycle {
-    on_refresh: Arc<RefreshCallback>,
+    on_refresh: RefreshFn,
     paths: Paths,
 }
 
 impl DaemonLifecycle {
-    pub fn new(on_refresh: impl Fn(&RepoId, &std::path::Path) + Send + Sync + 'static) -> Self {
+    pub fn new(on_refresh: RefreshFn) -> Self {
         Self {
-            on_refresh: Arc::new(on_refresh),
+            on_refresh,
             paths: Paths::default(),
         }
     }
 
     #[cfg(test)]
-    pub fn with_paths(
-        on_refresh: impl Fn(&RepoId, &std::path::Path) + Send + Sync + 'static,
-        paths: Paths,
-    ) -> Self {
-        Self {
-            on_refresh: Arc::new(on_refresh),
-            paths,
-        }
+    pub fn with_paths(on_refresh: RefreshFn, paths: Paths) -> Self {
+        Self { on_refresh, paths }
     }
 }
 
 impl DaemonLifecyclePort for DaemonLifecycle {
     fn start(&self) -> Result<(), DaemonError> {
-        daemon_server::run(&self.on_refresh, self.paths.clone())
+        daemon_server::run(self.on_refresh, self.paths.clone())
     }
 
     fn stop(&self) -> bool {

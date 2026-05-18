@@ -1,3 +1,15 @@
+//! daemon キャッシュドメイン。
+//!
+//! 状態（`CacheStore` / `CacheEntryState`）と純粋な状態遷移関数
+//! (`on_query` / `on_refresh_completed` / `on_scheduler_tick` /
+//! `on_rate_limit_observed`) を提供する。
+//!
+//! daemon の各 edge (`request_handler` / `background_refresh` /
+//! `daemon_server::update_state_from_snapshot`) は `Mutex<DaemonState>` を
+//! ロックして純粋関数を呼び、戻り値の `(CacheStore, Vec<Effect>)` を反映する。
+//! ドメイン層から `Instant::now()` / `SystemTime::now()` を呼ばないので、
+//! 状態遷移は完全に決定的（仮想時刻でテスト可能）。
+
 mod effect;
 mod entry;
 mod event;

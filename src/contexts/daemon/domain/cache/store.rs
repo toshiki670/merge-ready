@@ -46,6 +46,11 @@ impl CacheStore {
         self
     }
 
+    pub(super) fn with_backoff_until(mut self, t: Option<Instant>) -> Self {
+        self.backoff_until = t;
+        self
+    }
+
     // ───────────────────────────────────────────────────────────────
     // 段階移行用の mutating API（Issue #339 最終 Phase で削除予定）
     //

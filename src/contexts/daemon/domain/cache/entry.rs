@@ -210,6 +210,11 @@ impl CacheEntryState {
         self.last_queried_at
     }
 
+    /// `refresh_started_at` を `Option<Instant>` で読み出す。
+    pub fn refresh_started_at(&self) -> Option<Instant> {
+        self.refresh_started_at
+    }
+
     // ───────────────────────────────────────────────────────────────
     // 純粋ビルダ（`transition` モジュールから呼び出される）。
     // 旧 `&mut self` メソッドは Step 6 で削除予定。
@@ -228,6 +233,16 @@ impl CacheEntryState {
             FetchState::Ready | FetchState::Refreshing => FetchState::Refreshing,
         };
         self.refresh_started_at = Some(now);
+        self
+    }
+
+    /// `clear_refresh_lock` の純粋版。
+    pub(super) fn with_clear_refresh_lock(mut self) -> Self {
+        self.fetch_state = match self.fetch_state {
+            FetchState::Loading | FetchState::PendingRetry => FetchState::PendingRetry,
+            FetchState::Ready | FetchState::Refreshing => FetchState::Ready,
+        };
+        self.refresh_started_at = None;
         self
     }
 

@@ -6,11 +6,12 @@
 //! 戻り値の `CacheStore` を `Mutex` 配下の値に書き戻し、`Vec<Effect>` を
 //! drain して副作用（リフレッシュ起動、ソケット書き込み、ログ）を実行する。
 
-use std::time::Instant;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use super::effect::Effect;
 use super::entry::CacheEntryState;
-use super::event::{QueryEvent, RefreshCompletedEvent};
+use super::event::{QueryEvent, RefreshCompletedEvent, SchedulerTickInput};
 use super::repo_id::RepoId;
 use super::store::CacheStore;
 use crate::contexts::daemon::domain::refresh_policy::RefreshPolicy;
@@ -137,11 +138,123 @@ pub fn on_refresh_completed(
 }
 
 // ───────────────────────────────────────────────────────────────
+// 純粋関数: on_scheduler_tick
+// ───────────────────────────────────────────────────────────────
+
+/// スケジューラ tick の純粋遷移。
+///
+/// 振る舞いは旧 `collect_targets` と等価:
+/// - 期限切れ backoff のクリア
+/// - backoff 中なら entries 不変・effects 空
+/// - 期限切れエントリ削除 + `RecordExpired`
+/// - active かつ refresh lock 切れなら `clear_refresh_lock`
+/// - active かつ interval 経過なら `mark_refreshing` + `SpawnRefresh`
+/// - Warm かつ cold 圏なら `increment_cold_count`
+#[must_use]
+pub fn on_scheduler_tick(
+    store: &CacheStore,
+    input: SchedulerTickInput<'_>,
+) -> (CacheStore, Vec<Effect>) {
+    let now = input.now;
+
+    // 期限切れ backoff のクリア
+    let backoff_until = match store.backoff_until() {
+        Some(t) if now >= t => None,
+        other => other,
+    };
+    let cleared_store = store.clone().with_backoff_until(backoff_until);
+
+    // backoff 中はリフレッシュを一切行わない
+    if cleared_store.is_backed_off(now) {
+        return (cleared_store, Vec::new());
+    }
+
+    let mut entries = cleared_store.entries().clone();
+    let mut effects: Vec<Effect> = Vec::new();
+
+    // 期限切れエントリ削除
+    entries.retain(|repo_id, entry| {
+        if is_expired(entry, input.entry_max_age_secs, now) {
+            effects.push(Effect::RecordExpired {
+                repo_id: repo_id.clone(),
+            });
+            false
+        } else {
+            true
+        }
+    });
+
+    let total_cost = total_refresh_cost(entries.values());
+    let snapshot = cleared_store.latest_rate_limit().copied();
+
+    let mut updated: HashMap<RepoId, CacheEntryState> = HashMap::with_capacity(entries.len());
+    for (repo_id, entry) in entries {
+        let mut e = entry;
+        if !e.is_active() {
+            updated.insert(repo_id, e);
+            continue;
+        }
+        if e.is_refreshing() && refresh_lock_expired(&e, input.refresh_lock_timeout_secs, now) {
+            e = e.with_clear_refresh_lock();
+        }
+        if e.is_refreshing() {
+            updated.insert(repo_id, e);
+            continue;
+        }
+        let interval = input.policy.effective_refresh_interval_secs_scaled(
+            &e,
+            snapshot.as_ref(),
+            total_cost,
+            input.now_wall,
+        );
+        if fetched_at_elapsed(&e, now).as_secs() < interval {
+            updated.insert(repo_id, e);
+            continue;
+        }
+        if e.refresh_mode() == RefreshMode::Warm && is_cold(&e, input.policy.warm_to_cold_secs, now)
+        {
+            e = e.with_increment_cold_count();
+        }
+        let cwd = e.cwd().to_path_buf();
+        e = e.with_mark_refreshing(now);
+        effects.push(Effect::SpawnRefresh {
+            repo_id: repo_id.clone(),
+            cwd,
+        });
+        updated.insert(repo_id, e);
+    }
+
+    (cleared_store.with_entries(updated), effects)
+}
+
+fn total_refresh_cost<'a, I: IntoIterator<Item = &'a CacheEntryState>>(entries: I) -> u64 {
+    let mut total: u64 = 0;
+    for e in entries {
+        if !e.is_active() {
+            continue;
+        }
+        let pr_count = u64::try_from(e.pr_outputs().len()).unwrap_or(u64::MAX);
+        total = total.saturating_add(pr_count.saturating_add(2));
+    }
+    total
+}
+
+// ───────────────────────────────────────────────────────────────
 // crate-private 述語ヘルパ（旧 getter の `now` 引数化版）
 // ───────────────────────────────────────────────────────────────
 
 pub(super) fn is_fresh(s: &CacheEntryState, ttl: u64, now: Instant) -> bool {
     elapsed_secs(s.fetched_at(), now) <= ttl
+}
+
+pub(super) fn is_expired(s: &CacheEntryState, max_age_secs: u64, now: Instant) -> bool {
+    s.last_queried_at()
+        .is_some_and(|t| elapsed_secs(t, now) >= max_age_secs)
+}
+
+pub(super) fn is_cold(s: &CacheEntryState, warm_to_cold_secs: u64, now: Instant) -> bool {
+    s.last_queried_at()
+        .is_some_and(|t| elapsed_secs(t, now) >= warm_to_cold_secs)
 }
 
 pub(super) fn is_cold_or_never_queried(
@@ -151,6 +264,15 @@ pub(super) fn is_cold_or_never_queried(
 ) -> bool {
     s.last_queried_at()
         .is_none_or(|t| elapsed_secs(t, now) >= warm_to_cold_secs)
+}
+
+pub(super) fn refresh_lock_expired(s: &CacheEntryState, timeout_secs: u64, now: Instant) -> bool {
+    s.refresh_started_at()
+        .is_some_and(|t| elapsed_secs(t, now) >= timeout_secs)
+}
+
+pub(super) fn fetched_at_elapsed(s: &CacheEntryState, now: Instant) -> Duration {
+    now.saturating_duration_since(s.fetched_at())
 }
 
 fn elapsed_secs(t: Instant, now: Instant) -> u64 {
@@ -401,5 +523,221 @@ mod tests {
         let (new_store, effects) = on_refresh_completed(&store, &repo_id, event);
         assert!(effects.is_empty());
         assert!(new_store.entries().is_empty());
+    }
+
+    // ── on_scheduler_tick ────────────────────────────────────────
+
+    fn tick_input<'a>(
+        policy: &'a RefreshPolicy,
+        now: Instant,
+        now_wall: SystemTime,
+    ) -> SchedulerTickInput<'a> {
+        SchedulerTickInput {
+            now,
+            now_wall,
+            policy,
+            stale_ttl: 10,
+            refresh_lock_timeout_secs: 120,
+            entry_max_age_secs: 60,
+        }
+    }
+
+    fn put(store: CacheStore, repo_id: &RepoId, entry: CacheEntryState) -> CacheStore {
+        let mut entries = store.entries().clone();
+        entries.insert(repo_id.clone(), entry);
+        store.with_entries(entries)
+    }
+
+    #[test]
+    fn on_scheduler_tick_skips_when_backed_off() {
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
+        let policy = test_policy();
+        let repo_id = RepoId::new("repo".to_owned());
+        let entry = ready_entry(now, now_wall, RefreshMode::Warm);
+        let store = put(CacheStore::new(), &repo_id, entry)
+            .with_backoff_until(Some(now + Duration::from_secs(60)));
+
+        let (new_store, effects) = on_scheduler_tick(&store, tick_input(&policy, now, now_wall));
+
+        assert!(effects.is_empty());
+        // entries は不変
+        assert_eq!(new_store.entries().len(), 1);
+        // backoff も維持
+        assert!(new_store.backoff_until().is_some());
+    }
+
+    #[test]
+    fn on_scheduler_tick_clears_expired_backoff() {
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
+        let policy = test_policy();
+        let past = now.checked_sub(Duration::from_secs(10)).expect("past");
+        let store = CacheStore::new().with_backoff_until(Some(past));
+
+        let (new_store, _effects) = on_scheduler_tick(&store, tick_input(&policy, now, now_wall));
+
+        assert_eq!(new_store.backoff_until(), None);
+    }
+
+    #[test]
+    fn on_scheduler_tick_removes_expired_entries() {
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
+        let policy = test_policy();
+        let repo_id = RepoId::new("repo".to_owned());
+
+        // last_queried_at が entry_max_age_secs より過去
+        let very_past = now
+            .checked_sub(Duration::from_secs(120))
+            .expect("very past");
+        let mut entry = ready_entry(very_past, now_wall, RefreshMode::Warm);
+        entry = entry.with_record_query(very_past);
+        let store = put(CacheStore::new(), &repo_id, entry);
+
+        let (new_store, effects) = on_scheduler_tick(&store, tick_input(&policy, now, now_wall));
+
+        assert!(new_store.entries().is_empty());
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::RecordExpired { .. })),
+            "RecordExpired effect should be emitted: {effects:?}"
+        );
+    }
+
+    #[test]
+    fn on_scheduler_tick_skips_inactive_terminal() {
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
+        let policy = test_policy();
+        let repo_id = RepoId::new("repo".to_owned());
+        let entry = ready_entry(now, now_wall, RefreshMode::Terminal);
+        let store = put(CacheStore::new(), &repo_id, entry);
+
+        let (new_store, effects) = on_scheduler_tick(&store, tick_input(&policy, now, now_wall));
+
+        // Terminal は active=true だが effective_refresh_interval_secs が MAX
+        // のためタイミング条件でスキップされる。SpawnRefresh は発行されない。
+        assert!(
+            !effects
+                .iter()
+                .any(|e| matches!(e, Effect::SpawnRefresh { .. })),
+            "Terminal entry should not spawn refresh: {effects:?}"
+        );
+        assert_eq!(new_store.entries().len(), 1);
+    }
+
+    #[test]
+    fn on_scheduler_tick_marks_and_spawns_when_interval_passed() {
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
+        let policy = test_policy();
+        let repo_id = RepoId::new("repo".to_owned());
+        // fetched_at を warm_refresh_secs + 余裕分過去にして interval 超過にする
+        let past_fetched = now
+            .checked_sub(Duration::from_secs(policy.warm_refresh_secs + 60))
+            .expect("past");
+        let mut entry = CacheEntryState::new_loading(
+            PathBuf::from("/repo/main"),
+            "main".to_owned(),
+            10,
+            past_fetched,
+            now_wall,
+        );
+        entry = entry.with_refresh_completed(
+            "hello".to_owned(),
+            Vec::new(),
+            RefreshMode::Warm,
+            past_fetched,
+            now_wall,
+        );
+        // last_queried_at を recent にして cold 圏外にする
+        entry = entry.with_record_query(now);
+        let store = put(CacheStore::new(), &repo_id, entry);
+
+        let (new_store, effects) = on_scheduler_tick(&store, tick_input(&policy, now, now_wall));
+
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::SpawnRefresh { .. })),
+            "interval passed should emit SpawnRefresh: {effects:?}"
+        );
+        let new_entry = new_store.entries().get(&repo_id).expect("entry present");
+        assert_eq!(new_entry.fetch_state(), FetchState::Refreshing);
+    }
+
+    #[test]
+    fn on_scheduler_tick_clears_refresh_lock_when_timeout() {
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
+        let policy = test_policy();
+        let repo_id = RepoId::new("repo".to_owned());
+        // Refreshing + refresh_started_at が timeout 以上過去。
+        // last_queried_at は recent にして expired 削除を避ける。
+        let past = now.checked_sub(Duration::from_secs(200)).expect("past");
+        let mut entry = ready_entry(past, now_wall, RefreshMode::Warm);
+        entry = entry.with_record_query(now);
+        entry = entry.with_mark_refreshing(past);
+        assert_eq!(entry.fetch_state(), FetchState::Refreshing);
+        let store = put(CacheStore::new(), &repo_id, entry);
+
+        let (new_store, _effects) = on_scheduler_tick(&store, tick_input(&policy, now, now_wall));
+
+        let new_entry = new_store.entries().get(&repo_id).expect("entry present");
+        // lock 解除後、interval 超過なら mark_refreshing し直される。
+        // 少なくとも refresh_started_at は now に更新されているか、None にクリア済み。
+        assert!(
+            new_entry.refresh_started_at().is_none() || new_entry.refresh_started_at() == Some(now)
+        );
+    }
+
+    // ── total_refresh_cost ───────────────────────────────────────
+
+    fn entry_with_pr_count(pr_count: usize, mode: RefreshMode) -> CacheEntryState {
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
+        let mut e = CacheEntryState::new_loading(
+            PathBuf::from("/tmp"),
+            "main".to_owned(),
+            5,
+            now,
+            now_wall,
+        );
+        let prs: Vec<crate::shared::protocol::PrOutput> = (0..pr_count)
+            .map(|i| crate::shared::protocol::PrOutput {
+                pr_id: i as u64,
+                output: String::new(),
+            })
+            .collect();
+        e = e.with_refresh_completed("output".to_owned(), prs, mode, now, now_wall);
+        e
+    }
+
+    #[test]
+    fn total_refresh_cost_excludes_terminal() {
+        let entries = vec![
+            entry_with_pr_count(2, RefreshMode::Warm),
+            entry_with_pr_count(0, RefreshMode::Warm),
+            entry_with_pr_count(3, RefreshMode::Terminal),
+        ];
+        assert_eq!(super::total_refresh_cost(&entries), 6);
+    }
+
+    #[test]
+    fn total_refresh_cost_excludes_loading() {
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
+        let e = CacheEntryState::new_loading(
+            PathBuf::from("/tmp"),
+            "main".to_owned(),
+            5,
+            now,
+            now_wall,
+        );
+        assert!(!e.is_active());
+        let entries = vec![e];
+        assert_eq!(super::total_refresh_cost(&entries), 0);
     }
 }

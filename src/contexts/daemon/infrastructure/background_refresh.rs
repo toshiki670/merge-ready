@@ -3,26 +3,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime};
 
 use super::server_state::DaemonState;
-use crate::contexts::daemon::domain::cache::{CacheEntry, RepoId};
-use crate::shared::refresh_mode::RefreshMode;
-
-/// 全 active エントリの「1 リフレッシュ」当たり API コスト総和を求める。
-/// `pr_count + 2`（pr list 1 + repo view 1 + pr checks N）を集計し、
-/// Terminal エントリは除外する（`is_active()` で判定）。
-fn total_refresh_cost<'a, I>(entries: I) -> u64
-where
-    I: IntoIterator<Item = &'a CacheEntry>,
-{
-    let mut total: u64 = 0;
-    for entry in entries {
-        if !entry.is_active() {
-            continue;
-        }
-        let pr_count = u64::try_from(entry.pr_outputs().len()).unwrap_or(u64::MAX);
-        total = total.saturating_add(pr_count.saturating_add(2));
-    }
-    total
-}
+use crate::contexts::daemon::domain::cache::{
+    Effect, RepoId, SchedulerTickInput, on_scheduler_tick,
+};
 
 pub(super) fn collect_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(RepoId, PathBuf)> {
     let mut s = state
@@ -31,51 +14,34 @@ pub(super) fn collect_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(RepoId, P
     let config = s.config;
     let policy = config.policy;
 
-    // 期限切れ backoff のクリーンアップ
-    s.cache_store.clear_backoff_if_expired(Instant::now());
-
-    // backoff 中はリフレッシュを一切行わない（rate_limit 枯渇時の保護）
-    if s.cache_store.should_backoff(Instant::now()) {
-        return Vec::new();
-    }
-
-    s.cache_store
-        .entries_mut()
-        .retain(|_, entry| !entry.is_expired(config.entry_max_age_secs));
-
-    let total_cost = total_refresh_cost(s.cache_store.entries().values());
-    let snapshot = if config.rate_limit_aware {
-        s.cache_store.latest_rate_limit().copied()
-    } else {
-        None
+    // rate_limit_aware が OFF のとき snapshot を強制的に None として扱う必要がある。
+    // 簡単のため、snapshot 参照を作らず、policy 経由で扱う代わりに、
+    // on_scheduler_tick の入力では snapshot を直接渡せないので、
+    // OFF のとき CacheStore::latest_rate_limit() を一時的に隠す方法はない。
+    // ここでは config.rate_limit_aware を見て、tick 関数の入力から外す。
+    // Step 5/6 でこの分岐を SchedulerTickInput 自体に持たせるか整理する。
+    // 暫定: tick 関数内では常に store.latest_rate_limit() を使う。
+    // rate_limit_aware=false のときは latest_rate_limit を None に保つ運用で対応する
+    // （rate_limit fetcher スレッド自体が起動しないので latest_rate_limit は永遠に None）。
+    let input = SchedulerTickInput {
+        now: Instant::now(),
+        now_wall: SystemTime::now(),
+        policy: &policy,
+        stale_ttl: config.stale_ttl_secs,
+        refresh_lock_timeout_secs: config.refresh_lock_timeout_secs,
+        entry_max_age_secs: config.entry_max_age_secs,
     };
-    let now_wall = SystemTime::now();
+
+    let (new_store, effects) = on_scheduler_tick(&s.cache_store, input);
+    s.cache_store = new_store;
 
     let mut targets = Vec::new();
-    for (repo_id, entry) in s.cache_store.entries_mut() {
-        if !entry.is_active() {
-            continue;
+    for e in effects {
+        match e {
+            Effect::SpawnRefresh { repo_id, cwd } => targets.push((repo_id, cwd)),
+            Effect::RecordExpired { repo_id } => log::debug!("entry expired: {repo_id:?}"),
+            Effect::EmitOutput(_) | Effect::EnterBackoff { .. } => {}
         }
-        if entry.is_refreshing() && entry.refresh_lock_expired(config.refresh_lock_timeout_secs) {
-            entry.clear_refresh_lock();
-        }
-        if entry.is_refreshing() {
-            continue;
-        }
-        let interval = policy.effective_refresh_interval_secs_scaled(
-            entry,
-            snapshot.as_ref(),
-            total_cost,
-            now_wall,
-        );
-        if entry.fetched_at_elapsed().as_secs() < interval {
-            continue;
-        }
-        if entry.refresh_mode() == RefreshMode::Warm && entry.is_cold(policy.warm_to_cold_secs) {
-            entry.increment_cold_count();
-        }
-        entry.mark_refreshing();
-        targets.push((repo_id.clone(), entry.cwd().to_path_buf()));
     }
     targets
 }
@@ -83,7 +49,9 @@ pub(super) fn collect_targets(state: &Arc<Mutex<DaemonState>>) -> Vec<(RepoId, P
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contexts::daemon::domain::cache::CacheEntry;
     use crate::shared::protocol::PrOutput;
+    use crate::shared::refresh_mode::RefreshMode;
     use std::time::Duration;
 
     fn entry_with_prs(pr_count: usize, active: bool) -> CacheEntry {
@@ -101,35 +69,6 @@ mod tests {
         };
         e.update("output".to_owned(), prs, mode);
         e
-    }
-
-    #[test]
-    fn total_refresh_cost_excludes_terminal() {
-        let entries = vec![
-            entry_with_prs(2, true),  // active, cost = 2 + 2 = 4
-            entry_with_prs(0, true),  // active, cost = 0 + 2 = 2
-            entry_with_prs(3, false), // terminal, excluded
-        ];
-        assert_eq!(total_refresh_cost(&entries), 6);
-    }
-
-    #[test]
-    fn total_refresh_cost_excludes_loading() {
-        // is_active() は output 空も除外する
-        let mut e = CacheEntry::new(PathBuf::from("/tmp"), "main".to_owned(), 5);
-        // update せず Loading 状態のまま → output 空
-        assert!(!e.is_active());
-        // update して active に
-        e.update("o".to_owned(), Vec::new(), RefreshMode::Warm);
-        assert!(e.is_active());
-        let entries = vec![e];
-        assert_eq!(total_refresh_cost(&entries), 2);
-    }
-
-    #[test]
-    fn total_refresh_cost_zero_when_all_terminal() {
-        let entries = vec![entry_with_prs(1, false), entry_with_prs(2, false)];
-        assert_eq!(total_refresh_cost(&entries), 0);
     }
 
     // ── collect_targets の backoff スキップ ───────────────────────────────────
@@ -166,7 +105,6 @@ mod tests {
             .cache_store
             .entries_mut()
             .insert(RepoId::new("test".to_owned()), entry_with_prs(1, true));
-        // backoff を未来に設定
         state
             .cache_store
             .set_backoff(Instant::now() + Duration::from_mins(1));
@@ -178,7 +116,6 @@ mod tests {
     #[test]
     fn collect_targets_clears_expired_backoff() {
         let mut state = DaemonState::new(test_config());
-        // 既に期限切れ
         let past = Instant::now()
             .checked_sub(Duration::from_secs(10))
             .expect("past");

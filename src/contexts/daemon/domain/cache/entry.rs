@@ -22,7 +22,7 @@ enum FetchState {
 }
 
 /// キャッシュエントリのドメインエンティティ。
-pub struct CacheEntry {
+pub struct CacheEntryState {
     output: String,
     pr_outputs: Vec<PrOutput>,
     fetch_state: FetchState,
@@ -36,7 +36,7 @@ pub struct CacheEntry {
     cold_refresh_count: u32,
 }
 
-impl CacheEntry {
+impl CacheEntryState {
     /// 初回ミス時に生成する新規エントリ。即リフレッシュ済み状態でマークする。
     ///
     /// `stale_ttl` は `fetched_at` を TTL 超過済みの過去時刻にセットするために使う。

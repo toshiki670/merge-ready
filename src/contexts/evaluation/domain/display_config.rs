@@ -23,10 +23,6 @@ pub struct DisplayConfig {
     pub error: ErrorConfig,
 }
 
-pub trait DisplayConfigRepository {
-    fn load(&self) -> DisplayConfig;
-}
-
 #[derive(Serialize)]
 pub struct TokenConfig {
     pub symbol: String,

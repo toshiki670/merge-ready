@@ -3,9 +3,21 @@ use std::path::PathBuf;
 
 use simplelog::{Config, LevelFilter, WriteLogger};
 
-use crate::contexts::evaluation::application::port::{ErrorCategory, ErrorLogger, LogRecord};
+use crate::contexts::evaluation::domain::error::RepositoryError;
 
-pub struct Logger;
+/// ロギングのためのエラーカテゴリ（横断的関心事）。
+pub enum ErrorCategory {
+    Auth,
+    RateLimit,
+    Timeout,
+    Unknown,
+}
+
+/// ログに記録する構造化エントリ。
+pub struct LogRecord {
+    pub category: ErrorCategory,
+    pub detail: Option<String>,
+}
 
 /// デーモン起動時に一度だけ呼ぶ。
 /// `$HOME/.cache/merge-ready/error.log` への追記ロガーを初期化する。
@@ -25,17 +37,27 @@ fn log_path() -> Option<PathBuf> {
     Some(dir.join("error.log"))
 }
 
-impl ErrorLogger for Logger {
-    fn log(&self, record: &LogRecord) {
-        let category = match record.category {
-            ErrorCategory::Auth => "Auth",
-            ErrorCategory::RateLimit => "RateLimit",
-            ErrorCategory::Timeout => "Timeout",
-            ErrorCategory::Unknown => "Unknown",
-        };
-        match &record.detail {
-            Some(detail) => log::error!("[{category}] {detail}"),
-            None => log::error!("[{category}]"),
-        }
+/// 構造化ログを 1 行書き出す。
+pub fn log_record(record: &LogRecord) {
+    let category = match record.category {
+        ErrorCategory::Auth => "Auth",
+        ErrorCategory::RateLimit => "RateLimit",
+        ErrorCategory::Timeout => "Timeout",
+        ErrorCategory::Unknown => "Unknown",
+    };
+    match &record.detail {
+        Some(detail) => log::error!("[{category}] {detail}"),
+        None => log::error!("[{category}]"),
+    }
+}
+
+/// Shell から呼び出される、`RepositoryError` 用のロギングエントリポイント。
+/// 旧 `into_token` の `RateLimited` 分岐で書いていたログをここで集約する。
+pub fn log_repository_error(e: RepositoryError) {
+    if let RepositoryError::RateLimited = e {
+        log_record(&LogRecord {
+            category: ErrorCategory::RateLimit,
+            detail: None,
+        });
     }
 }

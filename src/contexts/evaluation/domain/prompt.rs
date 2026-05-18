@@ -1,10 +1,8 @@
 pub mod pull_request;
-pub mod repository;
 
 pub use pull_request::PullRequest;
 pub use pull_request::id::PrId;
 pub use pull_request::state::State;
-pub use repository::PromptRepository;
 
 /// プロンプト表示の集約ルート。ブランチの PR 状況を表す。
 #[derive(Debug)]

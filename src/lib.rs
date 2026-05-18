@@ -5,42 +5,48 @@ pub(crate) mod shared;
 
 pub use shared::prompt_ipc;
 
+use std::path::Path;
 use std::process::ExitCode;
 
 use crate::contexts::daemon::domain::cache::{CachePort, RepoId};
 use crate::contexts::daemon::infrastructure::daemon_client::DaemonClient;
 use crate::contexts::daemon::infrastructure::daemon_lifecycle::DaemonLifecycle;
 use crate::contexts::daemon::infrastructure::paths::Paths;
-use crate::contexts::evaluation::infrastructure::toml_loader::TomlConfigRepository;
-use crate::contexts::evaluation::infrastructure::{gh::GhClient, logger::Logger};
+use crate::contexts::evaluation::application::errors::into_token;
+use crate::contexts::evaluation::infrastructure::gh::fetch_prompt;
+use crate::contexts::evaluation::infrastructure::logger::log_repository_error;
+use crate::contexts::evaluation::infrastructure::toml_loader::load_display_config;
+use crate::contexts::evaluation::interface::prompt::render;
 use crate::shared::protocol::PrOutput;
 
+/// Imperative Shell: 副作用（gh サブプロセス、TOML 読み込み、ログ書き込み、
+/// daemon キャッシュ更新）を集約して純関数 `render` を駆動する。
+fn refresh_callback(repo_id: &RepoId, cwd: &Path) {
+    let prompt_result = fetch_prompt(cwd).map_err(|e| {
+        log_repository_error(e);
+        into_token(e)
+    });
+    let config = load_display_config();
+    let result = render(prompt_result, &config);
+
+    let pr_outputs = result
+        .pr_outputs
+        .into_iter()
+        .map(|(pr_id, output)| PrOutput {
+            pr_id: pr_id.as_u64(),
+            output,
+        })
+        .collect();
+    DaemonClient::new(Paths::default().socket_path()).update(
+        repo_id,
+        &result.output,
+        result.refresh_mode,
+        pr_outputs,
+    );
+}
+
 fn build_daemon_lifecycle() -> DaemonLifecycle {
-    DaemonLifecycle::new(
-        // repo_id はブランチ変化を考慮して daemon_server が再導出して渡す
-        |repo_id: &RepoId, cwd: &std::path::Path| {
-            let client = GhClient::new_in(cwd.to_path_buf(), Logger);
-            let result = contexts::evaluation::interface::prompt::render(
-                &client,
-                &TomlConfigRepository::new(),
-                &Logger,
-            );
-            let pr_outputs = result
-                .pr_outputs
-                .into_iter()
-                .map(|(pr_id, output)| PrOutput {
-                    pr_id: pr_id.as_u64(),
-                    output,
-                })
-                .collect();
-            DaemonClient::new(Paths::default().socket_path()).update(
-                repo_id,
-                &result.output,
-                result.refresh_mode,
-                pr_outputs,
-            );
-        },
-    )
+    DaemonLifecycle::new(refresh_callback)
 }
 
 /// Opens the configuration file in an editor.

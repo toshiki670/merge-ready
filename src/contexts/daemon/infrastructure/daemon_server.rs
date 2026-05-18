@@ -19,13 +19,13 @@ use crate::contexts::daemon::domain::daemon::DaemonError;
 /// reset 時刻まで backoff に入る。
 const BACKOFF_THRESHOLD_BP: u64 = 500; // 5%
 
-pub(super) type RefreshFn = Arc<dyn Fn(&RepoId, &std::path::Path) + Send + Sync + 'static>;
+pub(super) type RefreshFn = fn(&RepoId, &std::path::Path);
 
 /// デーモンのメインループ。ソケットをバインドして接続を待ち受ける。
 ///
 /// `on_refresh` はキャッシュ更新が必要になったときにスレッドで呼ばれる。
 /// Stop リクエストで `Ok(())` を返す。
-pub fn run(on_refresh: &RefreshFn, paths: Paths) -> Result<(), DaemonError> {
+pub fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError> {
     let config = server_config::DaemonServerConfig::from_env();
     let socket_path = paths.socket_path();
     if let Some(parent) = socket_path.parent() {
@@ -60,7 +60,6 @@ pub fn run(on_refresh: &RefreshFn, paths: Paths) -> Result<(), DaemonError> {
 
     let scheduler = {
         let state = Arc::clone(&state);
-        let on_refresh = Arc::clone(on_refresh);
         std::thread::spawn(move || {
             loop {
                 match scheduler_stop_rx
@@ -71,7 +70,7 @@ pub fn run(on_refresh: &RefreshFn, paths: Paths) -> Result<(), DaemonError> {
                 }
                 let refresh_targets = background_refresh::collect_targets(&state);
                 for (repo_id, cwd) in refresh_targets {
-                    spawn_refresh(&repo_id, &cwd, &on_refresh);
+                    spawn_refresh(&repo_id, &cwd, on_refresh);
                 }
             }
         })
@@ -116,11 +115,10 @@ pub fn run(on_refresh: &RefreshFn, paths: Paths) -> Result<(), DaemonError> {
         match listener.accept() {
             Ok((s, _)) => {
                 let state = Arc::clone(&state);
-                let on_refresh = Arc::clone(on_refresh);
                 let exit_tx = exit_tx.clone();
                 let paths = Arc::clone(&paths);
                 std::thread::spawn(move || {
-                    connection::handle(s, &state, &on_refresh, &exit_tx, &paths);
+                    connection::handle(s, &state, on_refresh, &exit_tx, &paths);
                 });
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -217,16 +215,11 @@ fn reset_instant_from_snapshot(
 
 /// リフレッシュ後に `cwd` から `repo_id` を再導出してコールバックを呼ぶ。
 /// ブランチが変わっていれば新しい `repo_id` に対してキャッシュを更新する。
-pub(super) fn spawn_refresh(
-    stored_repo_id: &RepoId,
-    cwd: &std::path::Path,
-    on_refresh: &RefreshFn,
-) {
+pub(super) fn spawn_refresh(stored_repo_id: &RepoId, cwd: &std::path::Path, on_refresh: RefreshFn) {
     let current_repo_id = cwd
         .to_str()
         .and_then(repo_id::repo_id_from_cwd)
         .map_or_else(|| stored_repo_id.clone(), RepoId::new);
     let cwd = cwd.to_path_buf();
-    let on_refresh = Arc::clone(on_refresh);
     std::thread::spawn(move || on_refresh(&current_repo_id, &cwd));
 }

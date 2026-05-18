@@ -2,32 +2,21 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 use crate::contexts::evaluation::domain::display_config::{
-    DisplayConfig, DisplayConfigRepository, ErrorConfig, TokenConfig,
+    DisplayConfig, ErrorConfig, TokenConfig,
 };
 
-pub struct TomlConfigRepository {
-    path: Option<PathBuf>,
-}
-
-impl TomlConfigRepository {
-    pub fn new() -> Self {
-        Self {
-            path: config_path(),
-        }
-    }
-}
-
-impl DisplayConfigRepository for TomlConfigRepository {
-    fn load(&self) -> DisplayConfig {
-        let Some(ref path) = self.path else {
-            return DisplayConfig::default();
-        };
-        let Ok(content) = std::fs::read_to_string(path) else {
-            return DisplayConfig::default();
-        };
-        let raw: RawDisplayConfig = toml::from_str(&content).unwrap_or_default();
-        merge_with_defaults(raw)
-    }
+/// 設定ファイルから `DisplayConfig` を読み込む。
+/// 環境変数で決まるパスを参照し、ファイルが無い／壊れている場合は default で埋める。
+#[must_use]
+pub fn load_display_config() -> DisplayConfig {
+    let Some(path) = config_path() else {
+        return DisplayConfig::default();
+    };
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return DisplayConfig::default();
+    };
+    let raw: RawDisplayConfig = toml::from_str(&content).unwrap_or_default();
+    merge_with_defaults(raw)
 }
 
 fn merge_with_defaults(raw: RawDisplayConfig) -> DisplayConfig {
@@ -72,7 +61,8 @@ fn merge_error(raw: Option<RawErrorConfig>, default: ErrorConfig) -> ErrorConfig
 }
 
 // XDG_CONFIG_HOME が設定されていればそちらを優先し、なければ $HOME/.config にフォールバックする。
-pub(crate) fn config_path() -> Option<PathBuf> {
+#[must_use]
+pub fn config_path() -> Option<PathBuf> {
     if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         return Some(PathBuf::from(xdg).join("merge-ready.toml"));
     }

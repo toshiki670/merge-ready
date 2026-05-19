@@ -20,7 +20,7 @@ pub async fn run(cli: &Cli) -> ExitCode {
             DaemonCommand::Stop => merge_ready::daemon_stop_command(),
             DaemonCommand::Status => merge_ready::daemon_status_command(),
         },
-        Some(Command::Watch) => merge_ready::watch_command(),
+        Some(Command::Watch) => merge_ready::watch_command().await,
         None => {
             let _ = Cli::command().print_help();
             ExitCode::SUCCESS

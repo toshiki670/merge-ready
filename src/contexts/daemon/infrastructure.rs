@@ -13,5 +13,6 @@ pub(super) mod restart;
 pub(super) mod scheduler;
 pub(super) mod server_config;
 pub(super) mod server_state;
+pub(super) mod signals;
 pub(super) mod socket_listener;
 pub(super) mod socket_watcher;

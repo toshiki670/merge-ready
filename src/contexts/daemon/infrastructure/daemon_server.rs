@@ -18,6 +18,7 @@ use super::repo_id;
 use super::restart;
 use super::scheduler;
 use super::server_config;
+use super::signals;
 use super::socket_listener;
 use super::socket_watcher;
 use crate::contexts::daemon::domain::cache::RepoId;
@@ -87,6 +88,7 @@ pub async fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError>
         config.socket_check_interval_secs,
         cancel.clone(),
     ));
+    join_set.spawn(signals::install_shutdown_signals(cancel.clone()));
 
     let ctx = AcceptContext {
         state_handle,

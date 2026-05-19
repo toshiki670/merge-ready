@@ -1,12 +1,19 @@
-use std::io::{BufRead, BufReader, Read};
 use std::process::{ExitCode, Stdio};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::process::Command;
 
 use crate::contexts::daemon::domain::daemon::DaemonLifecyclePort;
 
 const DAEMON_INNER_ENV: &str = "MERGE_READY_DAEMON_INNER";
 const START_TIMEOUT_SECS: u64 = 2;
+
+enum StartOutcome {
+    Ready,
+    EarlyExit(std::io::Result<std::process::ExitStatus>),
+    Timeout,
+}
 
 // Why double-spawn instead of alternatives:
 //
@@ -29,7 +36,7 @@ pub(crate) async fn start(port: &impl DaemonLifecyclePort) -> ExitCode {
         eprintln!("merge-ready: failed to locate executable");
         return ExitCode::FAILURE;
     };
-    let mut child = match std::process::Command::new(exe)
+    let mut child = match Command::new(exe)
         .args(["daemon", "start"])
         .env(DAEMON_INNER_ENV, "1")
         .stdin(Stdio::null())
@@ -47,47 +54,55 @@ pub(crate) async fn start(port: &impl DaemonLifecyclePort) -> ExitCode {
     };
 
     let Some(stdout) = child.stdout.take() else {
-        let _ = child.kill();
+        let _ = child.kill().await;
         eprintln!("merge-ready: failed to capture daemon stdout");
         return ExitCode::FAILURE;
     };
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let mut line = String::new();
-        let mut reader = BufReader::new(stdout);
-        let _ = reader.read_line(&mut line);
-        let _ = tx.send(line);
-    });
+    let stderr = child.stderr.take();
+    let mut reader = BufReader::new(stdout);
+    let mut line = String::new();
 
-    let deadline = Instant::now() + Duration::from_secs(START_TIMEOUT_SECS);
-    loop {
-        // 内側プロセスが早期終了した場合（already running / bind 失敗等）
-        if let Ok(Some(status)) = child.try_wait() {
-            // 捕捉した stderr を外側の stderr へ中継する
-            if let Some(mut err) = child.stderr.take() {
+    let outcome = tokio::select! {
+        res = reader.read_line(&mut line) => {
+            if res.is_ok() && line == "ready\n" {
+                StartOutcome::Ready
+            } else {
+                // EOF / 「ready\n」以外: 内側プロセスは既に終了したか終了直前。
+                // 完全な exit status を取得するため明示的に wait する。
+                StartOutcome::EarlyExit(child.wait().await)
+            }
+        }
+        status = child.wait() => StartOutcome::EarlyExit(status),
+        () = tokio::time::sleep(Duration::from_secs(START_TIMEOUT_SECS)) => StartOutcome::Timeout,
+    };
+
+    match outcome {
+        StartOutcome::Ready => {
+            println!("daemon started");
+            ExitCode::SUCCESS
+        }
+        StartOutcome::EarlyExit(status) => {
+            if let Some(mut err) = stderr {
                 let mut buf = String::new();
-                let _ = err.read_to_string(&mut buf);
+                let _ = err.read_to_string(&mut buf).await;
                 if !buf.is_empty() {
                     eprint!("{buf}");
                 }
             }
-            let code = if status.success() {
-                1u8
-            } else {
-                u8::try_from(status.code().unwrap_or(1)).unwrap_or(1)
-            };
-            return ExitCode::from(code);
+            match status {
+                Ok(s) if s.success() => ExitCode::from(1u8),
+                Ok(s) => {
+                    let code = u8::try_from(s.code().unwrap_or(1)).unwrap_or(1);
+                    ExitCode::from(code)
+                }
+                Err(_) => ExitCode::FAILURE,
+            }
         }
-        if matches!(rx.try_recv().ok().as_deref(), Some("ready\n")) {
-            println!("daemon started");
-            return ExitCode::SUCCESS;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
+        StartOutcome::Timeout => {
+            let _ = child.kill().await;
             eprintln!("merge-ready: daemon did not start within {START_TIMEOUT_SECS}s");
-            return ExitCode::FAILURE;
+            ExitCode::FAILURE
         }
-        std::thread::sleep(Duration::from_millis(10));
     }
 }
 

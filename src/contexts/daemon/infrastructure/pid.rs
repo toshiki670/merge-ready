@@ -20,27 +20,26 @@ pub fn remove(path: &Path) {
     let _ = fs::remove_file(path);
 }
 
-#[must_use]
-pub fn is_alive(pid: u32) -> bool {
-    std::process::Command::new("kill")
+pub async fn is_alive(pid: u32) -> bool {
+    tokio::process::Command::new("kill")
         .args(["-0", &pid.to_string()])
         .stderr(std::process::Stdio::null())
         .status()
+        .await
         .is_ok_and(|s| s.success())
 }
 
-#[must_use]
-pub fn wait_until_gone(pid: u32, path: &Path, timeout: Duration) -> bool {
+pub async fn wait_until_gone(pid: u32, path: &Path, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
-        if !is_alive(pid) {
+        if !is_alive(pid).await {
             remove(path);
             return true;
         }
         if Instant::now() >= deadline {
             return false;
         }
-        std::thread::sleep(Duration::from_millis(20));
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
 

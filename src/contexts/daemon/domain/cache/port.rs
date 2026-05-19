@@ -11,5 +11,5 @@ pub trait CachePort {
         output: &str,
         refresh_mode: RefreshMode,
         pr_outputs: Vec<PrOutput>,
-    );
+    ) -> impl std::future::Future<Output = ()> + Send;
 }

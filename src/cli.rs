@@ -17,8 +17,8 @@ pub async fn run(cli: &Cli) -> ExitCode {
         }
         Some(Command::Daemon(args)) => match args.subcommand {
             DaemonCommand::Start => merge_ready::daemon_start_command().await,
-            DaemonCommand::Stop => merge_ready::daemon_stop_command(),
-            DaemonCommand::Status => merge_ready::daemon_status_command(),
+            DaemonCommand::Stop => merge_ready::daemon_stop_command().await,
+            DaemonCommand::Status => merge_ready::daemon_status_command().await,
         },
         Some(Command::Watch) => merge_ready::watch_command().await,
         None => {

@@ -106,8 +106,8 @@ pub(crate) async fn start(port: &impl DaemonLifecyclePort) -> ExitCode {
     }
 }
 
-pub(crate) fn stop(port: &impl DaemonLifecyclePort) -> ExitCode {
-    if port.stop() {
+pub(crate) async fn stop(port: &impl DaemonLifecyclePort) -> ExitCode {
+    if port.stop().await {
         println!("daemon stopped");
     } else {
         eprintln!("daemon is not running");
@@ -115,11 +115,12 @@ pub(crate) fn stop(port: &impl DaemonLifecyclePort) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-pub(crate) fn status(port: &impl DaemonLifecyclePort) -> ExitCode {
-    match port.get_status() {
+pub(crate) async fn status(port: &impl DaemonLifecyclePort) -> ExitCode {
+    match port.get_status().await {
         Some(s) => {
             let pid = port
                 .get_pid()
+                .await
                 .map_or_else(|| "-".to_owned(), |p| p.to_string());
             println!(
                 "running  pid={}  entries={}  uptime={}s  version={}",

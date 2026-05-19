@@ -57,8 +57,8 @@ pub async fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError>
     // 旧デーモンの停止完了まで待たせない（生きている旧デーモンには Stop を送信）。
     {
         let cleanup_paths = Arc::clone(&paths);
-        tokio::task::spawn_blocking(move || {
-            restart::cleanup_old_versions(&cleanup_paths);
+        tokio::spawn(async move {
+            restart::cleanup_old_versions(&cleanup_paths).await;
         });
     }
 

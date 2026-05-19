@@ -18,7 +18,7 @@ pub async fn run(port: &impl WatchPort) -> ExitCode {
 
     loop {
         clear_screen();
-        if !draw(port) {
+        if !draw(port).await {
             return ExitCode::FAILURE;
         }
         tokio::select! {
@@ -49,8 +49,8 @@ fn clear_screen() {
     );
 }
 
-fn draw(port: &impl WatchPort) -> bool {
-    match port.entries() {
+async fn draw(port: &impl WatchPort) -> bool {
+    match port.entries().await {
         None => {
             println!("daemon is not running");
             false

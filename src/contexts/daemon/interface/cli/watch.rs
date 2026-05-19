@@ -1,53 +1,43 @@
 use std::fmt::Write as _;
 use std::process::ExitCode;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossterm::{
     cursor, execute,
     terminal::{self, ClearType},
 };
+use tokio::signal::unix::{Signal, SignalKind, signal};
 
 use crate::contexts::daemon::application::port::{EntryView, WatchPort};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
-// POLL_INTERVAL を細切れに sleep し、間で shutdown フラグをポーリングする。
-// SIGINT 受信から終了までの遅延上限 = SHUTDOWN_TICK。
-const SHUTDOWN_TICK: Duration = Duration::from_millis(50);
 
-pub fn run(port: &impl WatchPort) -> ExitCode {
-    let shutdown = Arc::new(AtomicBool::new(false));
-    register_shutdown_signals(&shutdown);
+pub async fn run(port: &impl WatchPort) -> ExitCode {
+    let mut sigterm = signal(SignalKind::terminate()).ok();
+    let mut sigint = signal(SignalKind::interrupt()).ok();
 
-    while !shutdown.load(Ordering::SeqCst) {
+    loop {
         clear_screen();
         if !draw(port) {
             return ExitCode::FAILURE;
         }
-        if !sleep_until(POLL_INTERVAL, &shutdown) {
-            break;
+        tokio::select! {
+            () = wait_signal(sigterm.as_mut()) => return ExitCode::SUCCESS,
+            () = wait_signal(sigint.as_mut()) => return ExitCode::SUCCESS,
+            () = tokio::time::sleep(POLL_INTERVAL) => {}
         }
-    }
-    ExitCode::SUCCESS
-}
-
-fn register_shutdown_signals(shutdown: &Arc<AtomicBool>) {
-    for sig in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
-        let _ = signal_hook::flag::register(sig, Arc::clone(shutdown));
     }
 }
 
-/// 指定 duration を細切れに sleep する。途中で shutdown が立てば false を返す。
-fn sleep_until(duration: Duration, shutdown: &AtomicBool) -> bool {
-    let deadline = std::time::Instant::now() + duration;
-    while std::time::Instant::now() < deadline {
-        if shutdown.load(Ordering::SeqCst) {
-            return false;
+/// `signal()` の確保に失敗した場合は `Option::None`。その場合は
+/// 永遠に解決しない future を返して `tokio::select!` の対象から実質的に外す。
+async fn wait_signal(sig: Option<&mut Signal>) {
+    match sig {
+        Some(s) => {
+            s.recv().await;
         }
-        std::thread::sleep(SHUTDOWN_TICK);
+        None => std::future::pending::<()>().await,
     }
-    true
 }
 
 fn clear_screen() {

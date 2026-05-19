@@ -1,24 +1,26 @@
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant, SystemTime};
+use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::runtime::Handle;
 use tokio::sync::mpsc as tokio_mpsc;
-use tokio::time::MissedTickBehavior;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
-use super::background_refresh;
 use super::connection;
+use super::daemon_state_actor;
 use super::paths::Paths;
 use super::rate_limit_client::RateLimitClient;
+use super::rate_limit_fetcher;
 use super::repo_id;
 use super::restart;
+use super::scheduler;
 use super::server_config;
-use super::server_state::DaemonState;
+use super::signals;
 use super::socket_listener;
+use super::socket_watcher;
 use crate::contexts::daemon::domain::cache::RepoId;
 use crate::contexts::daemon::domain::daemon::DaemonError;
 
@@ -55,94 +57,51 @@ pub async fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError>
     // 旧デーモンの停止完了まで待たせない（生きている旧デーモンには Stop を送信）。
     {
         let cleanup_paths = Arc::clone(&paths);
-        std::thread::spawn(move || {
+        tokio::task::spawn_blocking(move || {
             restart::cleanup_old_versions(&cleanup_paths);
         });
     }
 
-    let state = Arc::new(Mutex::new(DaemonState::new(config)));
+    let cancel = CancellationToken::new();
+    let state_handle = daemon_state_actor::spawn(config);
     let (exit_tx, mut exit_rx) = tokio_mpsc::unbounded_channel::<()>();
-    let (scheduler_stop_tx, scheduler_stop_rx) = mpsc::channel::<()>();
-    let (rate_limit_stop_tx, rate_limit_stop_rx) = mpsc::channel::<()>();
 
-    let scheduler = {
-        let state = Arc::clone(&state);
-        let scheduler_handle = handle.clone();
-        std::thread::spawn(move || {
-            loop {
-                match scheduler_stop_rx
-                    .recv_timeout(Duration::from_secs(config.scheduler_tick_secs))
-                {
-                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                    Err(mpsc::RecvTimeoutError::Timeout) => {}
-                }
-                let refresh_targets = background_refresh::collect_targets(&state);
-                for (repo_id, cwd) in refresh_targets {
-                    spawn_refresh(&repo_id, &cwd, on_refresh, &scheduler_handle);
-                }
-            }
-        })
-    };
-
-    let rate_limit_thread: Option<JoinHandle<()>> = if config.rate_limit_aware {
+    let mut join_set: JoinSet<()> = JoinSet::new();
+    join_set.spawn(scheduler::run(
+        state_handle.clone(),
+        on_refresh,
+        handle.clone(),
+        config.scheduler_tick_secs,
+        cancel.clone(),
+    ));
+    if config.rate_limit_aware {
         let interval = Duration::from_secs(config.rate_limit_fetch_interval_secs);
-        Some(spawn_rate_limit_fetcher(
-            Arc::clone(&state),
+        join_set.spawn(rate_limit_fetcher::run(
+            state_handle.clone(),
             Arc::new(RateLimitClient::new(interval)),
             interval,
-            rate_limit_stop_rx,
-            handle.clone(),
-        ))
-    } else {
-        // OFF 時もスレッドを生やさないが、stop チャネルは drop しても害なし
-        drop(rate_limit_stop_rx);
-        None
+            cancel.clone(),
+        ));
+    }
+    join_set.spawn(socket_watcher::run(
+        Arc::clone(&paths),
+        config.socket_check_interval_secs,
+        cancel.clone(),
+    ));
+    join_set.spawn(signals::install_shutdown_signals(cancel.clone()));
+
+    let ctx = AcceptContext {
+        state_handle,
+        on_refresh,
+        exit_tx,
+        paths: Arc::clone(&paths),
+        handle: handle.clone(),
+        cancel: cancel.clone(),
     };
+    let should_cleanup = accept_loop(&listener, &ctx, &mut exit_rx).await;
 
-    // 自身の socket ファイル消失を定期チェックする。テストハーネスが異常終了して
-    // Drop ベースの `daemon stop` が走らず TempDir ごと消えるケースで孤児化しないように、
-    // socket が外部から削除されたら break して自滅する。
-    let mut socket_check =
-        tokio::time::interval(Duration::from_secs(config.socket_check_interval_secs));
-    socket_check.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-    let should_cleanup = loop {
-        tokio::select! {
-            biased;
-            _ = exit_rx.recv() => break false,
-            _ = socket_check.tick() => {
-                if !paths.socket_path().exists() {
-                    log::info!("daemon socket disappeared, self-terminating");
-                    break true;
-                }
-            }
-            accept_result = listener.accept() => match accept_result {
-                Ok((s, _)) => {
-                    let state = Arc::clone(&state);
-                    let exit_tx = exit_tx.clone();
-                    let paths = Arc::clone(&paths);
-                    let conn_handle = handle.clone();
-                    tokio::spawn(async move {
-                        connection::handle(s, &state, on_refresh, &exit_tx, &paths, &conn_handle).await;
-                    });
-                }
-                Err(e) => {
-                    log::error!("listener error: {e}");
-                    break true;
-                }
-            }
-        }
-    };
-
-    let _ = scheduler_stop_tx.send(());
-    let _ = rate_limit_stop_tx.send(());
-    // std::thread の join は async ワーカーをブロックしないよう block_in_place で
-    tokio::task::block_in_place(|| {
-        let _ = scheduler.join();
-        if let Some(t) = rate_limit_thread {
-            let _ = t.join();
-        }
-    });
+    cancel.cancel();
+    while join_set.join_next().await.is_some() {}
 
     if should_cleanup {
         restart::cleanup(&paths);
@@ -150,55 +109,43 @@ pub async fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError>
     Ok(())
 }
 
-/// `gh api rate_limit` を定期取得して `DaemonState.latest_rate_limit` を更新する。
-/// 残量が枯渇／閾値以下まで落ちたとき、`DaemonState.backoff_until` を reset 時刻に
-/// セットして daemon 全体のバックグラウンドリフレッシュを停止する。
-fn spawn_rate_limit_fetcher(
-    state: Arc<Mutex<DaemonState>>,
-    client: Arc<RateLimitClient>,
-    interval: Duration,
-    stop_rx: mpsc::Receiver<()>,
+/// `accept_loop` の引数をまとめた所有データ。`tokio::spawn` する接続タスクへ
+/// `clone` で渡せるよう、各値が独立した所有権を持つ。
+struct AcceptContext {
+    state_handle: daemon_state_actor::DaemonStateHandle,
+    on_refresh: RefreshFn,
+    exit_tx: tokio_mpsc::UnboundedSender<()>,
+    paths: Arc<Paths>,
     handle: Handle,
-) -> JoinHandle<()> {
-    std::thread::spawn(move || {
-        loop {
-            // 初回は起動直後に取得し、その後は `interval` 間隔で繰り返す。
-            // async fn `fetch_or_cached` を専用 std::thread から実行するため
-            // tokio runtime Handle で block_on する（Phase 4 で async task 化予定）。
-            if let Some(snapshot) = handle.block_on(client.fetch_or_cached()) {
-                update_state_from_snapshot(&state, &snapshot);
-            }
-            match stop_rx.recv_timeout(interval) {
-                Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-            }
-        }
-    })
+    cancel: CancellationToken,
 }
 
-fn update_state_from_snapshot(
-    state: &Arc<Mutex<DaemonState>>,
-    snapshot: &crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot,
-) {
-    use crate::contexts::daemon::domain::cache::{
-        Effect, RateLimitObservedEvent, on_rate_limit_observed,
-    };
-
-    let mut s = state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let event = RateLimitObservedEvent {
-        snapshot: *snapshot,
-        now: Instant::now(),
-        now_wall: SystemTime::now(),
-    };
-    let (new_store, effects) = on_rate_limit_observed(&s.cache_store, &event);
-    s.cache_store = new_store;
-    drop(s);
-
-    for e in effects {
-        if let Effect::EnterBackoff { until } = e {
-            log::info!("rate_limit backoff until {until:?}");
+async fn accept_loop(
+    listener: &tokio::net::UnixListener,
+    ctx: &AcceptContext,
+    exit_rx: &mut tokio_mpsc::UnboundedReceiver<()>,
+) -> bool {
+    loop {
+        tokio::select! {
+            biased;
+            _ = exit_rx.recv() => return false,
+            () = ctx.cancel.cancelled() => return true,
+            accept_result = listener.accept() => match accept_result {
+                Ok((s, _)) => {
+                    let state_handle = ctx.state_handle.clone();
+                    let exit_tx = ctx.exit_tx.clone();
+                    let paths = Arc::clone(&ctx.paths);
+                    let conn_handle = ctx.handle.clone();
+                    let on_refresh = ctx.on_refresh;
+                    tokio::spawn(async move {
+                        connection::handle(s, &state_handle, on_refresh, &exit_tx, &paths, &conn_handle).await;
+                    });
+                }
+                Err(e) => {
+                    log::error!("listener error: {e}");
+                    return true;
+                }
+            }
         }
     }
 }

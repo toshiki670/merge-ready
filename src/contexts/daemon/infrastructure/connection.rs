@@ -44,7 +44,7 @@ pub(super) fn handle(
         let started_at = s.started_at;
         request_handler::process(
             &request,
-            &mut s.entries,
+            &mut s.cache_store,
             &config.policy,
             started_at,
             config.stale_ttl_secs,

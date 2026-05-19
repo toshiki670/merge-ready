@@ -1,6 +1,6 @@
-use std::time::SystemTime;
+use std::time::{Instant, SystemTime};
 
-use crate::contexts::daemon::domain::cache::CacheEntry;
+use crate::contexts::daemon::domain::cache::{CacheEntryState, has_recent_query, is_cold};
 use crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot;
 use crate::shared::refresh_mode::RefreshMode;
 
@@ -75,20 +75,20 @@ pub struct RefreshPolicy {
 
 impl RefreshPolicy {
     /// エントリの現在の状態からリフレッシュ間隔（秒）を返す。
-    pub fn effective_refresh_interval_secs(&self, entry: &CacheEntry) -> u64 {
+    pub fn effective_refresh_interval_secs(&self, entry: &CacheEntryState, now: Instant) -> u64 {
         match entry.refresh_mode() {
             RefreshMode::Terminal => u64::MAX,
             RefreshMode::Hot => {
-                if entry.has_recent_query(self.hot_recent_query_secs) {
+                if has_recent_query(entry, self.hot_recent_query_secs, now) {
                     self.hot_with_query_secs
                 } else {
                     self.hot_without_query_secs
                 }
             }
             RefreshMode::Warm => {
-                if entry.has_recent_query(self.hot_recent_query_secs) {
+                if has_recent_query(entry, self.hot_recent_query_secs, now) {
                     self.hot_with_query_secs
-                } else if entry.is_cold(self.warm_to_cold_secs) {
+                } else if is_cold(entry, self.warm_to_cold_secs, now) {
                     self.cold_interval_secs(entry.cold_refresh_count())
                 } else {
                     self.warm_refresh_secs
@@ -98,7 +98,7 @@ impl RefreshPolicy {
     }
 
     /// Terminal エントリは `warm_refresh_secs` を TTL として返す（PR 再オープン検知のため）。
-    pub fn effective_ttl(&self, entry: &CacheEntry, base_ttl: u64) -> u64 {
+    pub fn effective_ttl(&self, entry: &CacheEntryState, base_ttl: u64) -> u64 {
         if entry.refresh_mode() == RefreshMode::Terminal {
             self.warm_refresh_secs
         } else {
@@ -136,12 +136,13 @@ impl RefreshPolicy {
     #[must_use]
     pub fn effective_refresh_interval_secs_scaled(
         &self,
-        entry: &CacheEntry,
+        entry: &CacheEntryState,
         snapshot: Option<&RateLimitSnapshot>,
         total_cost_per_cycle: u64,
-        now: SystemTime,
+        now: Instant,
+        now_wall: SystemTime,
     ) -> u64 {
-        let base = self.effective_refresh_interval_secs(entry);
+        let base = self.effective_refresh_interval_secs(entry, now);
         if base == u64::MAX {
             return base; // Terminal
         }
@@ -149,10 +150,12 @@ impl RefreshPolicy {
             return base;
         };
 
-        let mode = self.effective_mode(entry);
+        let mode = self.effective_mode(entry, now);
         let params = scaling_params(mode);
         let ratio_bp = bottleneck_ratio_bp(snapshot);
-        let secs_until_reset = snapshot.secs_until_reset(now).min(RESET_WINDOW_CAP_SECS);
+        let secs_until_reset = snapshot
+            .secs_until_reset(now_wall)
+            .min(RESET_WINDOW_CAP_SECS);
 
         let ratio_term = compute_ratio_term(base, ratio_bp, params.alpha_x10);
         let budget_term = compute_budget_term(
@@ -172,15 +175,15 @@ impl RefreshPolicy {
         }
     }
 
-    fn effective_mode(&self, entry: &CacheEntry) -> EffectiveMode {
+    fn effective_mode(&self, entry: &CacheEntryState, now: Instant) -> EffectiveMode {
         match entry.refresh_mode() {
             // 呼び出し元は Terminal 前に return しているはずだが、フォールバックとして Cold 扱い
             RefreshMode::Terminal => EffectiveMode::Cold,
             RefreshMode::Hot => EffectiveMode::Hot,
             RefreshMode::Warm => {
-                if entry.has_recent_query(self.hot_recent_query_secs) {
+                if has_recent_query(entry, self.hot_recent_query_secs, now) {
                     EffectiveMode::Hot
-                } else if entry.is_cold(self.warm_to_cold_secs) {
+                } else if is_cold(entry, self.warm_to_cold_secs, now) {
                     EffectiveMode::Cold
                 } else {
                     EffectiveMode::Warm
@@ -261,8 +264,6 @@ fn compute_budget_term(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared::protocol::PrOutput;
-    use std::path::PathBuf;
     use std::time::{Duration, Instant};
 
     fn test_policy() -> RefreshPolicy {
@@ -278,33 +279,45 @@ mod tests {
         }
     }
 
-    fn entry_with_mode(mode: RefreshMode) -> CacheEntry {
-        let mut e = CacheEntry::new(PathBuf::from("/tmp"), "main".to_owned(), 5);
-        // update() で fetched_at と refresh_mode を Ready 化する
-        e.update("output".to_owned(), Vec::<PrOutput>::new(), mode);
-        e
-    }
-
-    fn shift_last_queried(entry: &mut CacheEntry, ago_secs: u64) {
-        entry.set_last_queried_at_for_test(
-            Instant::now().checked_sub(Duration::from_secs(ago_secs)),
-        );
+    /// `mode` のエントリを構築し、`last_queried_at` を `now - ago_secs` にセットする。
+    /// テスト時間を `now` で固定するため `now` を引数で受ける。
+    fn entry_for_test(
+        mode: RefreshMode,
+        last_queried_ago_secs: u64,
+        cold_refresh_count: u32,
+        now: Instant,
+    ) -> CacheEntryState {
+        use std::time::SystemTime;
+        let now_wall = SystemTime::now();
+        let past = now
+            .checked_sub(Duration::from_secs(last_queried_ago_secs))
+            .unwrap_or(now);
+        CacheEntryState::builder_for_test(now, now_wall)
+            .output("output".to_owned())
+            .refresh_mode(mode)
+            .last_queried_at(Some(past))
+            .cold_refresh_count(cold_refresh_count)
+            .build()
     }
 
     #[test]
     fn terminal_returns_max() {
         let policy = test_policy();
-        let entry = entry_with_mode(RefreshMode::Terminal);
-        assert_eq!(policy.effective_refresh_interval_secs(&entry), u64::MAX);
+        let now = Instant::now();
+        let entry = entry_for_test(RefreshMode::Terminal, 0, 0, now);
+        assert_eq!(
+            policy.effective_refresh_interval_secs(&entry, now),
+            u64::MAX
+        );
     }
 
     #[test]
     fn hot_with_recent_query_uses_hot_with_query_secs() {
         let policy = test_policy();
-        let mut entry = entry_with_mode(RefreshMode::Hot);
-        shift_last_queried(&mut entry, 5); // recent
+        let now = Instant::now();
+        let entry = entry_for_test(RefreshMode::Hot, 5, 0, now);
         assert_eq!(
-            policy.effective_refresh_interval_secs(&entry),
+            policy.effective_refresh_interval_secs(&entry, now),
             policy.hot_with_query_secs
         );
     }
@@ -312,11 +325,10 @@ mod tests {
     #[test]
     fn hot_without_recent_query_uses_hot_without_query_secs() {
         let policy = test_policy();
-        let mut entry = entry_with_mode(RefreshMode::Hot);
-        // hot_recent_query_secs を超えた過去
-        shift_last_queried(&mut entry, policy.hot_recent_query_secs + 5);
+        let now = Instant::now();
+        let entry = entry_for_test(RefreshMode::Hot, policy.hot_recent_query_secs + 5, 0, now);
         assert_eq!(
-            policy.effective_refresh_interval_secs(&entry),
+            policy.effective_refresh_interval_secs(&entry, now),
             policy.hot_without_query_secs
         );
     }
@@ -324,10 +336,10 @@ mod tests {
     #[test]
     fn warm_with_recent_query_uses_hot_with_query_secs() {
         let policy = test_policy();
-        let mut entry = entry_with_mode(RefreshMode::Warm);
-        shift_last_queried(&mut entry, 5);
+        let now = Instant::now();
+        let entry = entry_for_test(RefreshMode::Warm, 5, 0, now);
         assert_eq!(
-            policy.effective_refresh_interval_secs(&entry),
+            policy.effective_refresh_interval_secs(&entry, now),
             policy.hot_with_query_secs
         );
     }
@@ -335,11 +347,10 @@ mod tests {
     #[test]
     fn warm_without_recent_query_uses_warm_refresh_secs() {
         let policy = test_policy();
-        let mut entry = entry_with_mode(RefreshMode::Warm);
-        // recent query 圏外、ただし cold 圏内ではない
-        shift_last_queried(&mut entry, policy.hot_recent_query_secs + 5);
+        let now = Instant::now();
+        let entry = entry_for_test(RefreshMode::Warm, policy.hot_recent_query_secs + 5, 0, now);
         assert_eq!(
-            policy.effective_refresh_interval_secs(&entry),
+            policy.effective_refresh_interval_secs(&entry, now),
             policy.warm_refresh_secs
         );
     }
@@ -347,11 +358,10 @@ mod tests {
     #[test]
     fn warm_in_cold_range_uses_cold_early_when_count_below_limit() {
         let policy = test_policy();
-        let mut entry = entry_with_mode(RefreshMode::Warm);
-        shift_last_queried(&mut entry, policy.warm_to_cold_secs + 60);
-        entry.set_cold_refresh_count_for_test(0); // 初期
+        let now = Instant::now();
+        let entry = entry_for_test(RefreshMode::Warm, policy.warm_to_cold_secs + 60, 0, now);
         assert_eq!(
-            policy.effective_refresh_interval_secs(&entry),
+            policy.effective_refresh_interval_secs(&entry, now),
             policy.cold_early_secs
         );
     }
@@ -359,11 +369,15 @@ mod tests {
     #[test]
     fn warm_in_cold_range_uses_cold_late_when_count_at_limit() {
         let policy = test_policy();
-        let mut entry = entry_with_mode(RefreshMode::Warm);
-        shift_last_queried(&mut entry, policy.warm_to_cold_secs + 60);
-        entry.set_cold_refresh_count_for_test(policy.cold_early_limit); // しきい値ちょうど
+        let now = Instant::now();
+        let entry = entry_for_test(
+            RefreshMode::Warm,
+            policy.warm_to_cold_secs + 60,
+            policy.cold_early_limit,
+            now,
+        );
         assert_eq!(
-            policy.effective_refresh_interval_secs(&entry),
+            policy.effective_refresh_interval_secs(&entry, now),
             policy.cold_late_secs
         );
     }
@@ -371,14 +385,14 @@ mod tests {
     #[test]
     fn effective_ttl_returns_warm_for_terminal() {
         let policy = test_policy();
-        let entry = entry_with_mode(RefreshMode::Terminal);
+        let entry = entry_for_test(RefreshMode::Terminal, 0, 0, Instant::now());
         assert_eq!(policy.effective_ttl(&entry, 9999), policy.warm_refresh_secs);
     }
 
     #[test]
     fn effective_ttl_returns_base_for_non_terminal() {
         let policy = test_policy();
-        let entry = entry_with_mode(RefreshMode::Warm);
+        let entry = entry_for_test(RefreshMode::Warm, 0, 0, Instant::now());
         assert_eq!(policy.effective_ttl(&entry, 42), 42);
     }
 
@@ -401,11 +415,11 @@ mod tests {
     #[test]
     fn scaled_returns_base_when_snapshot_is_none() {
         let policy = test_policy();
-        let mut entry = entry_with_mode(RefreshMode::Hot);
-        shift_last_queried(&mut entry, 5);
-        let now = SystemTime::now();
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
+        let entry = entry_for_test(RefreshMode::Hot, 5, 0, now);
         assert_eq!(
-            policy.effective_refresh_interval_secs_scaled(&entry, None, 3, now),
+            policy.effective_refresh_interval_secs_scaled(&entry, None, 3, now, now_wall),
             policy.hot_with_query_secs
         );
     }
@@ -413,15 +427,12 @@ mod tests {
     #[test]
     fn scaled_returns_max_for_terminal() {
         let policy = test_policy();
-        let entry = entry_with_mode(RefreshMode::Terminal);
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
+        let entry = entry_for_test(RefreshMode::Terminal, 0, 0, now);
         let snap = snapshot_at_bp(5_000, 1800);
         assert_eq!(
-            policy.effective_refresh_interval_secs_scaled(
-                &entry,
-                Some(&snap),
-                3,
-                SystemTime::now()
-            ),
+            policy.effective_refresh_interval_secs_scaled(&entry, Some(&snap), 3, now, now_wall),
             u64::MAX
         );
     }
@@ -429,41 +440,33 @@ mod tests {
     #[test]
     fn scaled_equals_base_when_full_budget() {
         let policy = test_policy();
-        let mut entry = entry_with_mode(RefreshMode::Hot);
-        shift_last_queried(&mut entry, 5);
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
+        let entry = entry_for_test(RefreshMode::Hot, 5, 0, now);
         // ratio=1.0, secs_until_reset=3600, total_cost が小さいので budget_term も小
         let snap = snapshot_at_bp(10_000, 3600);
-        let v = policy.effective_refresh_interval_secs_scaled(
-            &entry,
-            Some(&snap),
-            3,
-            SystemTime::now(),
-        );
+        let v =
+            policy.effective_refresh_interval_secs_scaled(&entry, Some(&snap), 3, now, now_wall);
         assert_eq!(v, policy.hot_with_query_secs);
     }
 
     #[test]
     fn scaled_hot_lower_than_warm_lower_than_cold_when_budget_tight() {
         let policy = test_policy();
-        let now = SystemTime::now();
-        // ratio=0.0（枯渇）かつ十分長い reset まで → 顕著にスケール
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
         let snap = snapshot_at_bp(0, 3600);
 
-        // Hot エントリ
-        let mut hot = entry_with_mode(RefreshMode::Hot);
-        shift_last_queried(&mut hot, 5);
+        let hot = entry_for_test(RefreshMode::Hot, 5, 0, now);
+        let warm = entry_for_test(RefreshMode::Warm, policy.hot_recent_query_secs + 5, 0, now);
+        let cold = entry_for_test(RefreshMode::Warm, policy.warm_to_cold_secs + 60, 0, now);
 
-        // Warm エントリ（recent でも cold でもない）
-        let mut warm = entry_with_mode(RefreshMode::Warm);
-        shift_last_queried(&mut warm, policy.hot_recent_query_secs + 5);
-
-        // Cold エントリ（Warm + cold 圏）
-        let mut cold = entry_with_mode(RefreshMode::Warm);
-        shift_last_queried(&mut cold, policy.warm_to_cold_secs + 60);
-
-        let hot_v = policy.effective_refresh_interval_secs_scaled(&hot, Some(&snap), 3, now);
-        let warm_v = policy.effective_refresh_interval_secs_scaled(&warm, Some(&snap), 3, now);
-        let cold_v = policy.effective_refresh_interval_secs_scaled(&cold, Some(&snap), 3, now);
+        let hot_v =
+            policy.effective_refresh_interval_secs_scaled(&hot, Some(&snap), 3, now, now_wall);
+        let warm_v =
+            policy.effective_refresh_interval_secs_scaled(&warm, Some(&snap), 3, now, now_wall);
+        let cold_v =
+            policy.effective_refresh_interval_secs_scaled(&cold, Some(&snap), 3, now, now_wall);
 
         assert!(hot_v <= warm_v, "Hot ({hot_v}) <= Warm ({warm_v})");
         assert!(warm_v <= cold_v, "Warm ({warm_v}) <= Cold ({cold_v})");
@@ -473,16 +476,12 @@ mod tests {
     #[test]
     fn scaled_floors_at_cold_late_secs_when_exhausted() {
         let policy = test_policy();
-        let mut entry = entry_with_mode(RefreshMode::Hot);
-        shift_last_queried(&mut entry, 5);
-        // 完全枯渇
-        let snap = snapshot_at_bp(0, 60); // reset まで近いが枯渇中
-        let v = policy.effective_refresh_interval_secs_scaled(
-            &entry,
-            Some(&snap),
-            3,
-            SystemTime::now(),
-        );
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
+        let entry = entry_for_test(RefreshMode::Hot, 5, 0, now);
+        let snap = snapshot_at_bp(0, 60);
+        let v =
+            policy.effective_refresh_interval_secs_scaled(&entry, Some(&snap), 3, now, now_wall);
         assert!(
             v >= policy.cold_late_secs,
             "exhausted should floor at cold_late_secs, got {v}"
@@ -492,12 +491,12 @@ mod tests {
     #[test]
     fn scaled_never_below_base() {
         let policy = test_policy();
-        let now = SystemTime::now();
-        // ほぼ満タンだが reset まで 0 秒
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
         let snap = snapshot_at_bp(9_900, 0);
-        let mut entry = entry_with_mode(RefreshMode::Warm);
-        shift_last_queried(&mut entry, policy.hot_recent_query_secs + 5);
-        let v = policy.effective_refresh_interval_secs_scaled(&entry, Some(&snap), 3, now);
+        let entry = entry_for_test(RefreshMode::Warm, policy.hot_recent_query_secs + 5, 0, now);
+        let v =
+            policy.effective_refresh_interval_secs_scaled(&entry, Some(&snap), 3, now, now_wall);
         assert!(
             v >= policy.warm_refresh_secs,
             "scaled ({v}) must be >= base warm interval ({})",

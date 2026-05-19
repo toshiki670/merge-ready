@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::refresh_mode::RefreshMode;
 
 /// PR 単体のレンダリング済み出力。watch 表示用かつ IPC ワイヤフォーマット上の表現。
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrOutput {
     pub pr_id: u64,
     pub output: String,

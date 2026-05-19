@@ -15,10 +15,6 @@ use super::socket_listener;
 use crate::contexts::daemon::domain::cache::RepoId;
 use crate::contexts::daemon::domain::daemon::DaemonError;
 
-/// ボトルネック残量比率がこの値（basis points）以下になったとき、
-/// reset 時刻まで backoff に入る。
-const BACKOFF_THRESHOLD_BP: u64 = 500; // 5%
-
 pub(super) type RefreshFn = fn(&RepoId, &std::path::Path);
 
 /// デーモンのメインループ。ソケットをバインドして接続を待ち受ける。
@@ -171,46 +167,27 @@ fn update_state_from_snapshot(
     state: &Arc<Mutex<DaemonState>>,
     snapshot: &crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot,
 ) {
+    use crate::contexts::daemon::domain::cache::{
+        Effect, RateLimitObservedEvent, on_rate_limit_observed,
+    };
+
     let mut s = state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    s.latest_rate_limit = Some(*snapshot);
+    let event = RateLimitObservedEvent {
+        snapshot: *snapshot,
+        now: Instant::now(),
+        now_wall: SystemTime::now(),
+    };
+    let (new_store, effects) = on_rate_limit_observed(&s.cache_store, &event);
+    s.cache_store = new_store;
+    drop(s);
 
-    // ボトルネック残量が閾値以下なら reset 時刻まで backoff
-    if should_enter_backoff(snapshot)
-        && let Some(reset_instant) = reset_instant_from_snapshot(snapshot)
-    {
-        s.set_backoff(reset_instant);
+    for e in effects {
+        if let Effect::EnterBackoff { until } = e {
+            log::info!("rate_limit backoff until {until:?}");
+        }
     }
-}
-
-fn should_enter_backoff(
-    snapshot: &crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot,
-) -> bool {
-    if snapshot.is_exhausted() {
-        return true;
-    }
-    let core_bp = ratio_bp(snapshot.core_remaining, snapshot.core_limit);
-    let graphql_bp = ratio_bp(snapshot.graphql_remaining, snapshot.graphql_limit);
-    core_bp.min(graphql_bp) <= BACKOFF_THRESHOLD_BP
-}
-
-fn ratio_bp(remaining: u32, limit: u32) -> u64 {
-    if limit == 0 {
-        return 10_000;
-    }
-    (u64::from(remaining).saturating_mul(10_000)) / u64::from(limit)
-}
-
-/// `snapshot.reset_at`（壁時計）を `Instant`（モノトニック）へ変換する。
-/// `SystemTime` のジャンプにロバストにするため、`now_wall` と `now_instant` の差分で換算する。
-fn reset_instant_from_snapshot(
-    snapshot: &crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot,
-) -> Option<Instant> {
-    let now_wall = SystemTime::now();
-    let now_instant = Instant::now();
-    let delta = snapshot.reset_at.duration_since(now_wall).ok()?;
-    Some(now_instant + delta)
 }
 
 /// リフレッシュ後に `cwd` から `repo_id` を再導出してコールバックを呼ぶ。

@@ -8,20 +8,8 @@ use tokio::signal::unix::{SignalKind, signal};
 use tokio_util::sync::CancellationToken;
 
 pub(super) async fn install_shutdown_signals(cancel: CancellationToken) {
-    let mut sigterm = match signal(SignalKind::terminate()) {
-        Ok(s) => s,
-        Err(e) => {
-            log::error!("failed to install SIGTERM handler: {e}");
-            return;
-        }
-    };
-    let mut sigint = match signal(SignalKind::interrupt()) {
-        Ok(s) => s,
-        Err(e) => {
-            log::error!("failed to install SIGINT handler: {e}");
-            return;
-        }
-    };
+    let mut sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+    let mut sigint = signal(SignalKind::interrupt()).expect("install SIGINT handler");
     tokio::select! {
         _ = sigterm.recv() => log::info!("SIGTERM received, shutting down"),
         _ = sigint.recv() => log::info!("SIGINT received, shutting down"),

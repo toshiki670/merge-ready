@@ -30,6 +30,7 @@ crossterm = "0.29.0"
 bitflags = "2.11.1"
 signal-hook = { version = "0.4.4", default-features = false }
 tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", default-features = false }
 
 [lib]
 name = "merge_ready"

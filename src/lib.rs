@@ -5,7 +5,9 @@ pub(crate) mod shared;
 
 pub use shared::prompt_ipc;
 
-use std::path::Path;
+use std::future::Future;
+use std::path::PathBuf;
+use std::pin::Pin;
 use std::process::ExitCode;
 
 use crate::contexts::daemon::domain::cache::{CachePort, RepoId};
@@ -21,28 +23,33 @@ use crate::shared::protocol::PrOutput;
 
 /// Imperative Shell: 副作用（gh サブプロセス、TOML 読み込み、ログ書き込み、
 /// daemon キャッシュ更新）を集約して純関数 `render` を駆動する。
-fn refresh_callback(repo_id: &RepoId, cwd: &Path) {
-    let prompt_result = fetch_prompt(cwd).map_err(|e| {
-        log_repository_error(e);
-        into_token(e)
-    });
-    let config = load_display_config();
-    let result = render(prompt_result, &config);
+fn refresh_callback(
+    repo_id: RepoId,
+    cwd: PathBuf,
+) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+    Box::pin(async move {
+        let prompt_result = fetch_prompt(&cwd).await.map_err(|e| {
+            log_repository_error(e);
+            into_token(e)
+        });
+        let config = load_display_config();
+        let result = render(prompt_result, &config);
 
-    let pr_outputs = result
-        .pr_outputs
-        .into_iter()
-        .map(|(pr_id, output)| PrOutput {
-            pr_id: pr_id.as_u64(),
-            output,
-        })
-        .collect();
-    DaemonClient::new(Paths::default().socket_path()).update(
-        repo_id,
-        &result.output,
-        result.refresh_mode,
-        pr_outputs,
-    );
+        let pr_outputs = result
+            .pr_outputs
+            .into_iter()
+            .map(|(pr_id, output)| PrOutput {
+                pr_id: pr_id.as_u64(),
+                output,
+            })
+            .collect();
+        DaemonClient::new(Paths::default().socket_path()).update(
+            &repo_id,
+            &result.output,
+            result.refresh_mode,
+            pr_outputs,
+        );
+    })
 }
 
 fn build_daemon_lifecycle() -> DaemonLifecycle {
@@ -64,11 +71,10 @@ pub fn config_command() -> ExitCode {
 ///
 /// The daemon fetches PR merge-readiness in the background and caches the result
 /// so that `merge-ready-prompt` can respond instantly.
-#[must_use]
-pub fn daemon_start_command() -> ExitCode {
+pub async fn daemon_start_command() -> ExitCode {
     contexts::evaluation::infrastructure::logger::init();
     let lifecycle = build_daemon_lifecycle();
-    contexts::daemon::interface::cli::daemon::start(&lifecycle)
+    contexts::daemon::interface::cli::daemon::start(&lifecycle).await
 }
 
 /// Stops the running background cache daemon.

@@ -6,11 +6,13 @@
 //! エラー分類は呼び出し側の関心事として保持し、ここでは
 //! `NotInstalled` / `Timeout` / `Failed { exit_code, stderr }` の 3 種類だけを返す。
 
-use std::io::{ErrorKind, Read};
+use std::io::ErrorKind;
 use std::path::Path;
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::process::Stdio;
+use std::time::Duration;
+
+use tokio::process::Command;
+use tokio::time::timeout;
 
 #[derive(Debug)]
 pub enum GhProcessError {
@@ -30,7 +32,7 @@ fn gh_timeout() -> Duration {
     Duration::from_secs(secs)
 }
 
-pub fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhProcessError> {
+pub async fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhProcessError> {
     let mut cmd = Command::new("gh");
     cmd.args(args);
     cmd.stdout(Stdio::piped());
@@ -38,8 +40,11 @@ pub fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhProcessErr
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
+    // kill_on_drop=true で、タイムアウトで future を drop した瞬間に
+    // 子プロセスへ SIGKILL を送る。明示的な kill+wait のボイラープレートを削減。
+    cmd.kill_on_drop(true);
 
-    let mut child = match cmd.spawn() {
+    let child = match cmd.spawn() {
         Err(e) if e.kind() == ErrorKind::NotFound => return Err(GhProcessError::NotInstalled),
         Err(e) => {
             return Err(GhProcessError::Failed {
@@ -50,50 +55,25 @@ pub fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhProcessErr
         Ok(c) => c,
     };
 
-    let mut stdout_pipe = child.stdout.take().expect("piped");
-    let mut stderr_pipe = child.stderr.take().expect("piped");
-
-    let (tx_out, rx_out) = mpsc::channel::<Vec<u8>>();
-    let (tx_err, rx_err) = mpsc::channel::<Vec<u8>>();
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = stdout_pipe.read_to_end(&mut buf);
-        let _ = tx_out.send(buf);
-    });
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = stderr_pipe.read_to_end(&mut buf);
-        let _ = tx_err.send(buf);
-    });
-
-    let deadline = Instant::now() + gh_timeout();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let stdout = rx_out.recv().unwrap_or_default();
-                let stderr = rx_err.recv().unwrap_or_default();
-                if status.success() {
-                    return Ok(stdout);
-                }
-                let exit_code = status.code().unwrap_or(1);
-                let stderr_str = String::from_utf8_lossy(&stderr).into_owned();
-                return Err(GhProcessError::Failed {
-                    exit_code,
-                    stderr: stderr_str,
-                });
-            }
-            Ok(None) if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(GhProcessError::Timeout);
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(e) => {
-                return Err(GhProcessError::Failed {
-                    exit_code: -1,
-                    stderr: e.to_string(),
-                });
-            }
+    let output = match timeout(gh_timeout(), child.wait_with_output()).await {
+        Ok(Ok(out)) => out,
+        Ok(Err(e)) => {
+            return Err(GhProcessError::Failed {
+                exit_code: -1,
+                stderr: e.to_string(),
+            });
         }
+        Err(_) => return Err(GhProcessError::Timeout),
+    };
+
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        let exit_code = output.status.code().unwrap_or(1);
+        let stderr_str = String::from_utf8_lossy(&output.stderr).into_owned();
+        Err(GhProcessError::Failed {
+            exit_code,
+            stderr: stderr_str,
+        })
     }
 }

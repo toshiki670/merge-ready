@@ -302,15 +302,25 @@ fn ratio_bp(remaining: u32, limit: u32) -> u64 {
     (u64::from(remaining).saturating_mul(RATIO_SCALE_BP)) / u64::from(limit)
 }
 
-/// `snapshot.reset_at`（壁時計）を `Instant`（モノトニック）へ変換する。
+/// `snapshot.reset_at`（壁時計）を `Instant`（モノトニック）へ変換し、
+/// `BACKOFF_SAFETY_MARGIN` を追加した値を返す。
+///
+/// `gh api rate_limit` が返す `reset` は秒単位の Unix epoch なので、reset の瞬間に
+/// resume すると整数秒の境界に複数の refresh が集中しうる。`SCHEDULER_TICK_SECS` の
+/// 整数秒境界 (テスト config の場合 1s) と reset 時刻が同一秒境界に並ぶと
+/// scheduler tick と backoff 解除のタイミング race も発生する。
+/// この安全マージンによって両方を一括で回避する。
 fn reset_instant_from_snapshot(
     snapshot: &RateLimitSnapshot,
     now_instant: Instant,
     now_wall: SystemTime,
 ) -> Option<Instant> {
     let delta = snapshot.reset_at.duration_since(now_wall).ok()?;
-    Some(now_instant + delta)
+    Some(now_instant + delta + BACKOFF_SAFETY_MARGIN)
 }
+
+/// `backoff_until` に追加する安全マージン。詳細は [`reset_instant_from_snapshot`] を参照。
+const BACKOFF_SAFETY_MARGIN: Duration = Duration::from_millis(1500);
 
 // ───────────────────────────────────────────────────────────────
 // 純粋述語ヘルパ（旧 getter の `now` 引数化版）。daemon::domain 内で共有する

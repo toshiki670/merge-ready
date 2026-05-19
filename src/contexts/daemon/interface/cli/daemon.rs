@@ -18,9 +18,9 @@ const START_TIMEOUT_SECS: u64 = 2;
 // 欠点は setsid() を呼べないため SIGHUP を受ける可能性があること。
 // ただしプロンプト統合の用途では端末クローズ時にデーモンが終了しても
 // 次回 prompt 呼び出し時に lazy_start() が再起動するため実害はない。
-pub(crate) fn start(port: &impl DaemonLifecyclePort) -> ExitCode {
+pub(crate) async fn start(port: &impl DaemonLifecyclePort) -> ExitCode {
     if std::env::var(DAEMON_INNER_ENV).is_ok() {
-        return match port.start() {
+        return match port.start().await {
             Ok(()) => ExitCode::SUCCESS,
             Err(_) => ExitCode::FAILURE,
         };

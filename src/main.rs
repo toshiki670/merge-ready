@@ -5,7 +5,8 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     let cli = cli::Cli::parse();
-    cli::run(&cli)
+    cli::run(&cli).await
 }

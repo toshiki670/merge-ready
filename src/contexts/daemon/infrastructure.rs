@@ -1,8 +1,8 @@
-pub(super) mod background_refresh;
 pub(super) mod connection;
 pub mod daemon_client;
 pub mod daemon_lifecycle;
 pub mod daemon_server;
+pub(super) mod daemon_state_actor;
 pub mod paths;
 pub mod pid;
 pub(super) mod rate_limit_client;

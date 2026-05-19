@@ -1,4 +1,3 @@
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -7,15 +6,15 @@ use tokio::runtime::Handle;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::daemon_server::RefreshFn;
+use super::daemon_state_actor::DaemonStateHandle;
 use super::paths::Paths;
-use super::request_handler::{self, ActionResult};
+use super::request_handler::ActionResult;
 use super::restart;
-use super::server_state::DaemonState;
 use crate::shared::protocol::Request;
 
 pub(super) async fn handle(
     mut stream: UnixStream,
-    state: &Arc<Mutex<DaemonState>>,
+    state: &DaemonStateHandle,
     on_refresh: RefreshFn,
     exit_tx: &UnboundedSender<()>,
     paths: &Paths,
@@ -34,24 +33,14 @@ pub(super) async fn handle(
         Err(_) => return,
     };
 
-    let ActionResult {
+    let Some(ActionResult {
         response,
         refresh_repo_id,
         refresh_cwd,
         stop,
-    } = {
-        let mut s = state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let config = s.config;
-        let started_at = s.started_at;
-        request_handler::process(
-            &request,
-            &mut s.cache_store,
-            &config.policy,
-            started_at,
-            config.stale_ttl_secs,
-        )
+    }) = state.process(request).await
+    else {
+        return;
     };
 
     if let Ok(json) = serde_json::to_string(&response) {

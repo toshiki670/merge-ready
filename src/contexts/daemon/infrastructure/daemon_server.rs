@@ -1,8 +1,8 @@
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -10,16 +10,15 @@ use tokio::runtime::Handle;
 use tokio::sync::mpsc as tokio_mpsc;
 use tokio::time::MissedTickBehavior;
 
-use super::background_refresh;
 use super::connection;
+use super::daemon_state_actor::{self, DaemonStateHandle};
 use super::paths::Paths;
 use super::rate_limit_client::RateLimitClient;
 use super::repo_id;
 use super::restart;
 use super::server_config;
-use super::server_state::DaemonState;
 use super::socket_listener;
-use crate::contexts::daemon::domain::cache::RepoId;
+use crate::contexts::daemon::domain::cache::{Effect, RateLimitObservedEvent, RepoId};
 use crate::contexts::daemon::domain::daemon::DaemonError;
 
 /// Imperative Shell から渡される、副作用を含むリフレッシュ実装。
@@ -60,34 +59,23 @@ pub async fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError>
         });
     }
 
-    let state = Arc::new(Mutex::new(DaemonState::new(config)));
+    let state_handle = daemon_state_actor::spawn(config);
     let (exit_tx, mut exit_rx) = tokio_mpsc::unbounded_channel::<()>();
     let (scheduler_stop_tx, scheduler_stop_rx) = mpsc::channel::<()>();
     let (rate_limit_stop_tx, rate_limit_stop_rx) = mpsc::channel::<()>();
 
-    let scheduler = {
-        let state = Arc::clone(&state);
-        let scheduler_handle = handle.clone();
-        std::thread::spawn(move || {
-            loop {
-                match scheduler_stop_rx
-                    .recv_timeout(Duration::from_secs(config.scheduler_tick_secs))
-                {
-                    Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                    Err(mpsc::RecvTimeoutError::Timeout) => {}
-                }
-                let refresh_targets = background_refresh::collect_targets(&state);
-                for (repo_id, cwd) in refresh_targets {
-                    spawn_refresh(&repo_id, &cwd, on_refresh, &scheduler_handle);
-                }
-            }
-        })
-    };
+    let scheduler = spawn_scheduler_thread(
+        state_handle.clone(),
+        on_refresh,
+        handle.clone(),
+        config.scheduler_tick_secs,
+        scheduler_stop_rx,
+    );
 
     let rate_limit_thread: Option<JoinHandle<()>> = if config.rate_limit_aware {
         let interval = Duration::from_secs(config.rate_limit_fetch_interval_secs);
         Some(spawn_rate_limit_fetcher(
-            Arc::clone(&state),
+            state_handle.clone(),
             Arc::new(RateLimitClient::new(interval)),
             interval,
             rate_limit_stop_rx,
@@ -118,12 +106,12 @@ pub async fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError>
             }
             accept_result = listener.accept() => match accept_result {
                 Ok((s, _)) => {
-                    let state = Arc::clone(&state);
+                    let state_handle = state_handle.clone();
                     let exit_tx = exit_tx.clone();
                     let paths = Arc::clone(&paths);
                     let conn_handle = handle.clone();
                     tokio::spawn(async move {
-                        connection::handle(s, &state, on_refresh, &exit_tx, &paths, &conn_handle).await;
+                        connection::handle(s, &state_handle, on_refresh, &exit_tx, &paths, &conn_handle).await;
                     });
                 }
                 Err(e) => {
@@ -150,11 +138,45 @@ pub async fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError>
     Ok(())
 }
 
+/// スケジューラの `std::thread` を起動する。
+///
+/// `scheduler_tick_secs` 間隔で `state_handle.tick` を呼び、返ってきた `Effect`
+/// を drain して `SpawnRefresh` のみを `on_refresh` 経由で tokio タスクとして
+/// 起動する。`Phase 4` で `tokio::time::interval` に書き換え予定。
+fn spawn_scheduler_thread(
+    state_handle: DaemonStateHandle,
+    on_refresh: RefreshFn,
+    handle: Handle,
+    tick_secs: u64,
+    stop_rx: mpsc::Receiver<()>,
+) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        loop {
+            match stop_rx.recv_timeout(Duration::from_secs(tick_secs)) {
+                Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+            let effects = handle.block_on(state_handle.tick(Instant::now(), SystemTime::now()));
+            for e in effects {
+                match e {
+                    Effect::SpawnRefresh { repo_id, cwd } => {
+                        spawn_refresh(&repo_id, &cwd, on_refresh, &handle);
+                    }
+                    Effect::RecordExpired { repo_id } => {
+                        log::debug!("entry expired: {repo_id:?}");
+                    }
+                    Effect::EmitOutput(_) | Effect::EnterBackoff { .. } => {}
+                }
+            }
+        }
+    })
+}
+
 /// `gh api rate_limit` を定期取得して `DaemonState.latest_rate_limit` を更新する。
 /// 残量が枯渇／閾値以下まで落ちたとき、`DaemonState.backoff_until` を reset 時刻に
 /// セットして daemon 全体のバックグラウンドリフレッシュを停止する。
 fn spawn_rate_limit_fetcher(
-    state: Arc<Mutex<DaemonState>>,
+    state_handle: DaemonStateHandle,
     client: Arc<RateLimitClient>,
     interval: Duration,
     stop_rx: mpsc::Receiver<()>,
@@ -166,7 +188,17 @@ fn spawn_rate_limit_fetcher(
             // async fn `fetch_or_cached` を専用 std::thread から実行するため
             // tokio runtime Handle で block_on する（Phase 4 で async task 化予定）。
             if let Some(snapshot) = handle.block_on(client.fetch_or_cached()) {
-                update_state_from_snapshot(&state, &snapshot);
+                let event = RateLimitObservedEvent {
+                    snapshot,
+                    now: Instant::now(),
+                    now_wall: SystemTime::now(),
+                };
+                let effects = handle.block_on(state_handle.apply_rate_limit(event));
+                for e in effects {
+                    if let Effect::EnterBackoff { until } = e {
+                        log::info!("rate_limit backoff until {until:?}");
+                    }
+                }
             }
             match stop_rx.recv_timeout(interval) {
                 Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -174,33 +206,6 @@ fn spawn_rate_limit_fetcher(
             }
         }
     })
-}
-
-fn update_state_from_snapshot(
-    state: &Arc<Mutex<DaemonState>>,
-    snapshot: &crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot,
-) {
-    use crate::contexts::daemon::domain::cache::{
-        Effect, RateLimitObservedEvent, on_rate_limit_observed,
-    };
-
-    let mut s = state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let event = RateLimitObservedEvent {
-        snapshot: *snapshot,
-        now: Instant::now(),
-        now_wall: SystemTime::now(),
-    };
-    let (new_store, effects) = on_rate_limit_observed(&s.cache_store, &event);
-    s.cache_store = new_store;
-    drop(s);
-
-    for e in effects {
-        if let Effect::EnterBackoff { until } = e {
-            log::info!("rate_limit backoff until {until:?}");
-        }
-    }
 }
 
 /// リフレッシュ後に `cwd` から `repo_id` を再導出してコールバックを呼ぶ。

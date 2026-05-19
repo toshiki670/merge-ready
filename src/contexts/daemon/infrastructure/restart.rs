@@ -21,26 +21,26 @@ pub(super) fn cleanup(paths: &Paths) {
 /// - PID が生きていれば socket 経由で Stop を送り、終了を待つ
 /// - PID が死んでいる stale ファイルは即削除する
 ///
-/// 新デーモンが自分のソケットを bind した後にバックグラウンドスレッドで実行することで、
+/// 新デーモンが自分のソケットを bind した後にバックグラウンドタスクで実行することで、
 /// `merge-ready-prompt` のレスポンスを旧デーモン停止の完了まで待たせない。
-pub(super) fn cleanup_old_versions(paths: &Paths) {
+pub(super) async fn cleanup_old_versions(paths: &Paths) {
     for old_pid_path in paths.old_daemon_pid_files() {
-        cleanup_one(&old_pid_path);
+        cleanup_one(&old_pid_path).await;
     }
 }
 
-fn cleanup_one(old_pid_path: &std::path::Path) {
+async fn cleanup_one(old_pid_path: &std::path::Path) {
     let Some(stem) = old_pid_path.file_stem().and_then(|s| s.to_str()) else {
         return;
     };
     let old_sock = old_pid_path.with_file_name(format!("{stem}.sock"));
 
     match pid::read(old_pid_path) {
-        Some(p) if pid::is_alive(p) => {
+        Some(p) if pid::is_alive(p).await => {
             let client = DaemonClient::new(old_sock.clone());
-            let _ = client.stop();
+            let _ = client.stop().await;
             // 旧デーモンが Stop を完了するまで待ち、ファイルを掃除する
-            let _ = pid::wait_until_gone(p, old_pid_path, OLD_DAEMON_STOP_TIMEOUT);
+            let _ = pid::wait_until_gone(p, old_pid_path, OLD_DAEMON_STOP_TIMEOUT).await;
             let _ = std::fs::remove_file(&old_sock);
             // pid::wait_until_gone は成功時に pid ファイルを削除するが、失敗時にも残骸を残さない
             let _ = std::fs::remove_file(old_pid_path);
@@ -58,8 +58,8 @@ mod tests {
     use super::*;
     use std::fs;
 
-    #[test]
-    fn cleanup_old_versions_removes_stale_files() {
+    #[tokio::test]
+    async fn cleanup_old_versions_removes_stale_files() {
         let dir = tempfile::tempdir().unwrap();
         let version = env!("CARGO_PKG_VERSION");
 
@@ -76,7 +76,7 @@ mod tests {
         fs::write(dir.path().join("daemon-0.0.0.pid"), b"9999999").unwrap();
 
         let paths = Paths::new(dir.path().to_path_buf());
-        cleanup_old_versions(&paths);
+        cleanup_old_versions(&paths).await;
 
         // 旧バージョンは削除
         assert!(!dir.path().join("daemon-0.0.0.sock").exists());

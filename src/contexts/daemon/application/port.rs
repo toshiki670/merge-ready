@@ -9,5 +9,5 @@ pub struct EntryView {
 
 /// `watch` ユースケースが必要とするアダプタポート。
 pub trait WatchPort {
-    fn entries(&self) -> Option<Vec<EntryView>>;
+    fn entries(&self) -> impl std::future::Future<Output = Option<Vec<EntryView>>> + Send;
 }

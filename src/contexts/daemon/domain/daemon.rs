@@ -17,9 +17,9 @@ pub trait DaemonLifecyclePort {
     /// デーモンを起動する。アイドルタイムアウトまたは Stop リクエストで返る。
     fn start(&self) -> impl std::future::Future<Output = Result<(), DaemonError>> + Send;
     /// デーモンを停止する。成功時は `true` を返す。
-    fn stop(&self) -> bool;
+    fn stop(&self) -> impl std::future::Future<Output = bool> + Send;
     /// デーモンのステータスを取得する。起動していない場合は `None` を返す。
-    fn get_status(&self) -> Option<DaemonStatus>;
+    fn get_status(&self) -> impl std::future::Future<Output = Option<DaemonStatus>> + Send;
     /// 実行中デーモンの PID を返す。未起動の場合は `None` を返す。
-    fn get_pid(&self) -> Option<u32>;
+    fn get_pid(&self) -> impl std::future::Future<Output = Option<u32>> + Send;
 }

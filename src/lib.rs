@@ -43,12 +43,9 @@ fn refresh_callback(
                 output,
             })
             .collect();
-        DaemonClient::new(Paths::default().socket_path()).update(
-            &repo_id,
-            &result.output,
-            result.refresh_mode,
-            pr_outputs,
-        );
+        DaemonClient::new(Paths::default().socket_path())
+            .update(&repo_id, &result.output, result.refresh_mode, pr_outputs)
+            .await;
     })
 }
 
@@ -78,19 +75,17 @@ pub async fn daemon_start_command() -> ExitCode {
 }
 
 /// Stops the running background cache daemon.
-#[must_use]
-pub fn daemon_stop_command() -> ExitCode {
+pub async fn daemon_stop_command() -> ExitCode {
     contexts::evaluation::infrastructure::logger::init();
     let lifecycle = build_daemon_lifecycle();
-    contexts::daemon::interface::cli::daemon::stop(&lifecycle)
+    contexts::daemon::interface::cli::daemon::stop(&lifecycle).await
 }
 
 /// Shows the current status of the background cache daemon.
-#[must_use]
-pub fn daemon_status_command() -> ExitCode {
+pub async fn daemon_status_command() -> ExitCode {
     contexts::evaluation::infrastructure::logger::init();
     let lifecycle = build_daemon_lifecycle();
-    contexts::daemon::interface::cli::daemon::status(&lifecycle)
+    contexts::daemon::interface::cli::daemon::status(&lifecycle).await
 }
 
 /// Watches daemon cache entries in real time.

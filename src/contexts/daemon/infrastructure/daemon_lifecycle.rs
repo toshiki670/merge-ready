@@ -39,26 +39,33 @@ impl DaemonLifecyclePort for DaemonLifecycle {
         daemon_server::run(self.on_refresh, self.paths.clone()).await
     }
 
-    fn stop(&self) -> bool {
+    async fn stop(&self) -> bool {
         let pid_path = self.paths.pid_path();
         let client = DaemonClient::new(self.paths.socket_path());
-        let running_pid = pid::read(&pid_path).filter(|&p| pid::is_alive(p));
-        if client.stop() {
-            return running_pid.is_none_or(|p| wait_or_terminate(p, &pid_path));
+        let running_pid = match pid::read(&pid_path) {
+            Some(p) if pid::is_alive(p).await => Some(p),
+            _ => None,
+        };
+        if client.stop().await {
+            return match running_pid {
+                None => true,
+                Some(p) => wait_or_terminate(p, &pid_path).await,
+            };
         }
         let Some(p) = running_pid.or_else(|| pid::read(&pid_path)) else {
             return false;
         };
-        if !pid::is_alive(p) {
+        if !pid::is_alive(p).await {
             pid::remove(&pid_path);
             return false;
         }
-        terminate_and_wait(p, &pid_path)
+        terminate_and_wait(p, &pid_path).await
     }
 
-    fn get_status(&self) -> Option<DaemonStatus> {
+    async fn get_status(&self) -> Option<DaemonStatus> {
         DaemonClient::new(self.paths.socket_path())
             .status_raw()
+            .await
             .map(|(entries, uptime_secs, version)| DaemonStatus {
                 entries,
                 uptime_secs,
@@ -66,31 +73,36 @@ impl DaemonLifecyclePort for DaemonLifecycle {
             })
     }
 
-    fn get_pid(&self) -> Option<u32> {
-        pid::read(&self.paths.pid_path()).filter(|&p| pid::is_alive(p))
+    async fn get_pid(&self) -> Option<u32> {
+        match pid::read(&self.paths.pid_path()) {
+            Some(p) if pid::is_alive(p).await => Some(p),
+            _ => None,
+        }
     }
 }
 
-fn wait_or_terminate(p: u32, pid_path: &Path) -> bool {
-    if pid::wait_until_gone(p, pid_path, STOP_TIMEOUT) {
+async fn wait_or_terminate(p: u32, pid_path: &Path) -> bool {
+    if pid::wait_until_gone(p, pid_path, STOP_TIMEOUT).await {
         return true;
     }
-    terminate_and_wait(p, pid_path)
+    terminate_and_wait(p, pid_path).await
 }
 
-fn terminate_and_wait(p: u32, pid_path: &Path) -> bool {
+async fn terminate_and_wait(p: u32, pid_path: &Path) -> bool {
     // ソケット経由が失敗した、または終了が遅い場合は SIGTERM でフォールバックする。
-    let signalled = std::process::Command::new("kill")
+    let signalled = tokio::process::Command::new("kill")
         .args(["-TERM", &p.to_string()])
         .status()
+        .await
         .is_ok_and(|s| s.success());
-    signalled && pid::wait_until_gone(p, pid_path, STOP_TIMEOUT)
+    signalled && pid::wait_until_gone(p, pid_path, STOP_TIMEOUT).await
 }
 
 impl WatchPort for DaemonLifecycle {
-    fn entries(&self) -> Option<Vec<EntryView>> {
+    async fn entries(&self) -> Option<Vec<EntryView>> {
         DaemonClient::new(self.paths.socket_path())
             .entries_raw()
+            .await
             .map(|dtos| {
                 dtos.into_iter()
                     .map(|dto| EntryView {
@@ -122,33 +134,33 @@ mod tests {
         DaemonLifecycle::with_paths(noop_refresh, paths)
     }
 
-    #[test]
-    fn get_pid_returns_none_when_no_pid_file() {
+    #[tokio::test]
+    async fn get_pid_returns_none_when_no_pid_file() {
         let dir = tempdir().unwrap();
         let lifecycle = noop_lifecycle(Paths::new(dir.path().to_path_buf()));
-        assert_eq!(lifecycle.get_pid(), None);
+        assert_eq!(lifecycle.get_pid().await, None);
     }
 
-    #[test]
-    fn get_pid_returns_some_when_pid_is_alive() {
+    #[tokio::test]
+    async fn get_pid_returns_some_when_pid_is_alive() {
         let dir = tempdir().unwrap();
         let paths = Paths::new(dir.path().to_path_buf());
         pid::write(std::process::id(), &paths.pid_path());
         let lifecycle = noop_lifecycle(paths);
-        assert_eq!(lifecycle.get_pid(), Some(std::process::id()));
+        assert_eq!(lifecycle.get_pid().await, Some(std::process::id()));
     }
 
-    #[test]
-    fn stop_returns_false_when_daemon_not_running() {
+    #[tokio::test]
+    async fn stop_returns_false_when_daemon_not_running() {
         let dir = tempdir().unwrap();
         let lifecycle = noop_lifecycle(Paths::new(dir.path().to_path_buf()));
-        assert!(!lifecycle.stop());
+        assert!(!lifecycle.stop().await);
     }
 
-    #[test]
-    fn get_status_returns_none_when_daemon_not_running() {
+    #[tokio::test]
+    async fn get_status_returns_none_when_daemon_not_running() {
         let dir = tempdir().unwrap();
         let lifecycle = noop_lifecycle(Paths::new(dir.path().to_path_buf()));
-        assert!(lifecycle.get_status().is_none());
+        assert!(lifecycle.get_status().await.is_none());
     }
 }

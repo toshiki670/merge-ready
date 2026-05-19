@@ -138,11 +138,33 @@ fn handle_command(state: &mut DaemonState, cmd: DaemonCommand) {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
+    use crate::contexts::daemon::domain::refresh_policy::RefreshPolicy;
     use crate::shared::protocol::Response;
 
+    /// テスト専用の決定的 config。env を読まないため、テスト間で値がぶれない。
     fn test_config() -> DaemonServerConfig {
-        DaemonServerConfig::from_env()
+        DaemonServerConfig {
+            stale_ttl_secs: 5,
+            refresh_lock_timeout_secs: 120,
+            entry_max_age_secs: 2 * 24 * 60 * 60,
+            scheduler_tick_secs: 2,
+            socket_check_interval_secs: 5,
+            policy: RefreshPolicy {
+                hot_recent_query_secs: 30,
+                hot_with_query_secs: 2,
+                hot_without_query_secs: 10,
+                warm_refresh_secs: 180,
+                warm_to_cold_secs: 30 * 60,
+                cold_early_secs: 30 * 60,
+                cold_late_secs: 60 * 60,
+                cold_early_limit: 10,
+            },
+            rate_limit_aware: true,
+            rate_limit_fetch_interval_secs: 60,
+        }
     }
 
     #[tokio::test]
@@ -190,7 +212,7 @@ mod tests {
             core_limit: 5000,
             graphql_remaining: 5000,
             graphql_limit: 5000,
-            reset_at: now_wall + std::time::Duration::from_mins(1),
+            reset_at: now_wall + Duration::from_mins(1),
             fetched_at: Instant::now(),
         };
         let event = RateLimitObservedEvent {
@@ -204,6 +226,112 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, Effect::EnterBackoff { .. })),
             "expected EnterBackoff effect"
+        );
+    }
+
+    /// 仮想時間: backoff 設定後に `reset_at` を超えるまで進めた tick では
+    /// `EnterBackoff` が再発生しない（`backoff_until` が過去になる）。
+    #[tokio::test(start_paused = true)]
+    async fn rate_limit_backoff_clears_after_reset_passes() {
+        use crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot;
+
+        let handle = spawn(test_config());
+        let start = Instant::now();
+        let start_wall = SystemTime::now();
+        let exhausted = RateLimitSnapshot {
+            core_remaining: 0,
+            core_limit: 5000,
+            graphql_remaining: 5000,
+            graphql_limit: 5000,
+            reset_at: start_wall + Duration::from_mins(1),
+            fetched_at: start,
+        };
+        let first = handle
+            .apply_rate_limit(RateLimitObservedEvent {
+                snapshot: exhausted,
+                now: start,
+                now_wall: start_wall,
+            })
+            .await;
+        assert!(
+            first
+                .iter()
+                .any(|e| matches!(e, Effect::EnterBackoff { .. })),
+            "exhausted snapshot must emit backoff"
+        );
+
+        // reset を超える時間を進めてから tick を打つ。backoff_until は過去になっており、
+        // tick は backoff 中スキップに入らない（cache_store は空なので effects は空）。
+        tokio::time::advance(Duration::from_secs(61)).await;
+        let later = start + Duration::from_secs(61);
+        let later_wall = start_wall + Duration::from_secs(61);
+        let effects = handle.tick(later, later_wall).await;
+        assert!(
+            effects.is_empty(),
+            "tick after reset and with empty store should emit no effects"
+        );
+    }
+
+    /// 仮想時間: 同じ枯渇 snapshot を続けて送っても、すでに設定済みの `backoff_until` は
+    /// 変わらないので新たな `EnterBackoff` は emit されない。
+    #[tokio::test(start_paused = true)]
+    async fn duplicate_backoff_snapshot_does_not_re_emit_effect() {
+        use crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot;
+
+        let handle = spawn(test_config());
+        let start = Instant::now();
+        let start_wall = SystemTime::now();
+        let snapshot = RateLimitSnapshot {
+            core_remaining: 0,
+            core_limit: 5000,
+            graphql_remaining: 5000,
+            graphql_limit: 5000,
+            reset_at: start_wall + Duration::from_mins(1),
+            fetched_at: start,
+        };
+        let first = handle
+            .apply_rate_limit(RateLimitObservedEvent {
+                snapshot,
+                now: start,
+                now_wall: start_wall,
+            })
+            .await;
+        assert!(
+            first
+                .iter()
+                .any(|e| matches!(e, Effect::EnterBackoff { .. }))
+        );
+
+        tokio::time::advance(Duration::from_millis(100)).await;
+        let again = handle
+            .apply_rate_limit(RateLimitObservedEvent {
+                snapshot,
+                now: start + Duration::from_millis(100),
+                now_wall: start_wall + Duration::from_millis(100),
+            })
+            .await;
+        assert!(
+            again
+                .iter()
+                .all(|e| !matches!(e, Effect::EnterBackoff { .. })),
+            "duplicate backoff snapshot should not re-emit EnterBackoff"
+        );
+    }
+
+    /// 仮想時間: scheduler tick 相当の経過時間を進めても、`cache_store` が空なら
+    /// effects は出ない（`refresh_lock_timeout` を超えても影響しないことの確認）。
+    #[tokio::test(start_paused = true)]
+    async fn tick_after_lock_timeout_advance_with_empty_store_is_noop() {
+        let handle = spawn(test_config());
+        let base = Instant::now();
+        let base_wall = SystemTime::now();
+
+        let elapsed = Duration::from_secs(test_config().refresh_lock_timeout_secs + 1);
+        tokio::time::advance(elapsed).await;
+        let effects = handle.tick(base + elapsed, base_wall + elapsed).await;
+        assert!(
+            effects.is_empty(),
+            "tick with empty store should be a no-op even after lock timeout"
         );
     }
 }

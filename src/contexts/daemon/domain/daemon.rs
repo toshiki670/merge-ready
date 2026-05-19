@@ -15,7 +15,7 @@ pub struct DaemonStatus {
 /// デーモンのライフサイクル管理ポート
 pub trait DaemonLifecyclePort {
     /// デーモンを起動する。アイドルタイムアウトまたは Stop リクエストで返る。
-    fn start(&self) -> Result<(), DaemonError>;
+    fn start(&self) -> impl std::future::Future<Output = Result<(), DaemonError>> + Send;
     /// デーモンを停止する。成功時は `true` を返す。
     fn stop(&self) -> bool;
     /// デーモンのステータスを取得する。起動していない場合は `None` を返す。

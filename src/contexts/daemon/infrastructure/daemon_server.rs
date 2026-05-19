@@ -1,7 +1,14 @@
+use std::future::Future;
+use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime};
+
+use tokio::runtime::Handle;
+use tokio::sync::mpsc as tokio_mpsc;
+use tokio::time::MissedTickBehavior;
 
 use super::background_refresh;
 use super::connection;
@@ -15,20 +22,24 @@ use super::socket_listener;
 use crate::contexts::daemon::domain::cache::RepoId;
 use crate::contexts::daemon::domain::daemon::DaemonError;
 
-pub(super) type RefreshFn = fn(&RepoId, &std::path::Path);
+/// Imperative Shell から渡される、副作用を含むリフレッシュ実装。
+/// async 関数ポインタとして受け取り、キャプチャを禁じ依存を明示する。
+pub(super) type RefreshFn =
+    fn(RepoId, PathBuf) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 
 /// デーモンのメインループ。ソケットをバインドして接続を待ち受ける。
 ///
-/// `on_refresh` はキャッシュ更新が必要になったときにスレッドで呼ばれる。
+/// `on_refresh` はキャッシュ更新が必要になったときに tokio タスクとして spawn される。
 /// Stop リクエストで `Ok(())` を返す。
-pub fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError> {
+pub async fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError> {
+    let handle = Handle::current();
     let config = server_config::DaemonServerConfig::from_env();
     let socket_path = paths.socket_path();
     if let Some(parent) = socket_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let listener = socket_listener::bind(&paths)?;
+    let listener = socket_listener::bind(&paths).await?;
 
     // 外側プロセスへ起動完了を通知する（stdout pipe 経由）
     {
@@ -50,12 +61,13 @@ pub fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError> {
     }
 
     let state = Arc::new(Mutex::new(DaemonState::new(config)));
-    let (exit_tx, exit_rx) = mpsc::channel::<()>();
+    let (exit_tx, mut exit_rx) = tokio_mpsc::unbounded_channel::<()>();
     let (scheduler_stop_tx, scheduler_stop_rx) = mpsc::channel::<()>();
     let (rate_limit_stop_tx, rate_limit_stop_rx) = mpsc::channel::<()>();
 
     let scheduler = {
         let state = Arc::clone(&state);
+        let scheduler_handle = handle.clone();
         std::thread::spawn(move || {
             loop {
                 match scheduler_stop_rx
@@ -66,7 +78,7 @@ pub fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError> {
                 }
                 let refresh_targets = background_refresh::collect_targets(&state);
                 for (repo_id, cwd) in refresh_targets {
-                    spawn_refresh(&repo_id, &cwd, on_refresh);
+                    spawn_refresh(&repo_id, &cwd, on_refresh, &scheduler_handle);
                 }
             }
         })
@@ -79,6 +91,7 @@ pub fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError> {
             Arc::new(RateLimitClient::new(interval)),
             interval,
             rate_limit_stop_rx,
+            handle.clone(),
         ))
     } else {
         // OFF 時もスレッドを生やさないが、stop チャネルは drop しても害なし
@@ -86,53 +99,50 @@ pub fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError> {
         None
     };
 
-    // non-blocking で accept し、終了シグナルを 10ms ごとにポーリングする
-    listener.set_nonblocking(true).ok();
-
     // 自身の socket ファイル消失を定期チェックする。テストハーネスが異常終了して
     // Drop ベースの `daemon stop` が走らず TempDir ごと消えるケースで孤児化しないように、
     // socket が外部から削除されたら break して自滅する。
-    let socket_check_interval = Duration::from_secs(config.socket_check_interval_secs);
-    let mut last_socket_check = Instant::now();
+    let mut socket_check =
+        tokio::time::interval(Duration::from_secs(config.socket_check_interval_secs));
+    socket_check.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     let should_cleanup = loop {
-        if exit_rx.try_recv().is_ok() {
-            break false;
-        }
-
-        if last_socket_check.elapsed() >= socket_check_interval {
-            last_socket_check = Instant::now();
-            if !paths.socket_path().exists() {
-                log::info!("daemon socket disappeared, self-terminating");
-                break true;
+        tokio::select! {
+            biased;
+            _ = exit_rx.recv() => break false,
+            _ = socket_check.tick() => {
+                if !paths.socket_path().exists() {
+                    log::info!("daemon socket disappeared, self-terminating");
+                    break true;
+                }
             }
-        }
-
-        match listener.accept() {
-            Ok((s, _)) => {
-                let state = Arc::clone(&state);
-                let exit_tx = exit_tx.clone();
-                let paths = Arc::clone(&paths);
-                std::thread::spawn(move || {
-                    connection::handle(s, &state, on_refresh, &exit_tx, &paths);
-                });
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            Err(e) => {
-                log::error!("listener error: {e}");
-                break true;
+            accept_result = listener.accept() => match accept_result {
+                Ok((s, _)) => {
+                    let state = Arc::clone(&state);
+                    let exit_tx = exit_tx.clone();
+                    let paths = Arc::clone(&paths);
+                    let conn_handle = handle.clone();
+                    tokio::spawn(async move {
+                        connection::handle(s, &state, on_refresh, &exit_tx, &paths, &conn_handle).await;
+                    });
+                }
+                Err(e) => {
+                    log::error!("listener error: {e}");
+                    break true;
+                }
             }
         }
     };
 
     let _ = scheduler_stop_tx.send(());
-    let _ = scheduler.join();
     let _ = rate_limit_stop_tx.send(());
-    if let Some(t) = rate_limit_thread {
-        let _ = t.join();
-    }
+    // std::thread の join は async ワーカーをブロックしないよう block_in_place で
+    tokio::task::block_in_place(|| {
+        let _ = scheduler.join();
+        if let Some(t) = rate_limit_thread {
+            let _ = t.join();
+        }
+    });
 
     if should_cleanup {
         restart::cleanup(&paths);
@@ -148,11 +158,14 @@ fn spawn_rate_limit_fetcher(
     client: Arc<RateLimitClient>,
     interval: Duration,
     stop_rx: mpsc::Receiver<()>,
+    handle: Handle,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         loop {
-            // 初回は起動直後に取得し、その後は `interval` 間隔で繰り返す
-            if let Some(snapshot) = client.fetch_or_cached() {
+            // 初回は起動直後に取得し、その後は `interval` 間隔で繰り返す。
+            // async fn `fetch_or_cached` を専用 std::thread から実行するため
+            // tokio runtime Handle で block_on する（Phase 4 で async task 化予定）。
+            if let Some(snapshot) = handle.block_on(client.fetch_or_cached()) {
                 update_state_from_snapshot(&state, &snapshot);
             }
             match stop_rx.recv_timeout(interval) {
@@ -192,11 +205,16 @@ fn update_state_from_snapshot(
 
 /// リフレッシュ後に `cwd` から `repo_id` を再導出してコールバックを呼ぶ。
 /// ブランチが変わっていれば新しい `repo_id` に対してキャッシュを更新する。
-pub(super) fn spawn_refresh(stored_repo_id: &RepoId, cwd: &std::path::Path, on_refresh: RefreshFn) {
+pub(super) fn spawn_refresh(
+    stored_repo_id: &RepoId,
+    cwd: &std::path::Path,
+    on_refresh: RefreshFn,
+    handle: &Handle,
+) {
     let current_repo_id = cwd
         .to_str()
         .and_then(repo_id::repo_id_from_cwd)
         .map_or_else(|| stored_repo_id.clone(), RepoId::new);
     let cwd = cwd.to_path_buf();
-    std::thread::spawn(move || on_refresh(&current_repo_id, &cwd));
+    handle.spawn(on_refresh(current_repo_id, cwd));
 }

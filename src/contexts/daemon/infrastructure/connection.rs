@@ -1,8 +1,10 @@
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
-use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::UnixStream;
+use tokio::runtime::Handle;
+use tokio::sync::mpsc::UnboundedSender;
 
 use super::daemon_server::RefreshFn;
 use super::paths::Paths;
@@ -11,17 +13,18 @@ use super::restart;
 use super::server_state::DaemonState;
 use crate::shared::protocol::Request;
 
-pub(super) fn handle(
+pub(super) async fn handle(
     mut stream: UnixStream,
     state: &Arc<Mutex<DaemonState>>,
     on_refresh: RefreshFn,
-    exit_tx: &mpsc::Sender<()>,
+    exit_tx: &UnboundedSender<()>,
     paths: &Paths,
+    handle: &Handle,
 ) {
     let mut buf = String::new();
     {
-        let mut reader = BufReader::new(&stream);
-        if reader.read_line(&mut buf).is_err() || buf.is_empty() {
+        let mut reader = BufReader::new(&mut stream);
+        if reader.read_line(&mut buf).await.is_err() || buf.is_empty() {
             return;
         }
     }
@@ -52,17 +55,17 @@ pub(super) fn handle(
     };
 
     if let Ok(json) = serde_json::to_string(&response) {
-        let _ = stream.write_all(format!("{json}\n").as_bytes());
+        let _ = stream.write_all(format!("{json}\n").as_bytes()).await;
     }
     drop(stream);
 
     if let (Some(repo_id), Some(cwd)) = (refresh_repo_id, refresh_cwd) {
-        super::daemon_server::spawn_refresh(&repo_id, &cwd, on_refresh);
+        super::daemon_server::spawn_refresh(&repo_id, &cwd, on_refresh, handle);
     }
 
     if stop {
         restart::cleanup(paths);
-        std::thread::sleep(Duration::from_millis(50));
+        tokio::time::sleep(Duration::from_millis(50)).await;
         let _ = exit_tx.send(());
     }
 }

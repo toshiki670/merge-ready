@@ -46,16 +46,16 @@ impl RateLimitClient {
 
     /// キャッシュが新鮮なら再利用し、そうでなければ `gh api rate_limit` を呼ぶ。
     /// 取得失敗時は `None` を返す（呼び出し側でフォールバック挙動）。
-    pub(super) fn fetch_or_cached(&self) -> Option<RateLimitSnapshot> {
+    pub(super) async fn fetch_or_cached(&self) -> Option<RateLimitSnapshot> {
         if let Some(snap) = self.cached_if_fresh() {
             return Some(snap);
         }
-        self.force_refresh()
+        self.force_refresh().await
     }
 
     /// 強制的に再取得する（403 受信時の即時参照用）。
-    pub(super) fn force_refresh(&self) -> Option<RateLimitSnapshot> {
-        let snap = raw_fetch()?;
+    pub(super) async fn force_refresh(&self) -> Option<RateLimitSnapshot> {
+        let snap = raw_fetch().await?;
         let mut guard = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
         *guard = Some(snap);
         Some(snap)
@@ -72,8 +72,8 @@ impl RateLimitClient {
     }
 }
 
-fn raw_fetch() -> Option<RateLimitSnapshot> {
-    match run_gh(&["api", "rate_limit"], None) {
+async fn raw_fetch() -> Option<RateLimitSnapshot> {
+    match run_gh(&["api", "rate_limit"], None).await {
         Ok(bytes) => {
             let parsed = parse_rate_limit_json(&bytes, Instant::now());
             if parsed.is_none() {

@@ -1,4 +1,6 @@
-use std::path::Path;
+use std::future::Future;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::time::Duration;
 
 use crate::contexts::daemon::application::port::{EntryView, WatchPort};
@@ -9,8 +11,8 @@ use super::paths::Paths;
 use super::{daemon_client::DaemonClient, daemon_server, pid};
 
 /// Imperative Shell から渡される、副作用を含むリフレッシュ実装。
-/// 関数ポインタとして受け取ることで、キャプチャを禁じ依存を明示する。
-pub type RefreshFn = fn(&RepoId, &Path);
+/// async 関数ポインタとして受け取ることで、キャプチャを禁じ依存を明示する。
+pub type RefreshFn = fn(RepoId, PathBuf) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub struct DaemonLifecycle {
@@ -33,8 +35,8 @@ impl DaemonLifecycle {
 }
 
 impl DaemonLifecyclePort for DaemonLifecycle {
-    fn start(&self) -> Result<(), DaemonError> {
-        daemon_server::run(self.on_refresh, self.paths.clone())
+    async fn start(&self) -> Result<(), DaemonError> {
+        daemon_server::run(self.on_refresh, self.paths.clone()).await
     }
 
     fn stop(&self) -> bool {
@@ -109,8 +111,15 @@ mod tests {
 
     use super::*;
 
+    fn noop_refresh(
+        _repo_id: RepoId,
+        _cwd: PathBuf,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        Box::pin(async move {})
+    }
+
     fn noop_lifecycle(paths: Paths) -> DaemonLifecycle {
-        DaemonLifecycle::with_paths(|_, _| {}, paths)
+        DaemonLifecycle::with_paths(noop_refresh, paths)
     }
 
     #[test]

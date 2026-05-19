@@ -596,6 +596,143 @@ fn test_daemon_self_terminates_when_socket_disappears() {
     );
 }
 
+// ── #19: SIGINT による daemon の停止 ─────────────────────────────────────────
+
+/// #19: 実行中の daemon に SIGINT を送ると graceful に停止する。
+///
+/// `install_shutdown_signals` の `sigint.recv()` 経路を覆う。
+#[test]
+fn test_daemon_terminates_on_sigint() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+    let daemon = DaemonHandle::start(&env);
+
+    let pid: u32 = std::fs::read_to_string(versioned_pid(env.home()))
+        .expect("read pid file")
+        .trim()
+        .parse()
+        .expect("parse pid");
+    assert!(is_pid_alive(pid), "daemon should be alive before SIGINT");
+
+    let status = std::process::Command::new("kill")
+        .args(["-INT", &pid.to_string()])
+        .status()
+        .expect("send SIGINT");
+    assert!(status.success(), "kill -INT failed");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while std::time::Instant::now() < deadline {
+        if !is_pid_alive(pid) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(
+        !is_pid_alive(pid),
+        "daemon (pid={pid}) should terminate on SIGINT"
+    );
+
+    drop(daemon);
+}
+
+// ── #20: MERGE_READY_BASE_DIR 未設定でのデフォルトパス解決 ───────────────────
+
+/// #20: `MERGE_READY_BASE_DIR` 未設定でも、daemon と prompt は `TMPDIR/merge-ready/` 配下の
+/// 同じソケットで連携する。
+///
+/// `Paths::default()` の `env::var` Err 分岐と `base_dir()` / `dir_name()` を覆う。
+#[test]
+fn test_daemon_and_prompt_use_default_base_dir_when_unset() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+
+    let bin = assert_cmd::cargo::cargo_bin(BIN);
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.args(["daemon", "start"])
+        .env("PATH", env.path_env())
+        .env("HOME", env.home())
+        .env("TMPDIR", env.home())
+        .env("XDG_CONFIG_HOME", env.home().join(".config"))
+        .env_remove("MERGE_READY_BASE_DIR")
+        .current_dir(env.repo.path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    apply_coverage_env(&mut cmd);
+    let mut child = cmd.spawn().expect("daemon spawn");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(START_TIMEOUT_MS);
+    let status = loop {
+        if let Ok(Some(s)) = child.try_wait() {
+            break s;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("daemon did not start within {START_TIMEOUT_MS}ms");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    assert!(status.success(), "daemon start should succeed");
+
+    // BASE_DIR 未設定なので TMPDIR/<dir_name>/ 配下に socket が作られる。
+    // dir_name() は OS 依存（macOS: "merge-ready"、Linux: "merge-ready-{uid}"）。
+    let socket_name = format!("daemon-{}.sock", env!("CARGO_PKG_VERSION"));
+    let socket_path = std::fs::read_dir(env.home())
+        .expect("read home dir")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("merge-ready"))
+        })
+        .find_map(|d| {
+            let candidate = d.join(&socket_name);
+            candidate.exists().then_some(candidate)
+        })
+        .expect("daemon socket not found under any merge-ready* dir");
+
+    // prompt を同じ env で実行 → daemon と通信して結果を返す
+    let prompt_bin = assert_cmd::cargo::cargo_bin(PROMPT_BIN);
+    let mut prompt_cmd = std::process::Command::new(&prompt_bin);
+    prompt_cmd
+        .env("PATH", env.path_env())
+        .env("HOME", env.home())
+        .env("TMPDIR", env.home())
+        .env_remove("MERGE_READY_BASE_DIR")
+        .current_dir(env.repo.path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    apply_coverage_env(&mut prompt_cmd);
+    let prompt_out = prompt_cmd.output().expect("prompt run");
+    assert!(prompt_out.status.success(), "prompt failed");
+    let stdout = String::from_utf8_lossy(&prompt_out.stdout);
+    assert!(
+        stdout == "? loading" || stdout.contains("Ready"),
+        "unexpected prompt stdout: {stdout:?}"
+    );
+
+    // cleanup: daemon を SIGTERM で止める（base_dir を unset した特殊シナリオなので、
+    // socket パスから pid を読み取って直接 kill する）
+    let base = socket_path.parent().expect("socket parent");
+    if let Ok(pid_str) =
+        std::fs::read_to_string(base.join(format!("daemon-{}.pid", env!("CARGO_PKG_VERSION"))))
+        && let Ok(pid) = pid_str.trim().parse::<u32>()
+    {
+        let _ = std::process::Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while std::time::Instant::now() < deadline {
+            if !is_pid_alive(pid) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+}
+
+const START_TIMEOUT_MS: u64 = 5000;
+
 // ── #18: stale PID ファイルのクリーンアップ ──────────────────────────────────
 
 /// #18: 前回クラッシュした daemon が残した stale な PID ファイルがある状態で

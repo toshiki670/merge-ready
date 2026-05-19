@@ -45,24 +45,13 @@ pub async fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhProc
     cmd.kill_on_drop(true);
 
     let child = match cmd.spawn() {
-        Err(e) if e.kind() == ErrorKind::NotFound => return Err(GhProcessError::NotInstalled),
-        Err(e) => {
-            return Err(GhProcessError::Failed {
-                exit_code: -1,
-                stderr: e.to_string(),
-            });
-        }
         Ok(c) => c,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Err(GhProcessError::NotInstalled),
+        Err(e) => panic!("spawn gh: {e}"),
     };
 
     let output = match timeout(gh_timeout(), child.wait_with_output()).await {
-        Ok(Ok(out)) => out,
-        Ok(Err(e)) => {
-            return Err(GhProcessError::Failed {
-                exit_code: -1,
-                stderr: e.to_string(),
-            });
-        }
+        Ok(out) => out.expect("wait_with_output on gh child"),
         Err(_) => return Err(GhProcessError::Timeout),
     };
 

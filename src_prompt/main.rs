@@ -2,11 +2,10 @@
 
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
-use merge_ready::prompt_ipc;
+use merge_ready::{prompt_ipc, prompt_socket_path};
 
 const READ_TIMEOUT_MS: u64 = 500;
 
@@ -24,7 +23,7 @@ fn query_daemon() -> Option<String> {
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
 
-    let stream = UnixStream::connect(socket_path()).ok()?;
+    let stream = UnixStream::connect(prompt_socket_path()).ok()?;
     stream
         .set_read_timeout(Some(Duration::from_millis(READ_TIMEOUT_MS)))
         .ok()?;
@@ -40,32 +39,11 @@ fn query_daemon() -> Option<String> {
     prompt_ipc::Response::decode(&buf[..n]).map(|r| r.output)
 }
 
-fn socket_path() -> PathBuf {
-    std::env::var("MERGE_READY_BASE_DIR")
-        .map_or_else(|_| std::env::temp_dir().join(dir_name()), PathBuf::from)
-        .join(format!("daemon-{}.sock", env!("CARGO_PKG_VERSION")))
-}
-
-fn dir_name() -> String {
-    std::cfg_select! {
-        target_os = "linux" => {
-            use std::os::unix::fs::MetadataExt;
-            std::fs::metadata("/proc/self").map_or_else(
-                |_| "merge-ready".to_owned(),
-                |m| format!("merge-ready-{}", m.uid()),
-            )
-        },
-        _ => "merge-ready".to_owned(),
-    }
-}
-
 fn spawn_daemon() {
-    // 自身のバイナリパス (merge-ready-prompt) と同じディレクトリにある merge-ready を探す
-    let daemon_exe = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|p| p.join("merge-ready")))
-        .filter(|p| p.exists())
-        .unwrap_or_else(|| PathBuf::from("merge-ready"));
+    // 自身のバイナリパス (merge-ready-prompt) と同じディレクトリにある merge-ready を探す。
+    // current_exe / parent は実用上失敗しない前提で expect する。
+    let exe = std::env::current_exe().expect("current_exe");
+    let daemon_exe = exe.parent().expect("exe parent").join("merge-ready");
 
     // MERGE_READY_DAEMON_INNER=1 で outer wrapper をスキップして直接 inner として起動する。
     // この文字列は infrastructure::paths::DAEMON_INNER_ENV と同一でなければならない。

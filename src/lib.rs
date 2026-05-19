@@ -7,6 +7,15 @@ pub use shared::prompt_ipc;
 
 use std::future::Future;
 use std::path::PathBuf;
+
+/// `merge-ready-prompt` バイナリから daemon の Unix ソケットへ接続するためのパス。
+///
+/// `Paths::default()` を経由するため、`MERGE_READY_BASE_DIR` の解決ルールが
+/// daemon 側と一致する。
+#[must_use]
+pub fn prompt_socket_path() -> PathBuf {
+    Paths::default().socket_path()
+}
 use std::pin::Pin;
 use std::process::ExitCode;
 

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.5] - 2026-05-19
+### Bug Fixes
+- Right-align CACHED AT column ([#335](https://github.com/toshiki670/merge-ready/pull/335)) ([`6ed733e`](https://github.com/toshiki670/merge-ready/commit/6ed733ec4314cc2689c824efe116029d2769e2a4))
+
+
 ## [0.7.4] - 2026-05-17
 ### Features
 - Scale refresh interval based on gh rate limit ([#274](https://github.com/toshiki670/merge-ready/pull/274)) ([#328](https://github.com/toshiki670/merge-ready/pull/328)) ([`3af5c0e`](https://github.com/toshiki670/merge-ready/commit/3af5c0efea01dbff260faf545bdb0949bfc01ac9))

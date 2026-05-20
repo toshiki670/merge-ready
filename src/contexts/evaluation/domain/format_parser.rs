@@ -116,14 +116,14 @@ mod tests {
 
     #[rstest]
     #[case(
-        "( #$pr_id)",
-        vec![Segment::Conditional(vec![Segment::Text(" #$pr_id".to_owned())])]
+        "( $pr_ids)",
+        vec![Segment::Conditional(vec![Segment::Text(" $pr_ids".to_owned())])]
     )]
     #[case(
-        "$symbol( #$pr_id)",
+        "$symbol( $pr_ids)",
         vec![
             Segment::Text("$symbol".to_owned()),
-            Segment::Conditional(vec![Segment::Text(" #$pr_id".to_owned())]),
+            Segment::Conditional(vec![Segment::Text(" $pr_ids".to_owned())]),
         ]
     )]
     #[case(

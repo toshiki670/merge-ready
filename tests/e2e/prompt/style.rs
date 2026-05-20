@@ -45,12 +45,12 @@ fn plain_format_produces_no_ansi() {
 
 /// `[text](style)` の content 内に conditional ブロックを置いた場合の検証。
 ///
-/// `[$symbol $label( #$pr_id)](cyan)` — 単独 PR（`$pr_id` が空）のとき
-/// `( #$pr_id)` ブロックが非表示になり、全体に cyan スタイルが適用される。
+/// `[$symbol $label( $pr_ids)](cyan)` — 単独 PR（`$pr_ids` が空）のとき
+/// `( $pr_ids)` ブロックが非表示になり、全体に cyan スタイルが適用される。
 #[test]
-fn conditional_inside_styled_block_hidden_when_pr_id_empty() {
+fn conditional_inside_styled_block_hidden_when_pr_ids_empty() {
     let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
-    env.write_config("[merge_ready]\nformat = \"[$symbol $label( #$pr_id)](cyan)\"");
+    env.write_config("[merge_ready]\nformat = \"[$symbol $label( $pr_ids)](cyan)\"");
 
     let _daemon = DaemonHandle::start(&env);
     DaemonHandle::wait_for_cache(&env, 5000);
@@ -63,15 +63,15 @@ fn conditional_inside_styled_block_hidden_when_pr_id_empty() {
         .stdout(predicate::str::contains("\x1b["))
         .stderr("");
 
-    // `( #)` が出力に含まれないこと（Conditional が非表示）
+    // Conditional が非表示になり、`(` も `$pr_ids` リテラルも残らないこと
     let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
     env.apply_with_cache(&mut cmd);
     cmd.timeout(std::time::Duration::from_secs(5))
         .assert()
         .success()
-        .stdout(predicate::str::contains("( #").not())
-        .stdout(predicate::str::contains("✓ Ready for merge"))
-        .stdout(predicate::str::contains("( #)").not());
+        .stdout(predicate::str::contains("(").not())
+        .stdout(predicate::str::contains("$pr_ids").not())
+        .stdout(predicate::str::contains("✓ Ready for merge"));
 }
 
 /// 複数の色指定形式（Ansi256 / RGB / Named fg+bg）を使った format で、

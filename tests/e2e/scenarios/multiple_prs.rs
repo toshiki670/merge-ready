@@ -1,6 +1,8 @@
-//! 複数 PR シナリオ: 1ブランチに複数のオープン PR が存在する場合の表示検証（#256）
+//! 複数 PR シナリオ: 1ブランチに複数のオープン PR が存在する場合の表示検証（#256, #355）
 //!
-//! 複数 PR は番号昇順で並び、各 PR の状態を `#<number>` 付きでスペース区切りに表示する。
+//! 複数 PR では同一ステータス（種別）を 1 トークンに集約し、配下の PR 番号を昇順で
+//! `#<number>` 付きに列挙する。グループはステータスの初出（= 最小 ID）順に並ぶ。
+//! 単一 PR 時は従来どおり `#<number>` を省略する。
 
 const PROMPT_BIN: &str = "merge-ready-prompt";
 
@@ -57,6 +59,57 @@ fn test_multiple_prs_with_mixed_states() {
         .success()
         .stdout(predicate::str::diff(
             "✓ Ready for merge #300 @ Assign reviewer #301",
+        ))
+        .stderr("");
+}
+
+/// 同一ステータスの複数 PR: 1 トークンに集約し PR 番号を昇順で列挙する（#355）
+///
+/// PR #100, #101, #102: いずれも draft
+/// 期待出力: "✎ Ready for review #100 #101 #102"
+#[test]
+fn test_same_status_prs_aggregated_into_single_token() {
+    let pr_list_json = r#"[
+        {"number":100,"state":"OPEN","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null,"baseRefName":"","headRefName":""},
+        {"number":101,"state":"OPEN","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null,"baseRefName":"","headRefName":""},
+        {"number":102,"state":"OPEN","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null,"baseRefName":"","headRefName":""}
+    ]"#;
+    let env = TestEnv::with_pr_list(pr_list_json, Some(r"[]"));
+
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::diff("✎ Ready for review #100 #101 #102"))
+        .stderr("");
+}
+
+/// 複数ステータス群の集約: 同一ステータスごとに集約し、グループは初出（最小 ID）順に並ぶ（#355）
+///
+/// PR #100, #101: draft / PR #102, #103: レビュー待ち（`BLOCKED`, `REVIEW_REQUIRED`）
+/// 期待出力: "✎ Ready for review #100 #101 @ Assign reviewer #102 #103"
+#[test]
+fn test_distinct_status_groups_each_aggregated() {
+    let pr_list_json = r#"[
+        {"number":100,"state":"OPEN","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null,"baseRefName":"","headRefName":""},
+        {"number":101,"state":"OPEN","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null,"baseRefName":"","headRefName":""},
+        {"number":102,"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"REVIEW_REQUIRED","baseRefName":"","headRefName":""},
+        {"number":103,"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"REVIEW_REQUIRED","baseRefName":"","headRefName":""}
+    ]"#;
+    let env = TestEnv::with_pr_list(pr_list_json, Some(r"[]"));
+
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::diff(
+            "✎ Ready for review #100 #101 @ Assign reviewer #102 #103",
         ))
         .stderr("");
 }

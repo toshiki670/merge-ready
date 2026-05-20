@@ -38,22 +38,17 @@ pub fn render(prompt_result: Result<Prompt, ErrorToken>, config: &DisplayConfig)
             pr_outputs: vec![],
         },
         Ok(Prompt::PullRequests(prs)) => {
-            let items = to_display_items(prs);
-            let show_pr_id = items.len() > 1;
-            let mut pr_outputs = Vec::new();
-            let mut all_outputs = Vec::new();
+            let mut items = to_display_items(prs);
+            // 純関数として決定的な並びを保証する。PR 番号昇順で走査することで、
+            // 集約後のグループは初出（= 最小 ID）順、グループ内 ID は昇順になる。
+            items.sort_by_key(|(pr_id, _)| *pr_id);
+            let multiple = items.len() > 1;
 
-            for (pr_id, display_items) in &items {
-                let id_str = if show_pr_id {
-                    pr_id.to_string()
-                } else {
-                    String::new()
-                };
-                let prompt_out = render_display_items(display_items, config, &id_str);
-                let watch_out = render_display_items(display_items, config, "");
-                pr_outputs.push((*pr_id, watch_out));
-                all_outputs.push(prompt_out);
-            }
+            // watch 用: PR ごとに ID なしでレンダリングする（行 = PR で読めるため現状維持）。
+            let pr_outputs: Vec<(PrId, String)> = items
+                .iter()
+                .map(|(pr_id, display_items)| (*pr_id, render_watch_items(display_items, config)))
+                .collect();
 
             let refresh_mode = if items.iter().any(|(_, dis)| {
                 dis.iter()
@@ -64,8 +59,22 @@ pub fn render(prompt_result: Result<Prompt, ErrorToken>, config: &DisplayConfig)
                 RefreshMode::Warm
             };
 
+            // prompt 用: 同一ステータス（DisplayItem）を 1 トークンに集約し PR 番号を列挙する。
+            let output = group_by_display_item(&items)
+                .iter()
+                .map(|(item, ids)| {
+                    let pr_ids = if multiple {
+                        join_pr_ids(ids)
+                    } else {
+                        String::new()
+                    };
+                    render_token(item_to_token(*item, config), Some(&pr_ids))
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+
             RenderResult {
-                output: all_outputs.join(" "),
+                output,
                 refresh_mode,
                 pr_outputs,
             }
@@ -78,19 +87,43 @@ pub fn render(prompt_result: Result<Prompt, ErrorToken>, config: &DisplayConfig)
     }
 }
 
-fn render_display_items(
-    display_items: &[DisplayItem],
-    config: &DisplayConfig,
-    pr_id: &str,
-) -> String {
+/// watch 表示用に PR の各ステータストークンを ID なしでレンダリングし、スペース区切りで連結する。
+fn render_watch_items(display_items: &[DisplayItem], config: &DisplayConfig) -> String {
     display_items
         .iter()
-        .map(|item| render_token(item_to_token(item, config), Some(pr_id)))
+        .map(|item| render_token(item_to_token(*item, config), Some("")))
         .collect::<Vec<_>>()
         .join(" ")
 }
 
-fn item_to_token<'a>(item: &DisplayItem, config: &'a DisplayConfig) -> &'a TokenConfig {
+/// `(PrId, Vec<DisplayItem>)` の列を `DisplayItem` ごとに反転集約する。
+///
+/// `items` が PR 番号昇順であることを前提に、グループは初出（= 最小 ID）順、
+/// グループ内の PR 番号は昇順で並ぶ。1 PR が複数ステータスを持つ場合、その番号は
+/// 該当する各グループに重複して現れる（情報欠落なし）。
+fn group_by_display_item(items: &[(PrId, Vec<DisplayItem>)]) -> Vec<(DisplayItem, Vec<PrId>)> {
+    let mut groups: Vec<(DisplayItem, Vec<PrId>)> = Vec::new();
+    for (pr_id, display_items) in items {
+        for item in display_items {
+            if let Some((_, ids)) = groups.iter_mut().find(|(d, _)| d == item) {
+                ids.push(*pr_id);
+            } else {
+                groups.push((*item, vec![*pr_id]));
+            }
+        }
+    }
+    groups
+}
+
+/// PR 番号を `#1734 #2669` のように `#` 付き・スペース区切りで連結する。
+fn join_pr_ids(ids: &[PrId]) -> String {
+    ids.iter()
+        .map(|id| format!("#{id}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn item_to_token(item: DisplayItem, config: &DisplayConfig) -> &TokenConfig {
     match item {
         DisplayItem::MergeReady => &config.merge_ready,
         DisplayItem::Conflict => &config.conflict,
@@ -117,7 +150,7 @@ mod tests {
     use crate::contexts::evaluation::domain::display_config::DisplayConfig;
     use crate::contexts::evaluation::domain::prompt::{
         PrId, Prompt, PullRequest, State,
-        pull_request::state::blocked::{BlockedState, CiState},
+        pull_request::state::blocked::{BlockedState, BranchSyncState, CiState},
         pull_request::state::unblocked::UnblockedState,
     };
 
@@ -257,6 +290,49 @@ mod tests {
         ]));
         assert_eq!(result.pr_outputs[0].0, PrId::new(200));
         assert_eq!(result.pr_outputs[1].0, PrId::new(201));
+    }
+
+    #[test]
+    fn same_status_prs_aggregated_into_single_token() {
+        let result = render_ok(Prompt::PullRequests(vec![
+            PullRequest {
+                id: PrId::new(200),
+                state: State::Unblocked(UnblockedState::MergeReady),
+            },
+            PullRequest {
+                id: PrId::new(201),
+                state: State::Unblocked(UnblockedState::MergeReady),
+            },
+        ]));
+        assert_eq!(result.output, "✓ Ready for merge #200 #201");
+    }
+
+    #[test]
+    fn pr_with_multiple_statuses_appears_in_each_group() {
+        let result = render_ok(Prompt::PullRequests(vec![
+            PullRequest {
+                id: PrId::new(1),
+                state: State::Blocked(BlockedState {
+                    branch_sync: Some(BranchSyncState::Conflict),
+                    ci: Some(CiState::Fail),
+                    review: None,
+                    generic: None,
+                }),
+            },
+            PullRequest {
+                id: PrId::new(2),
+                state: State::Blocked(BlockedState {
+                    branch_sync: None,
+                    ci: Some(CiState::Fail),
+                    review: None,
+                    generic: None,
+                }),
+            },
+        ]));
+        assert_eq!(
+            result.output,
+            "✗ Resolve conflict #1 ✗ Fix CI failure #1 #2"
+        );
     }
 
     #[test]

@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-05-20
+### Features
+- [**BREAKING**] Aggregate identical statuses and list PR numbers in prompt ([#356](https://github.com/toshiki670/merge-ready/pull/356)) ([`d3baef5`](https://github.com/toshiki670/merge-ready/commit/d3baef50b2a05b60cfa2d800b32e98135ccc3118))
+
+
 ## [0.7.5] - 2026-05-19
 ### Bug Fixes
 - Right-align CACHED AT column ([#335](https://github.com/toshiki670/merge-ready/pull/335)) ([`6ed733e`](https://github.com/toshiki670/merge-ready/commit/6ed733ec4314cc2689c824efe116029d2769e2a4))

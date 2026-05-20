@@ -63,7 +63,15 @@ Example output:
 
 ### Multiple Pull Requests
 
-When a branch has **multiple open pull requests**, all statuses are displayed in PR-number ascending order, each suffixed with `#<number>`:
+When a branch has **multiple open pull requests**, statuses are **aggregated by kind**: each distinct status is shown once, followed by the PR numbers that share it (ascending). Status groups appear in the order each kind is first seen when scanning PRs in ascending number order:
+
+```text
+⧖ Wait for status #1734 #2669 #2788 #3275 ✗ Fix CI failure #3512 #3693
+```
+
+If a PR has more than one status, its number appears in each relevant group.
+
+For distinct statuses across PRs, each group simply lists its single PR number:
 
 ```text
 ✓ Ready for merge #200 ✎ Ready for review #201
@@ -152,7 +160,7 @@ All fields are optional — omitting any field falls back to the default shown b
 [merge_ready]
 symbol = "✓"
 label = "Ready for merge"
-format = "[$symbol $label( #$pr_id)](bold green)"
+format = "[$symbol $label( $pr_ids)](bold green)"
 
 [no_pull_request]
 symbol = "+"
@@ -162,57 +170,57 @@ format = "[$symbol $label](cyan)"
 [conflict]
 symbol = "✗"
 label = "Resolve conflict"
-format = "[$symbol $label( #$pr_id)](bold red)"
+format = "[$symbol $label( $pr_ids)](bold red)"
 
 [update_branch]
 symbol = "✗"
 label = "Update branch"
-format = "[$symbol $label( #$pr_id)](yellow)"
+format = "[$symbol $label( $pr_ids)](yellow)"
 
 # [sync_unknown]
 # symbol = "?"
 # label = "Check branch sync"
-# format = "[$symbol $label( #$pr_id)](yellow)"
+# format = "[$symbol $label( $pr_ids)](yellow)"
 
 [ci_fail]
 symbol = "✗"
 label = "Fix CI failure"
-format = "[$symbol $label( #$pr_id)](bold red)"
+format = "[$symbol $label( $pr_ids)](bold red)"
 
 # [ci_action]
 # symbol = "⚠"
 # label = "Run CI action"
-# format = "[$symbol $label( #$pr_id)](yellow)"
+# format = "[$symbol $label( $pr_ids)](yellow)"
 
 [ci_pending]
 symbol = "⧖"
 label = "Wait for CI"
-format = "[$symbol $label( #$pr_id)](cyan)"
+format = "[$symbol $label( $pr_ids)](cyan)"
 
 [changes_requested]
 symbol = "⚠"
 label = "Resolve review"
-format = "[$symbol $label( #$pr_id)](yellow)"
+format = "[$symbol $label( $pr_ids)](yellow)"
 
 [review_required]
 symbol = "@"
 label = "Assign reviewer"
-format = "[$symbol $label( #$pr_id)](cyan)"
+format = "[$symbol $label( $pr_ids)](cyan)"
 
 [draft]
 symbol = "✎"
 label = "Ready for review"
-format = "[$symbol $label( #$pr_id)](dimmed)"
+format = "[$symbol $label( $pr_ids)](dimmed)"
 
 # [status_calculating]
 # symbol = "⧖"
 # label = "Wait for status"
-# format = "[$symbol $label( #$pr_id)](dimmed)"
+# format = "[$symbol $label( $pr_ids)](dimmed)"
 
 # [blocked_unknown]
 # symbol = "?"
 # label = "Check merge blocker"
-# format = "[$symbol $label( #$pr_id)](yellow)"
+# format = "[$symbol $label( $pr_ids)](yellow)"
 
 [error]
 symbol = "✗"
@@ -242,24 +250,26 @@ The following variables are available in `format` templates:
 |----------|-------------|--------------|
 | `$symbol` | Leading symbol | all tokens |
 | `$label` | Status text | PR state tokens, `no_pull_request` |
-| `$pr_id` | PR number string; empty `""` when only one open PR exists | PR state tokens (12 types) |
+| `$pr_ids` | PR numbers sharing this status, `#`-prefixed and space-separated (e.g. `#1734 #2669`); empty `""` when only one open PR exists on the branch | PR state tokens (12 types) |
 | `$message` | Error message | `[error]` only |
 
-`$pr_id` is not present in `no_pull_request` or `[error]` tokens. Writing `$pr_id` in those format strings leaves the literal text `$pr_id` in the output.
+`$pr_ids` is not present in `no_pull_request` or `[error]` tokens. Writing `$pr_ids` in those format strings leaves the literal text `$pr_ids` in the output.
+
+> **Breaking change:** the singular `$pr_id` variable was removed in favour of `$pr_ids`. Configs that still reference `$pr_id` are treated as an unknown variable — a `( #$pr_id)` block becomes always-hidden, so PR numbers simply stop appearing (no crash). Update such configs to `( $pr_ids)`.
 
 ### Conditional Format Strings
 
 The `format` field supports a `(...)` syntax that hides the block when all variables inside are empty. This follows [Starship's conditional format strings](https://starship.rs/config/#conditional-format-strings).
 
 ```toml
-# `( #$pr_id)` is shown only when $pr_id is non-empty (i.e., multiple PRs on the branch)
+# `( $pr_ids)` is shown only when $pr_ids is non-empty (i.e., multiple PRs on the branch)
 [merge_ready]
-format = "$symbol $label( #$pr_id)"
+format = "$symbol $label( $pr_ids)"
 ```
 
-| `$pr_id` value | Output |
-|----------------|--------|
-| `"200"` (multiple PRs) | `✓ Ready for merge #200` |
+| `$pr_ids` value | Output |
+|-----------------|--------|
+| `"#200 #201"` (multiple PRs) | `✓ Ready for merge #200 #201` |
 | `""` (single PR) | `✓ Ready for merge` |
 
 Rules:
@@ -272,10 +282,10 @@ Conditional blocks can also appear inside a `[text](style)` block:
 
 ```toml
 [merge_ready]
-format = "[$symbol $label( #$pr_id)](bold green)"
+format = "[$symbol $label( $pr_ids)](bold green)"
 ```
 
-This applies the style to the whole output while still hiding `( #$pr_id)` when `$pr_id` is empty.
+This applies the style to the whole output while still hiding `( $pr_ids)` when `$pr_ids` is empty.
 
 ### Style Strings
 

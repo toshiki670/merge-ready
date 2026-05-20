@@ -2,13 +2,14 @@ use super::{ErrorConfig, TokenConfig};
 use crate::contexts::evaluation::domain::format_parser::{Segment, parse_segments};
 use crate::contexts::evaluation::domain::style_spec::StyleSpec;
 
-/// `pr_id` が `Some` の場合は `$pr_id` を置換する。`None` の場合は `$pr_id` を literal のまま残す。
+/// `pr_ids` が `Some` の場合は `$pr_ids` を置換する。`None` の場合は `$pr_ids` を literal のまま残す。
+/// 値は `#1734 #2669` のように `#` 付き・スペース区切り（複数 PR 時）か、空文字（単一 PR 時）。
 /// `(...)` ブロック内の変数がすべて空の場合、そのブロックは出力されない。
 #[must_use]
-pub fn render_token(token: &TokenConfig, pr_id: Option<&str>) -> String {
+pub fn render_token(token: &TokenConfig, pr_ids: Option<&str>) -> String {
     let mut vars: Vec<(&str, &str)> = vec![("symbol", &token.symbol), ("label", &token.label)];
-    if let Some(id) = pr_id {
-        vars.push(("pr_id", id));
+    if let Some(ids) = pr_ids {
+        vars.push(("pr_ids", ids));
     }
     render_with_vars(&token.format, &vars)
 }
@@ -239,31 +240,34 @@ mod tests {
     }
 
     #[test]
-    fn render_token_conditional_shown_when_pr_id_nonempty() {
+    fn render_token_conditional_shown_when_pr_ids_nonempty() {
         let tok = TokenConfig {
             symbol: "✓".to_owned(),
             label: "Ready for merge".to_owned(),
-            format: "$symbol $label( #$pr_id)".to_owned(),
+            format: "$symbol $label( $pr_ids)".to_owned(),
         };
-        assert_eq!(render_token(&tok, Some("200")), "✓ Ready for merge #200");
+        assert_eq!(
+            render_token(&tok, Some("#200 #201")),
+            "✓ Ready for merge #200 #201"
+        );
     }
 
     #[test]
-    fn render_token_conditional_hidden_when_pr_id_empty() {
+    fn render_token_conditional_hidden_when_pr_ids_empty() {
         let tok = TokenConfig {
             symbol: "✓".to_owned(),
             label: "Ready for merge".to_owned(),
-            format: "$symbol $label( #$pr_id)".to_owned(),
+            format: "$symbol $label( $pr_ids)".to_owned(),
         };
         assert_eq!(render_token(&tok, Some("")), "✓ Ready for merge");
     }
 
     #[test]
-    fn render_token_conditional_hidden_when_pr_id_none() {
+    fn render_token_conditional_hidden_when_pr_ids_none() {
         let tok = TokenConfig {
             symbol: "✓".to_owned(),
             label: "Ready for merge".to_owned(),
-            format: "$symbol $label( #$pr_id)".to_owned(),
+            format: "$symbol $label( $pr_ids)".to_owned(),
         };
         assert_eq!(render_token(&tok, None), "✓ Ready for merge");
     }
@@ -279,27 +283,30 @@ mod tests {
     }
 
     #[test]
-    fn render_token_pr_id_substituted_when_some() {
+    fn render_token_pr_ids_substituted_when_some() {
         let tok = TokenConfig {
             symbol: "✓".to_owned(),
             label: "Ready for merge".to_owned(),
-            format: "$symbol $label #$pr_id".to_owned(),
+            format: "$symbol $label $pr_ids".to_owned(),
         };
-        assert_eq!(render_token(&tok, Some("200")), "✓ Ready for merge #200");
+        assert_eq!(
+            render_token(&tok, Some("#200 #201")),
+            "✓ Ready for merge #200 #201"
+        );
     }
 
     #[test]
-    fn render_token_pr_id_empty_string_leaves_hash() {
+    fn render_token_pr_ids_empty_string_substitutes_empty() {
         let tok = TokenConfig {
             symbol: "✓".to_owned(),
             label: "Ready for merge".to_owned(),
-            format: "$symbol $label #$pr_id".to_owned(),
+            format: "$symbol $label$pr_ids".to_owned(),
         };
-        assert_eq!(render_token(&tok, Some("")), "✓ Ready for merge #");
+        assert_eq!(render_token(&tok, Some("")), "✓ Ready for merge");
     }
 
     #[test]
-    fn render_token_pr_id_not_substituted_when_none() {
+    fn render_token_pr_ids_not_substituted_when_none() {
         let tok = TokenConfig {
             symbol: "+".to_owned(),
             label: "Create PR".to_owned(),
@@ -309,13 +316,13 @@ mod tests {
     }
 
     #[test]
-    fn render_token_pr_id_literal_remains_when_none() {
+    fn render_token_pr_ids_literal_remains_when_none() {
         let tok = TokenConfig {
             symbol: "+".to_owned(),
             label: "Create PR".to_owned(),
-            format: "$symbol $label $pr_id".to_owned(),
+            format: "$symbol $label $pr_ids".to_owned(),
         };
-        assert_eq!(render_token(&tok, None), "+ Create PR $pr_id");
+        assert_eq!(render_token(&tok, None), "+ Create PR $pr_ids");
     }
 
     #[test]

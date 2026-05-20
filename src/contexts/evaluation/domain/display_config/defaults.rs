@@ -1,7 +1,7 @@
 use super::{DisplayConfig, ErrorConfig, TokenConfig};
 
-/// PR 状態トークン 12 種のデフォルトフォーマット。`( #$pr_id)` は複数 PR 時のみ展開される。
-const DEFAULT_PR_FORMAT: &str = "$symbol $label( #$pr_id)";
+/// PR 状態トークン 12 種のデフォルトフォーマット。`( $pr_ids)` は複数 PR 時のみ展開される。
+const DEFAULT_PR_FORMAT: &str = "$symbol $label( $pr_ids)";
 /// `no_pull_request` / `error` トークンのデフォルトフォーマット。
 const DEFAULT_FORMAT: &str = "$symbol $label";
 const DEFAULT_ERROR_FORMAT: &str = "$symbol $message";
@@ -105,6 +105,6 @@ mod tests {
         assert!(toml.contains("[merge_ready]"));
         assert!(toml.contains("[no_pull_request]"));
         assert!(toml.contains("[error]"));
-        assert!(toml.contains("format = \"$symbol $label( #$pr_id)\""));
+        assert!(toml.contains("format = \"$symbol $label( $pr_ids)\""));
     }
 }

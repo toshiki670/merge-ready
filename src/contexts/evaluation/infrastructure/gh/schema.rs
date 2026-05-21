@@ -35,12 +35,6 @@ pub(super) struct GhCheckItem {
 }
 
 #[derive(Deserialize)]
-pub(super) struct GhRepoView {
-    #[serde(rename = "nameWithOwner")]
-    pub(super) name_with_owner: String,
-}
-
-#[derive(Deserialize)]
 pub(super) struct GhCompare {
     pub(super) behind_by: u64,
 }

@@ -21,9 +21,6 @@ pub fn with_behind_by(pr_view_json: &str, pr_checks_json: Option<&str>, behind_b
            *'pr checks'*)\n\
              {checks_block}\
              ;;\n\
-           *'repo view'*)\n\
-             printf '{{\"nameWithOwner\":\"owner/repo\"}}'\n\
-             ;;\n\
            *'api'*'compare'*)\n\
              printf '{{\"behind_by\":{behind_by}}}'\n\
              ;;\n\
@@ -63,9 +60,6 @@ pub fn with_compare_error(pr_view_json: &str, pr_checks_json: Option<&str>) -> T
            *'pr checks'*)\n\
              {checks_block}\
              ;;\n\
-           *'repo view'*)\n\
-             printf '{{\"nameWithOwner\":\"owner/repo\"}}'\n\
-             ;;\n\
            *'api'*'compare'*)\n\
              printf 'API error' >&2\n\
              exit 1\n\
@@ -85,9 +79,9 @@ pub fn with_compare_error(pr_view_json: &str, pr_checks_json: Option<&str>) -> T
     }
 }
 
-/// `gh pr list` / `gh pr checks` が成功するが `gh repo view --json nameWithOwner` が
-/// exit 0 で不正な JSON を返すシナリオ（compare API への到達前に失敗）
-pub fn with_invalid_repo_view_json(pr_view_json: &str, pr_checks_json: &str) -> TestEnv {
+/// `gh pr list` / `gh pr checks` が成功するが compare API が
+/// exit 0 で不正な JSON を返すシナリオ（`GhCompare` パース失敗で `None`）
+pub fn with_invalid_compare_json(pr_view_json: &str, pr_checks_json: &str) -> TestEnv {
     let (bin, home_tmp, repo) = setup_git_dirs("feat/my-feature");
     let inner = pr_view_json.strip_prefix('{').unwrap_or(pr_view_json);
     let pr_list_json = format!(r#"[{{"number":1,{inner}]"#);
@@ -101,7 +95,7 @@ pub fn with_invalid_repo_view_json(pr_view_json: &str, pr_checks_json: &str) -> 
            *'pr checks'*)\n\
              printf '%s' '{checks_json}'\n\
              ;;\n\
-           *'repo view'*'nameWithOwner'*)\n\
+           *'api'*'compare'*)\n\
              printf 'not-valid-json'\n\
              ;;\n\
            *)\n\

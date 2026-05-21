@@ -126,7 +126,7 @@ impl RefreshPolicy {
     /// - **予算項**: `total_cost_per_cycle * secs_until_reset / safety_budget * weight`
     ///
     /// `total_cost_per_cycle` は全 active エントリの「1 リフレッシュあたりの API
-    /// コール数」総和（呼び出し側が `pr_count + 2` の総和を渡す）。
+    /// コール数」総和（呼び出し側が `2 * pr_count + 1` の総和を渡す）。
     ///
     /// `is_exhausted()` のとき、結果は最低でも `cold_late_secs` 以上に保証する。
     ///

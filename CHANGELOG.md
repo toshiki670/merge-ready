@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2026-05-21
+### Performance
+- Refresh 時の PR ごとの `gh repo view --json nameWithOwner` を撤廃する ([#363](https://github.com/toshiki670/merge-ready/pull/363)) ([`8b9551e`](https://github.com/toshiki670/merge-ready/commit/8b9551e8ede041bfaca0ac21361e38856364dc8d))
+
+
 ## [0.8.0] - 2026-05-20
 ### Features
 - [**BREAKING**] Aggregate identical statuses and list PR numbers in prompt ([#356](https://github.com/toshiki670/merge-ready/pull/356)) ([`d3baef5`](https://github.com/toshiki670/merge-ready/commit/d3baef50b2a05b60cfa2d800b32e98135ccc3118))

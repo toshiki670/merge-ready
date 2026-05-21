@@ -64,23 +64,21 @@ async fn default_branch(cwd: &Path) -> String {
     }
 }
 
-async fn is_default_branch(cwd: &Path) -> bool {
-    let branch = current_branch(cwd).await.unwrap_or_default();
+async fn is_default_branch(cwd: &Path, branch: &str) -> bool {
     if branch.is_empty() {
         return false;
     }
     branch == default_branch(cwd).await
 }
 
-async fn fetch_pr_list(cwd: &Path) -> Result<Vec<GhPrListItem>, GhError> {
-    let branch = current_branch(cwd).await.unwrap_or_default();
+async fn fetch_pr_list(cwd: &Path, branch: &str) -> Result<Vec<GhPrListItem>, GhError> {
     let bytes = run_gh(
         cwd,
         &[
             "pr",
             "list",
             "--head",
-            &branch,
+            branch,
             "--state",
             "all",
             "--json",
@@ -182,7 +180,10 @@ pub async fn fetch_prompt(cwd: &Path) -> Result<Prompt, RepositoryError> {
         return Ok(Prompt::NoRepository);
     }
 
-    let all_prs = match fetch_pr_list(cwd).await {
+    // `git branch --show-current` は 1 回だけ起動し、結果を両ヘルパーで使い回す。
+    let branch = current_branch(cwd).await.unwrap_or_default();
+
+    let all_prs = match fetch_pr_list(cwd, &branch).await {
         Ok(list) => list,
         Err(GhError::NoPr) => return Ok(Prompt::NoPullRequest),
         Err(GhError::NotGithubRepository) => return Ok(Prompt::UnsupportedRepository),
@@ -191,7 +192,7 @@ pub async fn fetch_prompt(cwd: &Path) -> Result<Prompt, RepositoryError> {
 
     // PR が一度も作られていない場合
     if all_prs.is_empty() {
-        if is_default_branch(cwd).await {
+        if is_default_branch(cwd, &branch).await {
             return Ok(Prompt::DefaultBranch);
         }
         return Ok(Prompt::NoPullRequest);

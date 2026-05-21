@@ -61,9 +61,11 @@ fn test_cold_interval_switches_from_early_to_late() {
     // hot_recent_query_secs=0 なので wait_for_cache 直後も has_recent_query=false
     std::thread::sleep(std::time::Duration::from_secs(2));
 
+    // refresh あたり graphql 1 回（CLEAN PR は compare スキップ）。
+    // 初回フェッチ(1) + cold-early refresh(1) = 2 で「cold-early が 1 回以上」を満たす。
     let calls_after_early = std::fs::read_to_string(&log_path).unwrap_or_default().len();
     assert!(
-        calls_after_early >= 3,
+        calls_after_early >= 2,
         "should have at least 1 cold-early refresh after initial fetch (calls: {calls_after_early})"
     );
 

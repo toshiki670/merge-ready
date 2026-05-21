@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use error::{GhError, classify_gh_error};
 use fetch::fetch_behind_by;
 use mapper::{aggregate_ci, translate_review, translate_sync, translate_unblocked};
-use schema::{CheckBucket, GhCheckItem, GhPrListItem, GhRepoViewFull, translate_bucket};
+use schema::{CheckBucket, GhPrNode, GraphQlResponse, Repository, context_to_bucket};
 use tokio::task::JoinSet;
 
 use crate::contexts::evaluation::domain::error::RepositoryError;
@@ -17,6 +17,29 @@ use crate::contexts::evaluation::domain::prompt::pull_request::state::evaluate;
 use crate::contexts::evaluation::domain::prompt::{PrId, Prompt, PullRequest, State};
 use crate::contexts::evaluation::infrastructure::git::{current_branch, is_git_repo};
 use crate::contexts::evaluation::infrastructure::logger::{ErrorCategory, LogRecord, log_record};
+
+/// PR メタ + CI（statusCheckRollup）+ defaultBranchRef を単一リクエストで取得する
+/// GraphQL クエリ。`{owner}` / `{repo}` placeholder は `-F` 経由で gh が現在の
+/// リポジトリから補完する。
+const REPO_QUERY: &str = "\
+query($owner:String!, $repo:String!, $head:String!) {
+  repository(owner:$owner, name:$repo) {
+    defaultBranchRef { name }
+    pullRequests(headRefName:$head, first:100, states:[OPEN,CLOSED,MERGED]) {
+      nodes {
+        number state isDraft mergeable mergeStateStatus reviewDecision
+        baseRefName headRefName
+        commits(last:1) { nodes { commit { statusCheckRollup {
+          contexts(first:100) { nodes {
+            __typename
+            ... on CheckRun { status conclusion }
+            ... on StatusContext { state }
+          } }
+        } } } }
+      }
+    }
+  }
+}";
 
 async fn run_gh(cwd: &Path, args: &[&str]) -> Result<Vec<u8>, GhError> {
     match crate::shared::process_gh::run_gh(args, Some(cwd)).await {
@@ -54,100 +77,66 @@ fn log_and_convert(e: GhError) -> RepositoryError {
     RepositoryError::from(e)
 }
 
-async fn default_branch(cwd: &Path) -> String {
-    match run_gh(cwd, &["repo", "view", "--json", "defaultBranchRef"]).await {
-        Ok(bytes) => match serde_json::from_slice::<GhRepoViewFull>(&bytes) {
-            Ok(v) => v.default_branch_ref.name,
-            Err(_) => String::new(),
-        },
-        Err(_) => String::new(),
-    }
-}
-
-async fn is_default_branch(cwd: &Path, branch: &str) -> bool {
-    if branch.is_empty() {
-        return false;
-    }
-    branch == default_branch(cwd).await
-}
-
-async fn fetch_pr_list(cwd: &Path, branch: &str) -> Result<Vec<GhPrListItem>, GhError> {
+/// 単一 GraphQL クエリで repository（PR メタ + CI rollup + defaultBranchRef）を取得する。
+///
+/// `repository` が `null`（解決不能）の場合は `None` を返す。gh が非ゼロ終了した場合は
+/// `classify_gh_error`（`run_gh` 内）で分類済みの `GhError` を返す。
+async fn fetch_repository(cwd: &Path, branch: &str) -> Result<Option<Repository>, GhError> {
+    let head_arg = format!("head={branch}");
+    let query_arg = format!("query={REPO_QUERY}");
     let bytes = run_gh(
         cwd,
         &[
-            "pr",
-            "list",
-            "--head",
-            branch,
-            "--state",
-            "all",
-            "--json",
-            "number,state,isDraft,mergeable,mergeStateStatus,reviewDecision,baseRefName,headRefName",
+            "api",
+            "graphql",
+            "-F",
+            "owner={owner}",
+            "-F",
+            "repo={repo}",
+            "-f",
+            head_arg.as_str(),
+            "-f",
+            query_arg.as_str(),
         ],
     )
     .await?;
-    let mut items: Vec<GhPrListItem> = serde_json::from_slice(&bytes).map_err(|e| {
+    let resp: GraphQlResponse = serde_json::from_slice(&bytes).map_err(|e| {
         log_record(&LogRecord {
             category: ErrorCategory::Unknown,
             detail: Some(e.to_string()),
         });
         GhError::ApiError(e.to_string())
     })?;
-    items.sort_by_key(|i| i.number);
-    Ok(items)
+    Ok(resp.data.and_then(|d| d.repository))
 }
 
-async fn fetch_ci_state_for(
-    cwd: &Path,
-    pr_number: u64,
-) -> Result<Option<CiState>, RepositoryError> {
-    let pr_num_str = pr_number.to_string();
-    let bytes = match run_gh(
-        cwd,
-        &["pr", "checks", &pr_num_str, "--json", "bucket,state"],
-    )
-    .await
-    {
-        Ok(b) => b,
-        Err(GhError::ApiError(msg)) if msg.contains("no checks reported") => {
-            return Ok(None);
-        }
-        Err(e) => return Err(log_and_convert(e)),
-    };
-    let items: Vec<GhCheckItem> = serde_json::from_slice(&bytes).map_err(|e| {
-        log_record(&LogRecord {
-            category: ErrorCategory::Unknown,
-            detail: Some(e.to_string()),
-        });
-        RepositoryError::Unexpected
-    })?;
-    let buckets: Vec<CheckBucket> = items.iter().map(|c| translate_bucket(&c.bucket)).collect();
-    Ok(aggregate_ci(&buckets))
+/// PR ノードの `statusCheckRollup` から CI 状態を集約する（追加の gh 起動なし）。
+/// チェック未設定（rollup が `null`）の場合は `None`。
+fn ci_from_node(node: &GhPrNode) -> Option<CiState> {
+    let contexts = node
+        .commits
+        .nodes
+        .first()
+        .and_then(|c| c.commit.status_check_rollup.as_ref())
+        .map_or(&[][..], |r| r.contexts.nodes.as_slice());
+    let buckets: Vec<CheckBucket> = contexts.iter().map(context_to_bucket).collect();
+    aggregate_ci(&buckets)
 }
 
 async fn evaluate_single_pr(
     cwd: PathBuf,
-    pr_view: GhPrListItem,
+    pr_view: GhPrNode,
 ) -> Result<PullRequest, RepositoryError> {
     let id = PrId::new(pr_view.number);
 
-    // branch_sync と ci を並列取得
-    let base = pr_view.base_ref_name.clone();
-    let head = pr_view.head_ref_name.clone();
-    let mergeable = pr_view.mergeable.clone();
-    let pr_number = pr_view.number;
-    let cwd_for_sync = cwd.clone();
-    let cwd_for_ci = cwd.clone();
+    // CI は GraphQL レスポンス（rollup）から同期的に算出する。
+    let ci = ci_from_node(&pr_view);
 
-    let (branch_sync, ci_result) = tokio::join!(
-        async move {
-            let behind_by = fetch_behind_by(&base, &head, Some(&cwd_for_sync)).await;
-            translate_sync(&mergeable, behind_by)
-        },
-        async move { fetch_ci_state_for(&cwd_for_ci, pr_number).await },
-    );
-
-    let ci = ci_result?;
+    // branch sync の behind_by だけは GraphQL に対応フィールドが無いため
+    // PR ごとに REST compare を併用する（refresh あたり 1 GraphQL + N compare）。
+    let behind_by =
+        fetch_behind_by(&pr_view.base_ref_name, &pr_view.head_ref_name, Some(&cwd)).await;
+    let branch_sync = translate_sync(&pr_view.mergeable, behind_by);
 
     // GitHub がまだマージ可能性を計算中（他のシグナルより優先）
     if matches!(
@@ -180,25 +169,39 @@ pub async fn fetch_prompt(cwd: &Path) -> Result<Prompt, RepositoryError> {
         return Ok(Prompt::NoRepository);
     }
 
-    // `git branch --show-current` は 1 回だけ起動し、結果を両ヘルパーで使い回す。
+    // `git branch --show-current` は 1 回だけ起動し、結果を使い回す。
     let branch = current_branch(cwd).await.unwrap_or_default();
 
-    let all_prs = match fetch_pr_list(cwd, &branch).await {
-        Ok(list) => list,
+    // PR メタ + CI + defaultBranchRef を単一 GraphQL で取得する。
+    let repository = match fetch_repository(cwd, &branch).await {
+        Ok(Some(repo)) => repo,
+        // repository が null（解決不能）/ 非 GitHub リモート → 未対応リポジトリ扱い。
+        Ok(None) | Err(GhError::NotGithubRepository) => {
+            return Ok(Prompt::UnsupportedRepository);
+        }
+        // GraphQL では通常発生しない（空 nodes で成功する）が、gh が
+        // "no pull requests found" 系の stderr を返した場合の保険。
         Err(GhError::NoPr) => return Ok(Prompt::NoPullRequest),
-        Err(GhError::NotGithubRepository) => return Ok(Prompt::UnsupportedRepository),
         Err(e) => return Err(log_and_convert(e)),
     };
 
-    // PR が一度も作られていない場合
+    let all_prs = repository.pull_requests.nodes;
+
+    // PR が一度も作られていない場合: defaultBranchRef で判定（追加の gh 起動なし）。
     if all_prs.is_empty() {
-        if is_default_branch(cwd, &branch).await {
+        let default_branch = repository
+            .default_branch_ref
+            .map(|d| d.name)
+            .unwrap_or_default();
+        if !branch.is_empty() && branch == default_branch {
             return Ok(Prompt::DefaultBranch);
         }
         return Ok(Prompt::NoPullRequest);
     }
 
-    let open_prs: Vec<GhPrListItem> = all_prs.into_iter().filter(|p| p.state == "OPEN").collect();
+    let mut open_prs: Vec<GhPrNode> = all_prs.into_iter().filter(|p| p.state == "OPEN").collect();
+    // 表示順を安定させるため PR 番号昇順にそろえる。
+    open_prs.sort_by_key(|i| i.number);
 
     // オープン PR がなく全て MERGED/CLOSED → ターミナル状態（空 Vec で表現）
     if open_prs.is_empty() {

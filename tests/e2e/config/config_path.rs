@@ -8,7 +8,8 @@ use assert_cmd::Command;
 use super::super::helpers::{DaemonHandle, TestEnv};
 
 const MERGE_READY_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}"#;
-const CHECKS_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS"}]"#;
+const CHECKS_PASS_JSON: &str =
+    r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]"#;
 
 const PROMPT_BIN: &str = "merge-ready-prompt";
 

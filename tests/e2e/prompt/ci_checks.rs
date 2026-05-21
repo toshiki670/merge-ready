@@ -1,6 +1,6 @@
 //! CI チェックの E2E テスト（シナリオ #23–29）
 //!
-//! 対象条件: `ci_fail` / `ci_action`（`gh pr checks --json bucket,state` の結果）
+//! 対象条件: `ci_fail` / `ci_action`（graphql `statusCheckRollup.contexts` の集約結果）
 //! 実行フローは daemon 経由（`merge-ready prompt`）に統一する。
 
 use assert_cmd::Command;
@@ -14,10 +14,14 @@ const BLOCKED_NO_REVIEW: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"
 const BLOCKED_CHANGES_REQUESTED: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"CHANGES_REQUESTED"}"#;
 const APPROVED_CLEAN: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}"#;
 
-const FAIL_JSON: &str = r#"[{"bucket":"fail","state":"FAILURE"}]"#;
-const CANCEL_JSON: &str = r#"[{"bucket":"cancel","state":"CANCELLED"}]"#;
-const ACTION_REQUIRED_JSON: &str = r#"[{"bucket":"action_required","state":"ACTION_REQUIRED"}]"#;
-const FAIL_AND_ACTION_JSON: &str = r#"[{"bucket":"fail","state":"FAILURE"},{"bucket":"action_required","state":"ACTION_REQUIRED"}]"#;
+// `statusCheckRollup.contexts.nodes`（gh の bucket は GraphQL では生の CheckRun へ移行）
+const FAIL_JSON: &str =
+    r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"}]"#;
+const CANCEL_JSON: &str =
+    r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"CANCELLED"}]"#;
+const ACTION_REQUIRED_JSON: &str =
+    r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"ACTION_REQUIRED"}]"#;
+const FAIL_AND_ACTION_JSON: &str = r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"},{"__typename":"CheckRun","status":"COMPLETED","conclusion":"ACTION_REQUIRED"}]"#;
 
 fn assert_prompt(env: &TestEnv, expected: &str) {
     let _daemon = DaemonHandle::start(env);

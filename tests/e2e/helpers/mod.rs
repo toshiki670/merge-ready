@@ -46,6 +46,62 @@ pub(crate) fn write_executable(path: impl AsRef<Path>, content: &str) {
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("failed to chmod script");
 }
 
+// ── GraphQL レスポンス組み立て（#360） ────────────────────────────────────────
+//
+// `fetch_prompt` は `gh api graphql` 単一クエリで PR メタ + CI rollup +
+// defaultBranchRef を取得する。fake gh はこの封筒形状の JSON を返す。
+// branch sync の `behind_by` だけは REST `gh api ...compare...` 併用のまま。
+
+use serde_json::{Value, json};
+
+/// CLEAN + 成功 CI を表す `statusCheckRollup.contexts.nodes`。多くの fixture が利用。
+pub(crate) const ROLLUP_PASS: &str =
+    r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]"#;
+
+fn commits_value(rollup_contexts: Option<&str>) -> Value {
+    let rollup = match rollup_contexts {
+        Some(ctx) => {
+            let nodes: Value = serde_json::from_str(ctx).expect("invalid rollup contexts json");
+            json!({ "contexts": { "nodes": nodes } })
+        }
+        None => Value::Null,
+    };
+    json!({ "nodes": [ { "commit": { "statusCheckRollup": rollup } } ] })
+}
+
+/// PR フラグメント（`{...}` オブジェクト）に `number` と CI `statusCheckRollup` を付与した
+/// PR ノード `Value` を作る。`rollup_contexts` が `None` のとき rollup は `null`（CI 未設定）。
+pub(crate) fn pr_node(number: u64, fragment: &str, rollup_contexts: Option<&str>) -> Value {
+    let mut obj: Value = serde_json::from_str(fragment).expect("invalid pr fragment json");
+    let map = obj.as_object_mut().expect("pr fragment must be an object");
+    map.insert("number".to_owned(), json!(number));
+    map.insert("commits".to_owned(), commits_value(rollup_contexts));
+    obj
+}
+
+/// すでに `number` を含む PR ノードに CI `statusCheckRollup` を付与する（複数 PR 用）。
+pub(crate) fn attach_rollup(mut node: Value, rollup_contexts: Option<&str>) -> Value {
+    let map = node.as_object_mut().expect("pr node must be an object");
+    map.insert("commits".to_owned(), commits_value(rollup_contexts));
+    node
+}
+
+/// `gh api graphql` の repository レスポンス JSON 文字列。
+pub(crate) fn graphql_response(nodes: &[Value], default_branch: &str) -> String {
+    json!({
+        "data": { "repository": {
+            "defaultBranchRef": { "name": default_branch },
+            "pullRequests": { "nodes": nodes }
+        }}
+    })
+    .to_string()
+}
+
+/// 単一 PR の graphql 応答文字列（defaultBranch="main"）。
+pub(crate) fn graphql_single(fragment: &str, rollup_contexts: Option<&str>) -> String {
+    graphql_response(&[pr_node(1, fragment, rollup_contexts)], "main")
+}
+
 /// fake `gh` バイナリ用に `api rate_limit` を「クォータ十分」の静的 JSON で返す
 /// シェルスクリプト断片。各 fixture の `case "$*"` よりも前に挿入することで、
 /// daemon の `rate_limit` fetcher による予期しないコール記録を防ぐ。

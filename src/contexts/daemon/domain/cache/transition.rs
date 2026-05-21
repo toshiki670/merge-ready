@@ -241,10 +241,11 @@ fn total_refresh_cost<'a, I: IntoIterator<Item = &'a CacheEntryState>>(entries: 
             continue;
         }
         let pr_count = u64::try_from(e.pr_outputs().len()).unwrap_or(u64::MAX);
-        // 1 リフレッシュあたりの実 gh API コール数:
-        //   `gh pr list` 1 + PR ごとに `gh api compare` + `gh pr checks` の 2 = 2N + 1。
-        // 取得方法（#360 GraphQL 集約など）の変更時はこの係数を追従させる。
-        total = total.saturating_add(pr_count.saturating_mul(2).saturating_add(1));
+        // 1 リフレッシュあたりの実 gh API コール数（#360 GraphQL 集約後）:
+        //   PR メタ + CI を単一 `gh api graphql` で 1 回 + PR ごとに branch sync の
+        //   `gh api compare`（REST 併用）N 回 = N + 1。
+        // 取得方法を変更する際はこの係数を追従させる。
+        total = total.saturating_add(pr_count.saturating_add(1));
     }
     total
 }
@@ -828,22 +829,22 @@ mod tests {
     }
 
     #[test]
-    fn total_refresh_cost_two_calls_per_pr_plus_one() {
-        // 1 リフレッシュあたり `gh pr list` 1 + PR ごとに 2 コール = 2N + 1。
-        // 単独 active エントリ（3 PR）→ 2*3 + 1 = 7。
+    fn total_refresh_cost_one_graphql_plus_compare_per_pr() {
+        // 1 リフレッシュあたり GraphQL 1 + PR ごとに compare 1 コール = N + 1。
+        // 単独 active エントリ（3 PR）→ 3 + 1 = 4。
         let entries = vec![entry_with_pr_count(3, RefreshMode::Warm)];
-        assert_eq!(super::total_refresh_cost(&entries), 7);
+        assert_eq!(super::total_refresh_cost(&entries), 4);
     }
 
     #[test]
     fn total_refresh_cost_excludes_terminal() {
-        // active: (2*3+1) + (2*1+1) = 7 + 3 = 10、Terminal は除外。
+        // active: (3+1) + (1+1) = 4 + 2 = 6、Terminal は除外。
         let entries = vec![
             entry_with_pr_count(3, RefreshMode::Warm),
             entry_with_pr_count(1, RefreshMode::Warm),
             entry_with_pr_count(3, RefreshMode::Terminal),
         ];
-        assert_eq!(super::total_refresh_cost(&entries), 10);
+        assert_eq!(super::total_refresh_cost(&entries), 6);
     }
 
     #[test]

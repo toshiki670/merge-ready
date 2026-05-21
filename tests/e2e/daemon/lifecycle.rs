@@ -11,7 +11,8 @@ const BIN: &str = "merge-ready";
 const PROMPT_BIN: &str = "merge-ready-prompt";
 
 const OPEN_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
-const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
+const CI_PASS_JSON: &str =
+    r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]"#;
 const COMMAND_TIMEOUT_MS: u64 = 5000;
 const CONCURRENT_PROMPTS: usize = 8;
 

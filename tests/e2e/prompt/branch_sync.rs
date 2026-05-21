@@ -68,9 +68,9 @@ fn test_compare_api_error() {
     assert_prompt(&env, "? Check branch sync");
 }
 
-/// `gh repo view --json nameWithOwner` が exit 0 で不正な JSON を返す → `? Check branch sync`
+/// compare API が exit 0 で不正な JSON を返す → `? Check branch sync`
 #[test]
-fn test_repo_view_invalid_json_shows_check_branch_sync() {
-    let env = branch_sync_fixtures::with_invalid_repo_view_json(MERGEABLE_BLOCKED, PASS_JSON);
+fn test_compare_invalid_json_shows_check_branch_sync() {
+    let env = branch_sync_fixtures::with_invalid_compare_json(MERGEABLE_BLOCKED, PASS_JSON);
     assert_prompt(&env, "? Check branch sync");
 }

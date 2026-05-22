@@ -4,7 +4,10 @@ use std::fs;
 use std::path::Path;
 use tempfile::{TempDir, tempdir};
 
-use super::{DaemonHandle, apply_coverage_env, run_prompt_with_timeout, write_executable};
+use super::{
+    DaemonHandle, ROLLUP_PASS, apply_coverage_env, graphql_single, run_prompt_with_timeout,
+    write_executable,
+};
 
 pub struct MultiRepoEnv {
     pub bin: TempDir,
@@ -24,11 +27,8 @@ impl MultiRepoEnv {
 
         let gh_script = "#!/bin/sh\n\
             case \"$*\" in\n\
-              *'pr list'*)\n\
-                cat \"$PWD/.gh_pr_list.json\"\n\
-                ;;\n\
-              *'pr checks'*)\n\
-                printf '[{\"bucket\":\"pass\",\"state\":\"SUCCESS\"}]'\n\
+              *graphql*)\n\
+                cat \"$PWD/.gh_graphql.json\"\n\
                 ;;\n\
               *'api'*'compare'*)\n\
                 printf '{\"behind_by\":0}'\n\
@@ -40,14 +40,13 @@ impl MultiRepoEnv {
             esac\n";
         write_executable(bin.path().join("gh"), gh_script);
 
-        for (repo, json) in [(&repo_a, pr_view_a), (&repo_b, pr_view_b)] {
+        for (repo, fragment) in [(&repo_a, pr_view_a), (&repo_b, pr_view_b)] {
             let git_dir = repo.path().join(".git");
             fs::create_dir_all(&git_dir).expect("create .git");
             fs::write(git_dir.join("HEAD"), "ref: refs/heads/feat/my-feature\n")
                 .expect("write HEAD");
-            let inner = json.strip_prefix('{').unwrap_or(json);
-            let list_json = format!(r#"[{{"number":1,{inner}]"#);
-            fs::write(repo.path().join(".gh_pr_list.json"), &list_json)
+            let graphql_json = graphql_single(fragment, Some(ROLLUP_PASS));
+            fs::write(repo.path().join(".gh_graphql.json"), &graphql_json)
                 .expect("write response json");
         }
 

@@ -8,7 +8,8 @@ use predicates::prelude::PredicateBooleanExt;
 use super::super::helpers::TestEnv;
 
 const MERGE_READY_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}"#;
-const MERGE_READY_PR_CHECKS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS"}]"#;
+const MERGE_READY_PR_CHECKS_JSON: &str =
+    r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]"#;
 
 const BIN: &str = "merge-ready";
 

@@ -47,26 +47,21 @@ pub struct TestEnv {
 }
 
 impl TestEnv {
-    /// 正常系: `pr list` / `pr checks` それぞれの JSON を返す `fake gh` を配置する。
+    /// 正常系: 単一 PR の `gh api graphql` 応答を返す `fake gh` を配置する。
+    ///
+    /// `pr_view_json` は `{...}` の PR フラグメント（`number` を含まない）。
+    /// `pr_checks_json` は `statusCheckRollup.contexts.nodes`（`None` で CI 未設定）。
+    /// branch sync 用の `gh api ...compare...` は `behind_by:0` を返す。
     pub fn new(pr_view_json: &str, pr_checks_json: Option<&str>) -> Self {
         let (bin, home_tmp, repo) = setup_git_dirs("feat/my-feature");
 
-        let checks_block = match pr_checks_json {
-            Some(j) => format!("printf '%s' '{j}'\n"),
-            None => "printf 'unexpected pr checks call' >&2\nexit 1\n".to_string(),
-        };
-
-        let inner = pr_view_json.strip_prefix('{').unwrap_or(pr_view_json);
-        let pr_list_json = format!(r#"[{{"number":1,{inner}]"#);
+        let graphql_json = super::graphql_single(pr_view_json, pr_checks_json);
 
         let script = format!(
             "#!/bin/sh\n\
              case \"$*\" in\n\
-               *'pr list'*)\n\
-                 printf '%s' '{pr_list_json}'\n\
-                 ;;\n\
-               *'pr checks'*)\n\
-                 {checks_block}\
+               *graphql*)\n\
+                 printf '%s' '{graphql_json}'\n\
                  ;;\n\
                *'api'*'compare'*)\n\
                  printf '{{\"behind_by\":0}}'\n\
@@ -89,24 +84,25 @@ impl TestEnv {
     /// PR なしシナリオ: フィーチャーブランチに PR が存在しない場合を模倣する。
     ///
     /// 現在ブランチ: `feat/my-feature`（デフォルトブランチではない）
-    /// `gh pr list` → 空配列 `[]` を返す
-    /// `gh repo view --json defaultBranchRef` → main をデフォルトブランチとして返す
+    /// graphql 応答 → 空 `nodes` + `defaultBranchRef.name = "main"` を返す
     pub fn with_no_pr() -> Self {
         let (bin, home_tmp, repo) = setup_git_dirs("feat/my-feature");
-        let script = "#!/bin/sh\n\
-                      case \"$*\" in\n\
-                        *'pr list'*)\n\
-                          printf '[]'\n\
-                          ;;\n\
-                        *'repo view'*'defaultBranchRef'*)\n\
-                          printf '{\"defaultBranchRef\":{\"name\":\"main\"}}'\n\
-                          ;;\n\
-                        *)\n\
-                          printf 'unknown gh command: %s' \"$*\" >&2\n\
-                          exit 127\n\
-                          ;;\n\
-                      esac\n";
-        write_executable(bin.path().join("gh"), script);
+        // 空 nodes + defaultBranchRef=main。現在ブランチ feat/my-feature はデフォルト
+        // ブランチではないため NoPullRequest（= `+ Create PR`）になる。
+        let graphql_json = super::graphql_response(&[], "main");
+        let script = format!(
+            "#!/bin/sh\n\
+             case \"$*\" in\n\
+               *graphql*)\n\
+                 printf '%s' '{graphql_json}'\n\
+                 ;;\n\
+               *)\n\
+                 printf 'unknown gh command: %s' \"$*\" >&2\n\
+                 exit 127\n\
+                 ;;\n\
+             esac\n"
+        );
+        write_executable(bin.path().join("gh"), &script);
         Self {
             bin,
             home_tmp,
@@ -138,24 +134,26 @@ impl TestEnv {
 
     /// 複数 PR シナリオ: `pr_list_json` に複数エントリを含む JSON 配列を直接指定する。
     ///
-    /// `pr_list_json` は `[{...}, {...}]` 形式の完全な JSON 配列。
-    /// `gh pr checks` はすべての PR 番号に対して同じ `pr_checks_json` を返す。
+    /// `pr_list_json` は `[{...}, {...}]` 形式（各ノードは `number` を含む）。
+    /// `pr_checks_json`（`statusCheckRollup.contexts.nodes`）は全 PR に同じものを付与する。
     pub fn with_pr_list(pr_list_json: &str, pr_checks_json: Option<&str>) -> Self {
         let (bin, home_tmp, repo) = setup_git_dirs("feat/my-feature");
 
-        let checks_block = match pr_checks_json {
-            Some(j) => format!("printf '%s' '{j}'\n"),
-            None => "printf 'unexpected pr checks call' >&2\nexit 1\n".to_string(),
-        };
+        // `pr_list_json` は `number` を含む PR ノードの JSON 配列。各ノードに同じ
+        // CI rollup を付与して graphql 応答へまとめる。
+        let parsed: Vec<serde_json::Value> =
+            serde_json::from_str(pr_list_json).expect("invalid pr list json array");
+        let nodes: Vec<serde_json::Value> = parsed
+            .into_iter()
+            .map(|n| super::attach_rollup(n, pr_checks_json))
+            .collect();
+        let graphql_json = super::graphql_response(&nodes, "main");
 
         let script = format!(
             "#!/bin/sh\n\
              case \"$*\" in\n\
-               *'pr list'*)\n\
-                 printf '%s' '{pr_list_json}'\n\
-                 ;;\n\
-               *'pr checks'*)\n\
-                 {checks_block}\
+               *graphql*)\n\
+                 printf '%s' '{graphql_json}'\n\
                  ;;\n\
                *'api'*'compare'*)\n\
                  printf '{{\"behind_by\":0}}'\n\

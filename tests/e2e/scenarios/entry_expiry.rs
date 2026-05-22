@@ -11,7 +11,8 @@ use predicates::prelude::*;
 use super::super::helpers::{DaemonHandle, TestEnv};
 
 const OPEN_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
-const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
+const CI_PASS_JSON: &str =
+    r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]"#;
 
 /// #C: クエリが途絶えた後に `entry_max_age_secs` が経過するとエントリが削除される
 #[test]

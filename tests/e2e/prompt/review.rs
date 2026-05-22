@@ -16,7 +16,7 @@ use super::super::helpers::{DaemonHandle, TestEnv};
 fn test_review_changes_requested() {
     let env = TestEnv::new(
         r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"CHANGES_REQUESTED"}"#,
-        Some(r#"[{"bucket":"pass","state":"SUCCESS"}]"#),
+        Some(r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]"#),
     );
     let _daemon = DaemonHandle::start(&env);
     DaemonHandle::wait_for_cache(&env, 5000);
@@ -31,7 +31,7 @@ fn test_review_changes_requested() {
 fn test_review_required() {
     let env = TestEnv::new(
         r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"REVIEW_REQUIRED"}"#,
-        Some(r#"[{"bucket":"pass","state":"SUCCESS"}]"#),
+        Some(r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]"#),
     );
     let _daemon = DaemonHandle::start(&env);
     DaemonHandle::wait_for_cache(&env, 5000);

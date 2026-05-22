@@ -15,8 +15,11 @@ const CONFLICTING_BEHIND: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":
 const CONFLICTING_DIRTY_CHANGES: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","reviewDecision":"CHANGES_REQUESTED"}"#;
 const MERGEABLE_BLOCKED: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":null,"baseRefName":"main","headRefName":"feat/test"}"#;
 
-const PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS"}]"#;
-const FAIL_JSON: &str = r#"[{"bucket":"fail","state":"FAILURE"}]"#;
+// `statusCheckRollup.contexts.nodes` 形式
+const PASS_JSON: &str =
+    r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]"#;
+const FAIL_JSON: &str =
+    r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"}]"#;
 
 fn assert_prompt(env: &TestEnv, expected: &str) {
     let _daemon = DaemonHandle::start(env);

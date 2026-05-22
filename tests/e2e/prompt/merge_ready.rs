@@ -31,7 +31,7 @@ fn assert_prompt(env: &TestEnv, expected: &str) {
 fn test_merge_ready() {
     let env = TestEnv::new(
         r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED"}"#,
-        Some(r#"[{"bucket":"pass","state":"SUCCESS"}]"#),
+        Some(r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]"#),
     );
     assert_prompt(&env, "✓ Ready for merge");
 }
@@ -43,7 +43,7 @@ fn test_merge_ready() {
 fn test_all_conditions_block_merge_ready() {
     let env = TestEnv::new(
         r#"{"state":"OPEN","isDraft":false,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","reviewDecision":"CHANGES_REQUESTED"}"#,
-        Some(r#"[{"bucket":"fail","state":"FAILURE"}]"#),
+        Some(r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"}]"#),
     );
     assert_prompt(&env, "✗ Resolve conflict ✗ Fix CI failure ⚠ Resolve review");
 }

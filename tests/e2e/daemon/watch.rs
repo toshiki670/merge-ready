@@ -12,7 +12,8 @@ use super::super::helpers::{DaemonHandle, MultiRepoEnv, TestEnv, apply_coverage_
 
 const BIN: &str = "merge-ready";
 const OPEN_PR_VIEW_JSON: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null}"#;
-const CI_PASS_JSON: &str = r#"[{"bucket":"pass","state":"SUCCESS","name":"ci","link":""}]"#;
+const CI_PASS_JSON: &str =
+    r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]"#;
 
 /// `merge-ready watch` を起動し、`n` 行分の stdout を最大 `timeout` で読んで返す。
 /// 読み取り後に SIGINT を送りプロセスを終了させる。

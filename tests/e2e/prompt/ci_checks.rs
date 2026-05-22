@@ -21,7 +21,12 @@ const CANCEL_JSON: &str =
     r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"CANCELLED"}]"#;
 const ACTION_REQUIRED_JSON: &str =
     r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"ACTION_REQUIRED"}]"#;
-const FAIL_AND_ACTION_JSON: &str = r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"},{"__typename":"CheckRun","status":"COMPLETED","conclusion":"ACTION_REQUIRED"}]"#;
+// 別 check（名前が異なる）。同名だと重複排除で 1 件に潰れるため name を分ける。
+const FAIL_AND_ACTION_JSON: &str = r#"[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE"},{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"ACTION_REQUIRED"}]"#;
+
+// 同名 check の再実行: 古い FAILURE(早い startedAt) と新しい SUCCESS(遅い startedAt)。
+// gh `pr checks` 同様に最新 run のみ採用 → CI ブロックなしになるべき。
+const RERUN_RECOVERED_JSON: &str = r#"[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-01-01T00:00:00Z"},{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-01-01T01:00:00Z"}]"#;
 
 fn assert_prompt(env: &TestEnv, expected: &str) {
     let _daemon = DaemonHandle::start(env);
@@ -66,4 +71,14 @@ fn test_ci_check_prompt(#[case] pr_json: &str, #[case] checks_json: &str, #[case
 fn test_no_ci_checks_prompt(#[case] pr_json: &str, #[case] expected: &str) {
     let env = ci_checks_fixtures::with_no_ci_checks(pr_json);
     assert_prompt(&env, expected);
+}
+
+// ── 再実行 check の重複排除 ───────────────────────────────────────────────────
+
+/// 同名 check が失敗 → 再実行で成功した場合、`statusCheckRollup` には古い FAILURE も
+/// 残るが、最新 run（SUCCESS）のみを採用して CI ブロックしないこと（`gh pr checks` 相当）。
+#[test]
+fn test_rerun_recovered_check_is_not_blocked() {
+    let env = TestEnv::new(APPROVED_CLEAN, Some(RERUN_RECOVERED_JSON));
+    assert_prompt(&env, "✓ Ready for merge");
 }

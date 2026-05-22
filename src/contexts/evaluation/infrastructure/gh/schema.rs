@@ -82,18 +82,52 @@ pub(super) struct Contexts {
 
 /// `statusCheckRollup.contexts.nodes[*]`。`__typename` で `CheckRun` /
 /// `StatusContext` を判別する。未知の型は `Unknown` に倒して無視する。
+///
+/// `name` / `started_at`（`StatusContext` は `context` / `created_at`）は
+/// 同名 check の重複排除に使う。CI を再実行すると rollup には古い run も残るため、
+/// gh `pr checks` と同様に名前ごとに最新 run のみを採用する必要がある。
 #[derive(Deserialize)]
 #[serde(tag = "__typename")]
 pub(super) enum CheckContext {
     CheckRun {
+        #[serde(default)]
+        name: String,
         status: String,
         conclusion: Option<String>,
+        #[serde(rename = "startedAt")]
+        started_at: Option<String>,
     },
     StatusContext {
+        #[serde(default)]
+        context: String,
         state: String,
+        #[serde(rename = "createdAt")]
+        created_at: Option<String>,
     },
     #[serde(other)]
     Unknown,
+}
+
+impl CheckContext {
+    /// 重複排除のグルーピングキー（CheckRun.name / StatusContext.context）。
+    /// 名前を持たない `Unknown` は `None`。
+    pub(super) fn name(&self) -> Option<&str> {
+        match self {
+            CheckContext::CheckRun { name, .. } => Some(name),
+            CheckContext::StatusContext { context, .. } => Some(context),
+            CheckContext::Unknown => None,
+        }
+    }
+
+    /// 同名 run の新しさ比較用タイムスタンプ。ISO8601 文字列は辞書順 = 時系列順。
+    /// 欠損時は空文字（= 最古扱い）。
+    pub(super) fn recency(&self) -> &str {
+        match self {
+            CheckContext::CheckRun { started_at, .. } => started_at.as_deref().unwrap_or(""),
+            CheckContext::StatusContext { created_at, .. } => created_at.as_deref().unwrap_or(""),
+            CheckContext::Unknown => "",
+        }
+    }
 }
 
 /// Compare API（`gh api repos/{owner}/{repo}/compare/...`）のレスポンス。
@@ -120,7 +154,9 @@ pub(super) enum CheckBucket {
 /// で同じ `CiState::Fail` に畳まれるため、両者の弁別は最終結果に影響しない。
 pub(super) fn context_to_bucket(ctx: &CheckContext) -> CheckBucket {
     match ctx {
-        CheckContext::CheckRun { status, conclusion } => {
+        CheckContext::CheckRun {
+            status, conclusion, ..
+        } => {
             if status != "COMPLETED" {
                 return CheckBucket::Pending;
             }
@@ -132,7 +168,7 @@ pub(super) fn context_to_bucket(ctx: &CheckContext) -> CheckBucket {
                 _ => CheckBucket::Other,
             }
         }
-        CheckContext::StatusContext { state } => match state.as_str() {
+        CheckContext::StatusContext { state, .. } => match state.as_str() {
             "PENDING" | "EXPECTED" => CheckBucket::Pending,
             "ERROR" | "FAILURE" => CheckBucket::Fail,
             _ => CheckBucket::Other,
@@ -147,14 +183,18 @@ mod tests {
 
     fn check_run(status: &str, conclusion: Option<&str>) -> CheckContext {
         CheckContext::CheckRun {
+            name: "ci".to_owned(),
             status: status.to_owned(),
             conclusion: conclusion.map(str::to_owned),
+            started_at: None,
         }
     }
 
     fn status_context(state: &str) -> CheckContext {
         CheckContext::StatusContext {
+            context: "ci".to_owned(),
             state: state.to_owned(),
+            created_at: None,
         }
     }
 

@@ -3,12 +3,13 @@ mod fetch;
 mod mapper;
 mod schema;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use error::{GhError, classify_gh_error};
 use fetch::fetch_behind_by;
 use mapper::{aggregate_ci, translate_review, translate_sync, translate_unblocked};
-use schema::{CheckBucket, GhPrNode, GraphQlResponse, Repository, context_to_bucket};
+use schema::{CheckBucket, CheckContext, GhPrNode, GraphQlResponse, Repository, context_to_bucket};
 use tokio::task::JoinSet;
 
 use crate::contexts::evaluation::domain::error::RepositoryError;
@@ -32,8 +33,8 @@ query($owner:String!, $repo:String!, $head:String!) {
         commits(last:1) { nodes { commit { statusCheckRollup {
           contexts(first:100) { nodes {
             __typename
-            ... on CheckRun { status conclusion }
-            ... on StatusContext { state }
+            ... on CheckRun { name status conclusion startedAt }
+            ... on StatusContext { context state createdAt }
           } }
         } } } }
       }
@@ -112,6 +113,10 @@ async fn fetch_repository(cwd: &Path, branch: &str) -> Result<Option<Repository>
 
 /// PR ノードの `statusCheckRollup` から CI 状態を集約する（追加の gh 起動なし）。
 /// チェック未設定（rollup が `null`）の場合は `None`。
+///
+/// CI を再実行すると rollup には古い run も残るため、`gh pr checks` と同様に
+/// 同名 check は最新 run（`startedAt` / `createdAt` 最大）のみを採用する。
+/// これを怠ると古い失敗/キャンセル run を拾って誤って CI ブロック扱いになる。
 fn ci_from_node(node: &GhPrNode) -> Option<CiState> {
     let contexts = node
         .commits
@@ -119,7 +124,20 @@ fn ci_from_node(node: &GhPrNode) -> Option<CiState> {
         .first()
         .and_then(|c| c.commit.status_check_rollup.as_ref())
         .map_or(&[][..], |r| r.contexts.nodes.as_slice());
-    let buckets: Vec<CheckBucket> = contexts.iter().map(context_to_bucket).collect();
+
+    // 名前ごとに最新 run のみ残す。名前を持たない Unknown は無視（常に非ブロッカー）。
+    let mut latest: HashMap<&str, &CheckContext> = HashMap::new();
+    for ctx in contexts {
+        let Some(name) = ctx.name() else { continue };
+        match latest.get(name) {
+            Some(prev) if prev.recency() >= ctx.recency() => {}
+            _ => {
+                latest.insert(name, ctx);
+            }
+        }
+    }
+
+    let buckets: Vec<CheckBucket> = latest.values().map(|c| context_to_bucket(c)).collect();
     aggregate_ci(&buckets)
 }
 

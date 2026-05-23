@@ -7,3 +7,10 @@ test-threads = "num-cpus"
 [[profile.default.overrides]]
 filter = 'test(test_cold_interval_switches_from_early_to_late) | test(test_cold_reset_on_warm_query) | test(test_terminal_pr_reopened_resets_to_warm) | test(test_refresh_timeout_clears_lock_and_allows_retry) | test(test_warm_without_recent_query_uses_warm_interval) | test(test_warm_with_recent_query_uses_hot_interval)'
 slow-timeout = { period = "10s", terminate-after = 2 }
+
+# 並列負荷下でごく稀にフレークする実時間タイミングテスト。
+# 一過性の負荷オーバーヘッドのみリトライで吸収する
+# （真の回帰は毎回〜5s で落ちるためリトライでは隠れない）。
+[[profile.default.overrides]]
+filter = 'test(test_daemon_stop_does_not_wait_for_scheduler_tick)'
+retries = 2

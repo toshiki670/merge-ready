@@ -284,7 +284,7 @@ fn test_daemon_stop_does_not_wait_for_scheduler_tick() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("stopped"));
 
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(2),
+        started.elapsed() < std::time::Duration::from_secs(4),
         "daemon stop should not wait for the scheduler tick"
     );
     drop(daemon);

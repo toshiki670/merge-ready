@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.2] - 2026-05-23
+### Performance
+- PR 不在パスでの git branch --show-current 重複呼び出しを解消する ([#366](https://github.com/toshiki670/merge-ready/pull/366)) ([`7a118f2`](https://github.com/toshiki670/merge-ready/commit/7a118f2b9ae95e53961c6f53bd4867b26a1cb6fe))
+- レート制限コストモデルを実 API コール数に整合させる ([#367](https://github.com/toshiki670/merge-ready/pull/367)) ([`a72ec97`](https://github.com/toshiki670/merge-ready/commit/a72ec970e585ffd3d99709ac8a0ede3c5bca14f9))
+- Refresh を単一 GraphQL クエリへ集約し gh subprocess を 2N+1 → N+1 にする ([#368](https://github.com/toshiki670/merge-ready/pull/368)) ([`03dabb3`](https://github.com/toshiki670/merge-ready/commit/03dabb323404054b2113962ed7590bc15d9b8a21))
+
+
 ## [0.8.1] - 2026-05-21
 ### Performance
 - Refresh 時の PR ごとの `gh repo view --json nameWithOwner` を撤廃する ([#363](https://github.com/toshiki670/merge-ready/pull/363)) ([`8b9551e`](https://github.com/toshiki670/merge-ready/commit/8b9551e8ede041bfaca0ac21361e38856364dc8d))

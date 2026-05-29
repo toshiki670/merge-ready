@@ -4,7 +4,8 @@
 //! で呼び出す。タイムアウトは `MERGE_READY_GH_TIMEOUT_SECS`（既定 30 秒）。
 //!
 //! エラー分類は呼び出し側の関心事として保持し、ここでは
-//! `NotInstalled` / `Timeout` / `Failed { exit_code, stderr }` の 3 種類だけを返す。
+//! `NotInstalled` / `Timeout` / `Failed { exit_code, stderr }` / `Io` の
+//! 4 種類だけを返す。
 
 use std::io::ErrorKind;
 use std::path::Path;
@@ -22,6 +23,9 @@ pub enum GhProcessError {
     Timeout,
     /// 非ゼロ終了。`exit_code` と `stderr` を呼び出し側の分類器に渡せる
     Failed { exit_code: i32, stderr: String },
+    /// spawn / wait の I/O 失敗（`NotFound` 以外の spawn 失敗や `wait_with_output` 失敗）。
+    /// ワーカータスクを panic させず通常のエラー経路に乗せるためのバリアント。
+    Io(std::io::Error),
 }
 
 fn gh_timeout() -> Duration {
@@ -33,7 +37,17 @@ fn gh_timeout() -> Duration {
 }
 
 pub async fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhProcessError> {
-    let mut cmd = Command::new("gh");
+    run_program("gh", args, cwd).await
+}
+
+/// `run_gh` の本体。実行するプログラム名を引数化し、spawn 失敗の注入を
+/// テストから行えるようにしている（本番では常に `"gh"`）。
+async fn run_program(
+    program: &str,
+    args: &[&str],
+    cwd: Option<&Path>,
+) -> Result<Vec<u8>, GhProcessError> {
+    let mut cmd = Command::new(program);
     cmd.args(args);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -47,11 +61,14 @@ pub async fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhProc
     let child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) if e.kind() == ErrorKind::NotFound => return Err(GhProcessError::NotInstalled),
-        Err(e) => panic!("spawn gh: {e}"),
+        // `NotFound` 以外の spawn 失敗（権限不足など）は panic させず Io として返す。
+        Err(e) => return Err(GhProcessError::Io(e)),
     };
 
     let output = match timeout(gh_timeout(), child.wait_with_output()).await {
-        Ok(out) => out.expect("wait_with_output on gh child"),
+        Ok(Ok(out)) => out,
+        // `wait_with_output` の I/O 失敗も panic させず Io として返す。
+        Ok(Err(e)) => return Err(GhProcessError::Io(e)),
         Err(_) => return Err(GhProcessError::Timeout),
     };
 
@@ -64,5 +81,45 @@ pub async fn run_gh(args: &[&str], cwd: Option<&Path>) -> Result<Vec<u8>, GhProc
             exit_code,
             stderr: stderr_str,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `NotFound` 以外の spawn 失敗（ディレクトリを実行 → `PermissionDenied`）は
+    /// panic せず `GhProcessError::Io` として返ること（Issue #377）。
+    #[tokio::test]
+    async fn spawn_failure_other_than_not_found_returns_io_error() {
+        // 一時ディレクトリ自体を program に渡すと spawn が `PermissionDenied`
+        // （`NotFound` ではない）で失敗する。これで panic 経路を踏まずに済むことを検証する。
+        let dir = std::env::temp_dir();
+        let program = dir.to_str().expect("temp_dir path is valid utf-8");
+
+        let result = run_program(program, &[], None).await;
+
+        match result {
+            Err(GhProcessError::Io(e)) => {
+                assert_ne!(
+                    e.kind(),
+                    ErrorKind::NotFound,
+                    "NotFound は NotInstalled として扱われるべき"
+                );
+            }
+            other => panic!("expected GhProcessError::Io, got {other:?}"),
+        }
+    }
+
+    /// 存在しないバイナリ（`NotFound`）は従来どおり `NotInstalled` を返すこと。
+    #[tokio::test]
+    async fn spawn_not_found_returns_not_installed() {
+        let result = run_program(
+            "/no/such/binary/merge-ready-xyzzy",
+            &["api", "rate_limit"],
+            None,
+        )
+        .await;
+        assert!(matches!(result, Err(GhProcessError::NotInstalled)));
     }
 }

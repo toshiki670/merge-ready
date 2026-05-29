@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.1] - 2026-05-29
+### Bug Fixes
+- Compare API パスのブランチ名を URL エンコードする ([#378](https://github.com/toshiki670/merge-ready/pull/378)) ([`5bec73d`](https://github.com/toshiki670/merge-ready/commit/5bec73d9664c954af08f8e599e871d6667a2d797))
+- 非 Linux でも temp ディレクトリを uid で名前空間分離する ([#380](https://github.com/toshiki670/merge-ready/pull/380)) ([`b2ae8ca`](https://github.com/toshiki670/merge-ready/commit/b2ae8cab07399622d478d69f0825d56f034ca349))
+- Daemon ソケットの入力を検証し、出力の制御文字を除去する ([#381](https://github.com/toshiki670/merge-ready/pull/381)) ([`6962bd4`](https://github.com/toshiki670/merge-ready/commit/6962bd496489d1fd57aed3a78bf8c2501af8e74c))
+- Gh spawn 失敗時の panic を回避しエラーとして扱う ([#379](https://github.com/toshiki670/merge-ready/pull/379)) ([`c9f5717`](https://github.com/toshiki670/merge-ready/commit/c9f57172f043b45166a490dc8688a1f2eb481cc2))
+
+
 ## [1.0.0] - 2026-05-23
 ### Performance
 - PR 不在パスでの git branch --show-current 重複呼び出しを解消する ([#366](https://github.com/toshiki670/merge-ready/pull/366)) ([`7a118f2`](https://github.com/toshiki670/merge-ready/commit/7a118f2b9ae95e53961c6f53bd4867b26a1cb6fe))

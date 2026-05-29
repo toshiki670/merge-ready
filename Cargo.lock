@@ -642,6 +642,7 @@ dependencies = [
  "nu-ansi-term",
  "predicates",
  "rstest",
+ "rustix",
  "serde",
  "serde_json",
  "simplelog",

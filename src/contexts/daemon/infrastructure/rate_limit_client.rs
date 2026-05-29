@@ -93,6 +93,10 @@ async fn raw_fetch() -> Option<RateLimitSnapshot> {
             log::warn!("rate_limit fetch failed: timeout");
             None
         }
+        Err(GhProcessError::Io(e)) => {
+            log::warn!("rate_limit fetch failed: io error: {e}");
+            None
+        }
     }
 }
 

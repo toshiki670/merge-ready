@@ -50,6 +50,10 @@ async fn run_gh(cwd: &Path, args: &[&str]) -> Result<Vec<u8>, GhError> {
         Err(crate::shared::process_gh::GhProcessError::Failed { exit_code, stderr }) => {
             Err(classify_gh_error(exit_code, &stderr))
         }
+        // spawn / wait の I/O 失敗は不明なインフラ起因エラーとして扱う。
+        Err(crate::shared::process_gh::GhProcessError::Io(e)) => {
+            Err(GhError::ApiError(e.to_string()))
+        }
     }
 }
 

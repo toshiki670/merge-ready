@@ -65,23 +65,44 @@ pub fn base_dir() -> PathBuf {
     std::env::temp_dir().join(dir_name())
 }
 
+/// 起動ユーザの uid で temp 配下のディレクトリ名を名前空間分離する。
+///
+/// uid 別ディレクトリにすることで、`TMPDIR` が共有書き込み可能な環境
+/// （例: `TMPDIR=/tmp`）でも、他ユーザが lock/pid/socket を置くディレクトリを
+/// 先回り作成する攻撃を防ぐ（defense-in-depth）。unix では実 uid を使い、
+/// 非 unix（uid の概念がない）では固定名にフォールバックする。
 fn dir_name() -> String {
     std::cfg_select! {
-        target_os = "linux" => {
-            use std::os::unix::fs::MetadataExt;
-            if let Ok(meta) = std::fs::metadata("/proc/self") {
-                format!("merge-ready-{}", meta.uid())
-            } else {
-                "merge-ready".to_owned()
-            }
-        },
-        _ => "merge-ready".to_owned(),
+        unix => dir_name_for(Some(rustix::process::getuid().as_raw())),
+        _ => dir_name_for(None),
+    }
+}
+
+/// uid から temp 配下のディレクトリ名を決める純粋関数。
+///
+/// uid がある場合は `merge-ready-{uid}` で名前空間を分離し、無い場合
+/// （非 unix）は固定の `merge-ready` を使う。
+fn dir_name_for(uid: Option<u32>) -> String {
+    match uid {
+        Some(uid) => format!("merge-ready-{uid}"),
+        None => "merge-ready".to_owned(),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Paths;
+    use super::{Paths, dir_name_for};
+
+    #[test]
+    fn dir_name_includes_uid_when_available() {
+        assert_eq!(dir_name_for(Some(1000)), "merge-ready-1000");
+        assert_eq!(dir_name_for(Some(0)), "merge-ready-0");
+    }
+
+    #[test]
+    fn dir_name_falls_back_to_plain_when_uid_unavailable() {
+        assert_eq!(dir_name_for(None), "merge-ready");
+    }
 
     #[test]
     fn paths_from_custom_dir() {

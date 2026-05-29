@@ -674,7 +674,8 @@ fn test_daemon_and_prompt_use_default_base_dir_when_unset() {
     assert!(status.success(), "daemon start should succeed");
 
     // BASE_DIR 未設定なので TMPDIR/<dir_name>/ 配下に socket が作られる。
-    // dir_name() は OS 依存（macOS: "merge-ready"、Linux: "merge-ready-{uid}"）。
+    // dir_name() は unix では uid で名前空間分離（"merge-ready-{uid}"）、
+    // 非 unix では固定の "merge-ready"。
     let socket_name = format!("daemon-{}.sock", env!("CARGO_PKG_VERSION"));
     let socket_path = std::fs::read_dir(env.home())
         .expect("read home dir")

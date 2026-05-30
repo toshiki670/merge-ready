@@ -105,7 +105,7 @@ fn process_query(
         now_wall,
         stale_ttl: ttl,
     };
-    let (new_store, effects) = on_query(store, event, repo_id, policy);
+    let (new_store, effects) = on_query(std::mem::take(store), event, repo_id, policy);
     *store = new_store;
     effects_to_action_result(effects)
 }
@@ -126,7 +126,7 @@ fn process_update(
         now: Instant::now(),
         now_wall: SystemTime::now(),
     };
-    let (new_store, _effects) = on_refresh_completed(store, repo_id, event);
+    let (new_store, _effects) = on_refresh_completed(std::mem::take(store), repo_id, event);
     *store = new_store;
     ActionResult {
         response: Response::Ok,

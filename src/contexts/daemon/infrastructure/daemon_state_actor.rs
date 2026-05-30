@@ -124,12 +124,14 @@ fn handle_command(state: &mut DaemonState, cmd: DaemonCommand) {
                 refresh_lock_timeout_secs: config.refresh_lock_timeout_secs,
                 entry_max_age_secs: config.entry_max_age_secs,
             };
-            let (new_store, effects) = on_scheduler_tick(&state.cache_store, &input);
+            let (new_store, effects) =
+                on_scheduler_tick(std::mem::take(&mut state.cache_store), &input);
             state.cache_store = new_store;
             let _ = reply.send(effects);
         }
         DaemonCommand::ApplyRateLimit { event, reply } => {
-            let (new_store, effects) = on_rate_limit_observed(&state.cache_store, &event);
+            let (new_store, effects) =
+                on_rate_limit_observed(std::mem::take(&mut state.cache_store), &event);
             state.cache_store = new_store;
             let _ = reply.send(effects);
         }

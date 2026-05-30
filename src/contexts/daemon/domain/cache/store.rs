@@ -44,6 +44,12 @@ impl CacheStore {
     // `daemon` コンテキスト内のテストからも構築できるように
     // `pub(in crate::contexts::daemon)` で公開する。
 
+    /// `entries` を所有権ごと取り出す（`self` には空の `HashMap` が残る）。
+    /// 純粋遷移関数が entries を deep clone せず move で受け取るために使う。
+    pub(in crate::contexts::daemon) fn take_entries(&mut self) -> HashMap<RepoId, CacheEntryState> {
+        std::mem::take(&mut self.entries)
+    }
+
     pub(in crate::contexts::daemon) fn with_entries(
         mut self,
         entries: HashMap<RepoId, CacheEntryState>,

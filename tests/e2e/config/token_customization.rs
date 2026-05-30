@@ -44,6 +44,10 @@ fn assert_prompt_with_config(env: &TestEnv, expected: &str) {
     Some("[merge_ready]\nsymbol = \"✅\"\nlabel = \"lgtm\"\nformat = \"$label $symbol\""),
     "lgtm ✅"
 )]
+#[case::non_ascii_format(
+    Some("[merge_ready]\nformat = \"【$symbol】準備完了: $label\""),
+    "【✓】準備完了: Ready for merge"
+)]
 #[case::invalid_toml(Some("this is not valid toml ][[["), "✓ Ready for merge")]
 fn test_config_prompt(#[case] config: Option<&str>, #[case] expected: &str) {
     let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));

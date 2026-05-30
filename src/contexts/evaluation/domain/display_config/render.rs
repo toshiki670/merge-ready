@@ -120,8 +120,14 @@ fn substitute_vars(s: &str, vars: &[(&str, &str)]) -> String {
                 i += 1;
             }
         } else {
-            result.push(bytes[i] as char);
-            i += 1;
+            // 次の `$` までの非変数部分をまとめてコピーする。`$` は ASCII (1 バイト) なので
+            // i は常に char 境界に揃い、マルチバイト文字も保持される。
+            let next = bytes[i..]
+                .iter()
+                .position(|&b| b == b'$')
+                .map_or(bytes.len(), |pos| i + pos);
+            result.push_str(&s[i..next]);
+            i = next;
         }
     }
     result
@@ -333,5 +339,18 @@ mod tests {
             format: "$symbol $unknown".to_owned(),
         };
         assert_eq!(render_token(&tok, None), "+ $unknown");
+    }
+
+    #[test]
+    fn render_token_non_ascii_literal_in_format_preserved() {
+        let tok = TokenConfig {
+            symbol: "✓".to_owned(),
+            label: "Ready for merge".to_owned(),
+            format: "【$symbol】準備完了: $label 🎉".to_owned(),
+        };
+        assert_eq!(
+            render_token(&tok, None),
+            "【✓】準備完了: Ready for merge 🎉"
+        );
     }
 }

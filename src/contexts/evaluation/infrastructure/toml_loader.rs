@@ -1,21 +1,70 @@
 use serde::Deserialize;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::contexts::evaluation::domain::display_config::{
-    DisplayConfig, ErrorConfig, TokenConfig,
+    CompiledDisplayConfig, DisplayConfig, ErrorConfig, TokenConfig,
 };
 
-/// 設定ファイルから `DisplayConfig` を読み込む。
-/// 環境変数で決まるパスを参照し、ファイルが無い／壊れている場合は default で埋める。
-#[must_use]
-pub fn load_display_config() -> DisplayConfig {
-    let Some(path) = config_path() else {
-        return DisplayConfig::default();
-    };
-    let Ok(content) = std::fs::read_to_string(&path) else {
-        return DisplayConfig::default();
-    };
-    let raw: RawDisplayConfig = toml::from_str(&content).unwrap_or_default();
+struct CachedConfig {
+    fingerprint: Option<u64>,
+    config: Arc<CompiledDisplayConfig>,
+}
+
+/// プロセス内に保持する前計算済み設定キャッシュ。daemon は単一プロセスで設定ファイルも
+/// 1 つなので、プロセスグローバルなキャッシュで足りる。
+static CONFIG_CACHE: OnceLock<Mutex<Option<CachedConfig>>> = OnceLock::new();
+
+/// 設定ファイルを非同期で読み込み、前計算済みの [`CompiledDisplayConfig`] を返す。
+///
+/// ファイル内容の xxHash 指紋をメモリに保持し、指紋が前回と一致する場合は前計算済みの
+/// 結果（`Arc`）をそのまま返す。ファイルが変更されたとき（または初回）だけ TOML パース・
+/// デフォルトマージ・format/style の前計算をやり直す。これにより daemon リフレッシュ経路で
+/// 不変な設定を毎回再パースする無駄をなくす。
+pub async fn load_compiled_display_config() -> Arc<CompiledDisplayConfig> {
+    let content = read_config_bytes().await;
+    let fp = fingerprint(content.as_deref());
+
+    let cache = CONFIG_CACHE.get_or_init(|| Mutex::new(None));
+    // ファイル読み込み（await）はロック取得前に完了している。ロック保持中は await しない
+    // ので、std の Mutex で安全に扱える。
+    if let Some(hit) = {
+        let guard = cache.lock().expect("config cache mutex poisoned");
+        guard
+            .as_ref()
+            .filter(|cached| cached.fingerprint == fp)
+            .map(|cached| Arc::clone(&cached.config))
+    } {
+        return hit;
+    }
+
+    let display = content
+        .as_deref()
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        .map_or_else(DisplayConfig::default, parse_display_config);
+    let compiled = Arc::new(display.compile());
+
+    *cache.lock().expect("config cache mutex poisoned") = Some(CachedConfig {
+        fingerprint: fp,
+        config: Arc::clone(&compiled),
+    });
+    compiled
+}
+
+/// 設定ファイルの内容を非同期で読み込む。ファイル不在・読取不可なら `None`。
+async fn read_config_bytes() -> Option<Vec<u8>> {
+    tokio::fs::read(config_path()?).await.ok()
+}
+
+/// 設定ファイル内容の xxHash 指紋。内容が無い（ファイル不在等）場合は `None`。
+/// 変更検知が目的でセキュリティ用途ではないため、高速な非暗号学的ハッシュを使う。
+fn fingerprint(content: Option<&[u8]>) -> Option<u64> {
+    content.map(twox_hash::XxHash3_64::oneshot)
+}
+
+/// TOML 文字列を `DisplayConfig` にパースする。壊れた TOML は default で埋める。
+fn parse_display_config(content: &str) -> DisplayConfig {
+    let raw: RawDisplayConfig = toml::from_str(content).unwrap_or_default();
     merge_with_defaults(raw)
 }
 
@@ -99,4 +148,45 @@ struct RawTokenConfig {
 struct RawErrorConfig {
     symbol: Option<String>,
     format: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_is_none_for_absent_content() {
+        assert_eq!(fingerprint(None), None);
+    }
+
+    #[test]
+    fn fingerprint_is_stable_for_same_content() {
+        assert_eq!(fingerprint(Some(b"abc")), fingerprint(Some(b"abc")));
+    }
+
+    #[test]
+    fn fingerprint_differs_for_changed_content() {
+        assert_ne!(fingerprint(Some(b"abc")), fingerprint(Some(b"abd")));
+    }
+
+    #[test]
+    fn fingerprint_distinguishes_empty_file_from_absent() {
+        // 空ファイル（存在する）と不在（None）は別物として扱われる。
+        assert!(fingerprint(Some(b"")).is_some());
+    }
+
+    #[test]
+    fn parse_display_config_applies_overrides() {
+        let parsed = parse_display_config("[merge_ready]\nsymbol = \"★\"");
+        assert_eq!(parsed.merge_ready.symbol, "★");
+    }
+
+    #[test]
+    fn parse_display_config_invalid_toml_uses_defaults() {
+        let parsed = parse_display_config("][[[ not valid toml");
+        assert_eq!(
+            parsed.merge_ready.symbol,
+            DisplayConfig::default().merge_ready.symbol
+        );
+    }
 }

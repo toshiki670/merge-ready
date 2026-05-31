@@ -1,3 +1,5 @@
+use crate::contexts::evaluation::domain::style_spec::StyleSpec;
+
 enum Either<L, R> {
     Left(L),
     Right(R),
@@ -8,6 +10,43 @@ pub(crate) enum Segment {
     Text(String),
     Styled { content: String, style_str: String },
     Conditional(Vec<Segment>),
+}
+
+/// `Segment` をロード時に前計算した render 用の値オブジェクト。
+///
+/// `Styled` は `style_str` を解決済み [`StyleSpec`] として、`content` を再帰
+/// compile 済みの `Vec<CompiledSegment>` として保持する。これにより render 時は
+/// `parse_segments` も `StyleSpec::parse` も呼ばずツリーを評価するだけで済む。
+#[derive(Debug, PartialEq)]
+pub(crate) enum CompiledSegment {
+    Text(String),
+    Styled {
+        content: Vec<CompiledSegment>,
+        style: StyleSpec,
+    },
+    Conditional(Vec<CompiledSegment>),
+}
+
+/// `format` 文字列を一度だけパースし、各 `Segment` を前計算済みの
+/// [`CompiledSegment`] へ変換する。設定ロード時に一度だけ呼ぶ。
+pub(crate) fn compile_segments(format: &str) -> Vec<CompiledSegment> {
+    parse_segments(format)
+        .into_iter()
+        .map(compile_segment)
+        .collect()
+}
+
+fn compile_segment(segment: Segment) -> CompiledSegment {
+    match segment {
+        Segment::Text(t) => CompiledSegment::Text(t),
+        Segment::Styled { content, style_str } => CompiledSegment::Styled {
+            content: compile_segments(&content),
+            style: StyleSpec::parse(&style_str),
+        },
+        Segment::Conditional(inner) => {
+            CompiledSegment::Conditional(inner.into_iter().map(compile_segment).collect())
+        }
+    }
 }
 
 /// `[text](style)` および `(content)` 構文を `Segment` 列に分解する。
@@ -183,5 +222,34 @@ mod tests {
     )]
     fn styled_segment_cases(#[case] input: &str, #[case] expected: Vec<Segment>) {
         assert_eq!(parse_segments(input), expected);
+    }
+
+    // ── compile_segments: parse_segments + StyleSpec::parse の前計算 ─────────────
+
+    #[test]
+    fn compile_resolves_style_and_nests_content() {
+        use crate::contexts::evaluation::domain::style_spec::StyleSpec;
+
+        assert_eq!(
+            compile_segments("[$symbol](bold green) $label"),
+            vec![
+                CompiledSegment::Styled {
+                    content: vec![CompiledSegment::Text("$symbol".to_owned())],
+                    style: StyleSpec::parse("bold green"),
+                },
+                CompiledSegment::Text(" $label".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn compile_preserves_conditional_and_plain_text() {
+        assert_eq!(
+            compile_segments("$symbol $label( $pr_ids)"),
+            vec![
+                CompiledSegment::Text("$symbol $label".to_owned()),
+                CompiledSegment::Conditional(vec![CompiledSegment::Text(" $pr_ids".to_owned())]),
+            ]
+        );
     }
 }

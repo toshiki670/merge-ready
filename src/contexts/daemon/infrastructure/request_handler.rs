@@ -21,7 +21,7 @@ pub(super) struct ActionResult {
 }
 
 pub(super) fn process(
-    request: &Request,
+    request: Request,
     store: &mut CacheStore,
     policy: &RefreshPolicy,
     started_at: Instant,
@@ -29,7 +29,7 @@ pub(super) fn process(
 ) -> ActionResult {
     match request {
         Request::Query { cwd } => {
-            let Some((repo_id_str, branch)) = repo_id::repo_info_from_cwd(cwd) else {
+            let Some((repo_id_str, branch)) = repo_id::repo_info_from_cwd(&cwd) else {
                 return ActionResult {
                     response: Response::Output {
                         output: String::new(),
@@ -50,9 +50,9 @@ pub(super) fn process(
             refresh_mode,
             pr_outputs,
         } => process_update(
-            &RepoId::new(repo_id.clone()),
+            &RepoId::new(repo_id),
             output,
-            *refresh_mode,
+            refresh_mode,
             pr_outputs,
             store,
         ),
@@ -114,14 +114,14 @@ fn process_query(
 /// 未知の `repo_id` への Update（ブランチ切替直後の再導出 ID など）は無視する。
 fn process_update(
     repo_id: &RepoId,
-    output: &str,
+    output: String,
     refresh_mode: RefreshMode,
-    pr_outputs: &[PrOutput],
+    pr_outputs: Vec<PrOutput>,
     store: &mut CacheStore,
 ) -> ActionResult {
     let event = RefreshCompletedEvent {
-        output: output.to_owned(),
-        pr_outputs: pr_outputs.to_vec(),
+        output,
+        pr_outputs,
         refresh_mode,
         now: Instant::now(),
         now_wall: SystemTime::now(),

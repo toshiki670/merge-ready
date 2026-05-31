@@ -36,6 +36,21 @@ impl DaemonHandle {
     /// 追加の環境変数を指定して daemon を起動する。
     #[must_use]
     pub fn start_with_env(env: &TestEnv, extra_envs: &[(&str, &str)]) -> Self {
+        Self::start_in_base_dir(env, env.home(), extra_envs)
+    }
+
+    /// `base_dir` を指定して daemon を起動する。
+    ///
+    /// `MERGE_READY_BASE_DIR` を `base_dir` に固定するため、socket/pid を任意の名前の
+    /// ディレクトリ（例: `merge-ready-{uid}` / 旧命名 `merge-ready`）に配置できる。
+    /// クロスバージョン cleanup のように、ディレクトリ名に依存する挙動の検証で使う。
+    /// Drop 時の停止も `base_dir` に対して行う。
+    #[must_use]
+    pub fn start_in_dir(env: &TestEnv, base_dir: &Path) -> Self {
+        Self::start_in_base_dir(env, base_dir, &[])
+    }
+
+    fn start_in_base_dir(env: &TestEnv, base_dir: &Path, extra_envs: &[(&str, &str)]) -> Self {
         let bin = assert_cmd::cargo::cargo_bin("merge-ready");
 
         let mut cmd = std::process::Command::new(&bin);
@@ -43,7 +58,7 @@ impl DaemonHandle {
             .env("PATH", env.path_env())
             .env("HOME", env.home())
             .env("TMPDIR", env.home())
-            .env("MERGE_READY_BASE_DIR", env.home())
+            .env("MERGE_READY_BASE_DIR", base_dir)
             .env("XDG_CONFIG_HOME", env.home().join(".config"))
             .current_dir(env.repo.path())
             .stdin(std::process::Stdio::null())
@@ -65,7 +80,7 @@ impl DaemonHandle {
             match child.try_wait() {
                 Ok(Some(status)) => {
                     if status.success() {
-                        return DaemonHandle::new(child, env.home_tmp.path().to_path_buf());
+                        return DaemonHandle::new(child, base_dir.to_path_buf());
                     }
                     let stderr = read_pipe(child.stderr.as_mut());
                     let stdout = read_pipe(child.stdout.as_mut());

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.3] - 2026-05-31
+### Fixes
+- Uptime/CACHED AT の表示を humantime で人間に読みやすい形式に変更 ([#395](https://github.com/toshiki670/merge-ready/pull/395)) ([`a2bee26`](https://github.com/toshiki670/merge-ready/commit/a2bee2699fbb5fd9ec17e7c6792cc75348184b58))
+### Performance
+- 設定をハッシュキャッシュ + 非同期ロードし render を前計算する ([#397](https://github.com/toshiki670/merge-ready/pull/397)) ([`25003bb`](https://github.com/toshiki670/merge-ready/commit/25003bbb5bf87c6b47c6a9a25f94ba2b62e74c2b))
+
+
 ## [1.0.2] - 2026-05-31
 ### Bug Fixes
 - Substitute_vars が非 ASCII を含む format を文字化けさせる問題を修正 ([#388](https://github.com/toshiki670/merge-ready/pull/388)) ([`e5b481b`](https://github.com/toshiki670/merge-ready/commit/e5b481b91fdc790e2e4e8a3998b92da872a79075))

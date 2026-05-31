@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.2] - 2026-05-31
+### Bug Fixes
+- Substitute_vars が非 ASCII を含む format を文字化けさせる問題を修正 ([#388](https://github.com/toshiki670/merge-ready/pull/388)) ([`e5b481b`](https://github.com/toshiki670/merge-ready/commit/e5b481b91fdc790e2e4e8a3998b92da872a79075))
+- クロスバージョンの旧 daemon を旧命名ディレクトリ含め停止する ([#390](https://github.com/toshiki670/merge-ready/pull/390)) ([#391](https://github.com/toshiki670/merge-ready/pull/391)) ([`49b0ff5`](https://github.com/toshiki670/merge-ready/commit/49b0ff5977c4fee68fdd4dcc74b44db257f008a3))
+### Performance
+- Cache transition で entries の二重 deep clone を解消 ([#387](https://github.com/toshiki670/merge-ready/pull/387)) ([`a1ffd6d`](https://github.com/toshiki670/merge-ready/commit/a1ffd6d58b7199343b5384d84465c11fc71f7f74))
+- Process_update で output/pr_outputs の不要コピーを削減 ([#386](https://github.com/toshiki670/merge-ready/pull/386)) ([#393](https://github.com/toshiki670/merge-ready/pull/393)) ([`8dbe19d`](https://github.com/toshiki670/merge-ready/commit/8dbe19de6f3e2acdbb7258524921341dc1e22fc5))
+
+
 ## [1.0.1] - 2026-05-29
 ### Bug Fixes
 - Compare API パスのブランチ名を URL エンコードする ([#378](https://github.com/toshiki670/merge-ready/pull/378)) ([`5bec73d`](https://github.com/toshiki670/merge-ready/commit/5bec73d9664c954af08f8e599e871d6667a2d797))

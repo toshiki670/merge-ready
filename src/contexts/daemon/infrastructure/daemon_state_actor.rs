@@ -103,7 +103,7 @@ fn handle_command(state: &mut DaemonState, cmd: DaemonCommand) {
         DaemonCommand::Process { request, reply } => {
             let config = state.config;
             let result = request_handler::process(
-                &request,
+                request,
                 &mut state.cache_store,
                 &config.policy,
                 state.started_at,

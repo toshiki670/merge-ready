@@ -75,6 +75,15 @@ To fix a violation:
 foo/bar/mod.rs  →  rename to foo/bar.rs  (keep the content as-is)
 ```
 
+## Dependency Versioning
+
+Specify dependency versions in `Cargo.toml` at **major** or **major.minor** granularity (e.g. `"2"` / `"0.29"`).
+
+- Use `"major"` for crates with `version >= 1` (e.g. `"1"`, `"2"`).
+- Use `"0.minor"` for pre-1.0 crates, since semver treats minor bumps as breaking in that range.
+- **Exact pins (`=x.y.z`) are reserved for working around a known library bug.** When used, add a comment explaining why.
+- Reproducibility is provided by the committed `Cargo.lock` (and `--locked` when needed), not by `Cargo.toml` pins.
+
 ## Commit Convention
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/). Only `feat`, `fix`, and `perf` commits appear in the changelog (`cliff.toml`).

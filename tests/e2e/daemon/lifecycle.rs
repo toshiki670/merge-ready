@@ -530,7 +530,7 @@ fn test_daemon_start_stops_live_old_version_in_legacy_dir() {
 
 // ── #17: daemon status の出力フォーマット ────────────────────────────────────
 
-/// #17: `daemon status`（起動中）→ "running pid=<数字> entries=<数字> uptime=<数字>s version=<文字列>"
+/// #17: `daemon status`（起動中）→ "running pid=<数字> entries=<数字> uptime=<humantime形式> version=<文字列>"
 #[test]
 fn test_daemon_status_format() {
     let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
@@ -540,8 +540,10 @@ fn test_daemon_status_format() {
     env.apply(&mut cmd);
     cmd.args(["daemon", "status"]);
     cmd.assert().success().stdout(
-        predicate::str::is_match(r"^running  pid=\d+  entries=\d+  uptime=\d+s  version=.+\n$")
-            .unwrap(),
+        predicate::str::is_match(
+            r"^running  pid=\d+  entries=\d+  uptime=\d+\w+(?:\s\d+\w+)*  version=.+\n$",
+        )
+        .unwrap(),
     );
 }
 

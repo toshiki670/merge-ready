@@ -138,6 +138,7 @@ pub(super) struct GhCompare {
 }
 
 /// CI チェックの集計用カテゴリ。`aggregate_ci` が消費する。
+#[derive(Debug)]
 pub(super) enum CheckBucket {
     Fail,
     Cancel,
@@ -180,6 +181,7 @@ pub(super) fn context_to_bucket(ctx: &CheckContext) -> CheckBucket {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     fn check_run(status: &str, conclusion: Option<&str>) -> CheckContext {
         CheckContext::CheckRun {
@@ -200,97 +202,97 @@ mod tests {
 
     #[test]
     fn check_run_in_progress_is_pending() {
-        assert!(matches!(
+        assert_matches!(
             context_to_bucket(&check_run("IN_PROGRESS", None)),
             CheckBucket::Pending
-        ));
+        );
     }
 
     #[test]
     fn check_run_queued_is_pending() {
-        assert!(matches!(
+        assert_matches!(
             context_to_bucket(&check_run("QUEUED", None)),
             CheckBucket::Pending
-        ));
+        );
     }
 
     #[test]
     fn check_run_success_is_other() {
-        assert!(matches!(
+        assert_matches!(
             context_to_bucket(&check_run("COMPLETED", Some("SUCCESS"))),
             CheckBucket::Other
-        ));
+        );
     }
 
     #[test]
     fn check_run_skipped_is_other() {
-        assert!(matches!(
+        assert_matches!(
             context_to_bucket(&check_run("COMPLETED", Some("SKIPPED"))),
             CheckBucket::Other
-        ));
+        );
     }
 
     #[test]
     fn check_run_failure_is_fail() {
-        assert!(matches!(
+        assert_matches!(
             context_to_bucket(&check_run("COMPLETED", Some("FAILURE"))),
             CheckBucket::Fail
-        ));
+        );
     }
 
     #[test]
     fn check_run_timed_out_is_fail() {
-        assert!(matches!(
+        assert_matches!(
             context_to_bucket(&check_run("COMPLETED", Some("TIMED_OUT"))),
             CheckBucket::Fail
-        ));
+        );
     }
 
     #[test]
     fn check_run_cancelled_is_cancel() {
-        assert!(matches!(
+        assert_matches!(
             context_to_bucket(&check_run("COMPLETED", Some("CANCELLED"))),
             CheckBucket::Cancel
-        ));
+        );
     }
 
     #[test]
     fn check_run_action_required_is_action_required() {
-        assert!(matches!(
+        assert_matches!(
             context_to_bucket(&check_run("COMPLETED", Some("ACTION_REQUIRED"))),
             CheckBucket::ActionRequired
-        ));
+        );
     }
 
     #[test]
     fn status_context_success_is_other() {
-        assert!(matches!(
+        assert_matches!(
             context_to_bucket(&status_context("SUCCESS")),
             CheckBucket::Other
-        ));
+        );
     }
 
     #[test]
     fn status_context_pending_is_pending() {
-        assert!(matches!(
+        assert_matches!(
             context_to_bucket(&status_context("PENDING")),
             CheckBucket::Pending
-        ));
+        );
     }
 
     #[test]
     fn status_context_error_is_fail() {
-        assert!(matches!(
+        assert_matches!(
             context_to_bucket(&status_context("ERROR")),
             CheckBucket::Fail
-        ));
+        );
     }
 
     #[test]
     fn unknown_typename_is_other() {
-        assert!(matches!(
+        assert_matches!(
             context_to_bucket(&CheckContext::Unknown),
             CheckBucket::Other
-        ));
+        );
     }
 }

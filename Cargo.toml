@@ -2,7 +2,7 @@
 name = "merge-ready"
 version = "1.0.2"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.96"
 description = "Show pull request merge blockers as concise prompt tokens"
 license = "MIT"
 repository = "https://github.com/toshiki670/merge-ready"

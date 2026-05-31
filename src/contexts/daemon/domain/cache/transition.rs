@@ -405,6 +405,7 @@ mod tests {
 
     use super::super::entry::FetchState;
     use super::*;
+    use std::assert_matches;
 
     fn test_policy() -> RefreshPolicy {
         RefreshPolicy {
@@ -454,7 +455,7 @@ mod tests {
 
         assert_eq!(effects.len(), 2);
         assert_eq!(effects[0], Effect::EmitOutput("? loading".to_owned()));
-        assert!(matches!(effects[1], Effect::SpawnRefresh { .. }));
+        assert_matches!(effects[1], Effect::SpawnRefresh { .. });
         assert_eq!(new_store.entries().len(), 1);
         let entry = new_store.entries().get(&repo_id).expect("entry present");
         assert_eq!(entry.fetch_state(), FetchState::Loading);
@@ -497,7 +498,7 @@ mod tests {
 
         assert_eq!(effects.len(), 2);
         assert_eq!(effects[0], Effect::EmitOutput("hello".to_owned()));
-        assert!(matches!(effects[1], Effect::SpawnRefresh { .. }));
+        assert_matches!(effects[1], Effect::SpawnRefresh { .. });
         let new_entry = new_store.entries().get(&repo_id).expect("entry present");
         assert_eq!(new_entry.fetch_state(), FetchState::Refreshing);
     }

@@ -102,6 +102,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
     use std::io::{Error, ErrorKind};
     use tempfile::tempdir;
 
@@ -114,7 +115,7 @@ mod tests {
         let paths = Paths::new(bogus);
 
         let err = bind(&paths).await.unwrap_err();
-        assert!(matches!(err, DaemonError::Failure));
+        assert_matches!(err, DaemonError::Failure);
     }
 
     #[tokio::test]
@@ -128,7 +129,7 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(matches!(err, DaemonError::Failure));
+        assert_matches!(err, DaemonError::Failure);
     }
 
     #[tokio::test]
@@ -144,7 +145,7 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(matches!(err, DaemonError::AlreadyRunning));
+        assert_matches!(err, DaemonError::AlreadyRunning);
         // retry_max=2 のため、初回 + 2 リトライ = 計 3 回試行してから上限到達。
         assert_eq!(calls, 3);
     }

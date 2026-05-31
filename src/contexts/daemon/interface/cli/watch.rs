@@ -202,13 +202,8 @@ fn format_cached_at(cached_at_secs: u64) -> String {
 }
 
 fn format_elapsed(elapsed_secs: u64) -> String {
-    if elapsed_secs < 60 {
-        format!("{elapsed_secs}s ago")
-    } else if elapsed_secs < 3600 {
-        format!("{}m ago", elapsed_secs / 60)
-    } else {
-        format!("{}h ago", elapsed_secs / 3600)
-    }
+    let d = Duration::from_secs(elapsed_secs);
+    format!("{} ago", humantime::format_duration(d))
 }
 
 #[cfg(test)]
@@ -337,7 +332,7 @@ mod tests {
     #[case(5, "5s ago")]
     #[case(59, "59s ago")]
     #[case(60, "1m ago")]
-    #[case(90, "1m ago")]
+    #[case(90, "1m 30s ago")]
     #[case(3600, "1h ago")]
     #[case(7200, "2h ago")]
     fn format_elapsed_various_durations(#[case] elapsed_secs: u64, #[case] expected: &str) {

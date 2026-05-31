@@ -221,9 +221,10 @@ pub(crate) async fn status(port: &impl DaemonLifecyclePort) -> ExitCode {
 /// 起動中デーモンのステータス行を組み立てる。PID 取得不能時は `-` を表示する。
 fn format_status(s: &DaemonStatus, pid: Option<u32>) -> String {
     let pid = pid.map_or_else(|| "-".to_owned(), |p| p.to_string());
+    let uptime = humantime::format_duration(Duration::from_secs(s.uptime_secs));
     format!(
-        "running  pid={}  entries={}  uptime={}s  version={}",
-        pid, s.entries, s.uptime_secs, s.version
+        "running  pid={}  entries={}  uptime={}  version={}",
+        pid, s.entries, uptime, s.version
     )
 }
 
@@ -405,7 +406,7 @@ mod tests {
         let line = format_status(&sample_status(), None);
         assert!(line.contains("pid=-"), "got: {line}");
         assert!(line.contains("entries=3"));
-        assert!(line.contains("uptime=12s"));
+        assert!(line.contains("uptime=12s"), "got: {line}");
         assert!(line.contains("version=1.2.3"));
     }
 
@@ -413,5 +414,21 @@ mod tests {
     fn format_status_shows_pid_when_available() {
         let line = format_status(&sample_status(), Some(4242));
         assert!(line.contains("pid=4242"), "got: {line}");
+    }
+
+    // ── format_status: uptime の humantime フォーマット ────────────────────────
+
+    fn long_running_status() -> DaemonStatus {
+        DaemonStatus {
+            entries: 1,
+            uptime_secs: 93784, // 1day 2h 3m 4s
+            version: "1.2.3".to_owned(),
+        }
+    }
+
+    #[test]
+    fn format_status_shows_human_readable_uptime() {
+        let line = format_status(&long_running_status(), Some(1));
+        assert!(line.contains("uptime=1day 2h 3m 4s"), "got: {line}");
     }
 }

@@ -18,26 +18,26 @@ unsafe_code = "forbid"
 pedantic = "warn"
 
 [dependencies]
-humantime = "2"
+humantime = "2.3"
 nu-ansi-term = "0.50"
-clap = { version = "4", features = ["derive", "cargo"] }
-clap_complete = "4"
+clap = { version = "4.6", features = ["derive", "cargo"] }
+clap_complete = "4.6"
 log = "0.4"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 simplelog = "0.12"
-toml = "1"
+toml = "1.1"
 crossterm = "0.29"
-bitflags = "2"
-tokio = { version = "1", features = ["full"] }
+bitflags = "2.11"
+tokio = { version = "1.52", features = ["full"] }
 tokio-util = { version = "0.7", default-features = false }
 # 設定ファイルの変更検知（非暗号学的な内容ハッシュ）に使う。独自実装を避け xxHash を利用。
-twox-hash = { version = "2", default-features = false, features = ["xxhash3_64"] }
+twox-hash = { version = "2.1", default-features = false, features = ["xxhash3_64"] }
 
 [target.'cfg(unix)'.dependencies]
 # 全 unix で起動ユーザの uid を取得し、temp ディレクトリを名前空間分離する。
 # `unsafe_code = "forbid"` のため libc の生 FFI ではなく safe な rustix を使う。
-rustix = { version = "1", features = ["process"] }
+rustix = { version = "1.1", features = ["process"] }
 
 [lib]
 name = "merge_ready"
@@ -56,13 +56,13 @@ name = "e2e"
 path = "tests/e2e/mod.rs"
 
 [dev-dependencies]
-assert_cmd = "2"
+assert_cmd = "2.2"
 criterion = { version = "0.8", features = ["html_reports"] }
-predicates = "3"
+predicates = "3.1"
 rstest = "0.26"
-serde_json = "1"
-tempfile = "3"
-tokio = { version = "1", features = ["test-util"] }
+serde_json = "1.0"
+tempfile = "3.27"
+tokio = { version = "1.52", features = ["test-util"] }
 
 [[bench]]
 name = "hot_path"

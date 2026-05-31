@@ -39,17 +39,6 @@ impl DaemonHandle {
         Self::start_in_base_dir(env, env.home(), extra_envs)
     }
 
-    /// `base_dir` を指定して daemon を起動する。
-    ///
-    /// `MERGE_READY_BASE_DIR` を `base_dir` に固定するため、socket/pid を任意の名前の
-    /// ディレクトリ（例: `merge-ready-{uid}` / 旧命名 `merge-ready`）に配置できる。
-    /// クロスバージョン cleanup のように、ディレクトリ名に依存する挙動の検証で使う。
-    /// Drop 時の停止も `base_dir` に対して行う。
-    #[must_use]
-    pub fn start_in_dir(env: &TestEnv, base_dir: &Path) -> Self {
-        Self::start_in_base_dir(env, base_dir, &[])
-    }
-
     fn start_in_base_dir(env: &TestEnv, base_dir: &Path, extra_envs: &[(&str, &str)]) -> Self {
         let bin = assert_cmd::cargo::cargo_bin("merge-ready");
 

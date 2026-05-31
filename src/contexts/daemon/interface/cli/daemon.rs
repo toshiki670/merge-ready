@@ -233,6 +233,7 @@ mod tests {
     use std::os::unix::process::ExitStatusExt as _;
 
     use super::*;
+    use std::assert_matches;
 
     // ── interpret: 監視結果 → 終了コードの純粋な分岐 ───────────────────────────
 
@@ -302,26 +303,20 @@ mod tests {
     #[test]
     fn exit_info_from_wait_success() {
         let status = ExitStatus::from_raw(0);
-        assert!(matches!(
-            ExitInfo::from_wait(&Ok(status)),
-            ExitInfo::Success
-        ));
+        assert_matches!(ExitInfo::from_wait(&Ok(status)), ExitInfo::Success);
     }
 
     #[test]
     fn exit_info_from_wait_failure_captures_code() {
         // Unix の raw wait status は「終了コード << 8」。code 7 を表現する。
         let status = ExitStatus::from_raw(7 << 8);
-        assert!(matches!(
-            ExitInfo::from_wait(&Ok(status)),
-            ExitInfo::Failure(Some(7))
-        ));
+        assert_matches!(ExitInfo::from_wait(&Ok(status)), ExitInfo::Failure(Some(7)));
     }
 
     #[test]
     fn exit_info_from_wait_error() {
         let err = Err(std::io::Error::other("wait failed"));
-        assert!(matches!(ExitInfo::from_wait(&err), ExitInfo::WaitError));
+        assert_matches!(ExitInfo::from_wait(&err), ExitInfo::WaitError);
     }
 
     // ── Exit → ExitCode 変換 ───────────────────────────────────────────────────
@@ -358,7 +353,7 @@ mod tests {
             Duration::from_secs(5),
         )
         .await;
-        assert!(matches!(result, StartResult::SpawnFailed(_)));
+        assert_matches!(result, StartResult::SpawnFailed(_));
     }
 
     #[tokio::test]
@@ -370,7 +365,7 @@ mod tests {
             Duration::from_millis(100),
         )
         .await;
-        assert!(matches!(result, StartResult::Timeout(_)));
+        assert_matches!(result, StartResult::Timeout(_));
     }
 
     #[tokio::test]
@@ -384,7 +379,7 @@ mod tests {
         .await;
         match result {
             StartResult::EarlyExit { exit, stderr } => {
-                assert!(matches!(exit, ExitInfo::Failure(Some(3))));
+                assert_matches!(exit, ExitInfo::Failure(Some(3)));
                 assert_eq!(stderr, "oops\n");
             }
             other => panic!("expected EarlyExit, got: {other:?}"),

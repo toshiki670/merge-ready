@@ -17,6 +17,7 @@ mod tests {
     use crate::contexts::evaluation::domain::prompt::{
         PrId, PullRequest, State, pull_request::state::unblocked::UnblockedState,
     };
+    use std::assert_matches;
 
     #[test]
     fn to_display_items_maps_states() {
@@ -28,6 +29,6 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].0, PrId::new(1));
         assert_eq!(items[0].1.len(), 1);
-        assert!(matches!(items[0].1[0], DisplayItem::MergeReady));
+        assert_matches!(items[0].1[0], DisplayItem::MergeReady);
     }
 }

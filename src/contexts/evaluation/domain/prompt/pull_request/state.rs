@@ -49,21 +49,19 @@ pub fn evaluate(
 mod tests {
     use super::*;
     use blocked::{BranchSyncState, CiState, GenericBlockedState, ReviewState};
+    use std::assert_matches;
     use unblocked::UnblockedState;
 
     #[test]
     fn returns_merge_ready_when_no_blockers() {
         let state = evaluate(None, None, None, Some(UnblockedState::MergeReady));
-        assert!(matches!(
-            state,
-            State::Unblocked(UnblockedState::MergeReady)
-        ));
+        assert_matches!(state, State::Unblocked(UnblockedState::MergeReady));
     }
 
     #[test]
     fn returns_draft_when_draft_pr() {
         let state = evaluate(None, None, None, Some(UnblockedState::Draft));
-        assert!(matches!(state, State::Unblocked(UnblockedState::Draft)));
+        assert_matches!(state, State::Unblocked(UnblockedState::Draft));
     }
 
     #[test]
@@ -102,7 +100,7 @@ mod tests {
             None,
             Some(UnblockedState::MergeReady),
         );
-        assert!(matches!(state, State::Blocked(_)));
+        assert_matches!(state, State::Blocked(_));
     }
 
     #[test]

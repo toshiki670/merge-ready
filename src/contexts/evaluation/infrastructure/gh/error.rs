@@ -1,5 +1,6 @@
 use crate::contexts::evaluation::domain::error::RepositoryError;
 
+#[derive(Debug)]
 pub(super) enum GhError {
     NotInstalled,
     AuthRequired,
@@ -45,33 +46,34 @@ pub(super) fn classify_gh_error(exit_code: i32, stderr: &str) -> GhError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn classify_auth_exit_code() {
-        assert!(matches!(classify_gh_error(4, ""), GhError::AuthRequired));
+        assert_matches!(classify_gh_error(4, ""), GhError::AuthRequired);
     }
 
     #[test]
     fn classify_no_pr_message() {
-        assert!(matches!(
+        assert_matches!(
             classify_gh_error(1, "no pull requests found"),
             GhError::NoPr
-        ));
+        );
     }
 
     #[test]
     fn classify_rate_limit_message() {
-        assert!(matches!(
+        assert_matches!(
             classify_gh_error(1, "API rate limit exceeded"),
             GhError::RateLimited
-        ));
+        );
     }
 
     #[test]
     fn classify_non_github_remote_message() {
-        assert!(matches!(
+        assert_matches!(
             classify_gh_error(1, "no git remotes found"),
             GhError::NotGithubRepository
-        ));
+        );
     }
 }

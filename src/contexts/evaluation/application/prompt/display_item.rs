@@ -4,7 +4,7 @@ use crate::contexts::evaluation::domain::prompt::pull_request::state::blocked::{
 };
 use crate::contexts::evaluation::domain::prompt::pull_request::state::unblocked::UnblockedState;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisplayItem {
     Conflict,
     UpdateBranch,

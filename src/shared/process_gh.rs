@@ -87,6 +87,7 @@ async fn run_program(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     /// `NotFound` 以外の spawn 失敗（ディレクトリを実行 → `PermissionDenied`）は
     /// panic せず `GhProcessError::Io` として返ること（Issue #377）。
@@ -120,6 +121,6 @@ mod tests {
             None,
         )
         .await;
-        assert!(matches!(result, Err(GhProcessError::NotInstalled)));
+        assert_matches!(result, Err(GhProcessError::NotInstalled));
     }
 }

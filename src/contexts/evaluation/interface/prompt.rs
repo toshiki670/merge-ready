@@ -2,7 +2,7 @@ use crate::contexts::evaluation::application::errors::ErrorToken;
 use crate::contexts::evaluation::application::prompt::display_item::DisplayItem;
 use crate::contexts::evaluation::application::prompt::to_display_items;
 use crate::contexts::evaluation::domain::display_config::{
-    DisplayConfig, TokenConfig, render_error_token, render_token,
+    CompiledDisplayConfig, CompiledTokenConfig, render_error_token, render_token,
 };
 use crate::contexts::evaluation::domain::prompt::{PrId, Prompt};
 use crate::shared::refresh_mode::RefreshMode;
@@ -18,7 +18,10 @@ pub struct RenderResult {
 /// 取得済みの `Prompt`／`ErrorToken` と表示設定だけからレンダリング結果を組み立てる
 /// **純関数**。I/O を持たないので、テストはこの関数を直接呼べばよい。
 #[must_use]
-pub fn render(prompt_result: Result<Prompt, ErrorToken>, config: &DisplayConfig) -> RenderResult {
+pub fn render(
+    prompt_result: Result<Prompt, ErrorToken>,
+    config: &CompiledDisplayConfig,
+) -> RenderResult {
     match prompt_result {
         Ok(Prompt::NoRepository | Prompt::UnsupportedRepository | Prompt::DefaultBranch) => {
             RenderResult {
@@ -88,7 +91,7 @@ pub fn render(prompt_result: Result<Prompt, ErrorToken>, config: &DisplayConfig)
 }
 
 /// watch 表示用に PR の各ステータストークンを ID なしでレンダリングし、スペース区切りで連結する。
-fn render_watch_items(display_items: &[DisplayItem], config: &DisplayConfig) -> String {
+fn render_watch_items(display_items: &[DisplayItem], config: &CompiledDisplayConfig) -> String {
     display_items
         .iter()
         .map(|item| render_token(item_to_token(*item, config), Some("")))
@@ -123,7 +126,7 @@ fn join_pr_ids(ids: &[PrId]) -> String {
         .join(" ")
 }
 
-fn item_to_token(item: DisplayItem, config: &DisplayConfig) -> &TokenConfig {
+fn item_to_token(item: DisplayItem, config: &CompiledDisplayConfig) -> &CompiledTokenConfig {
     match item {
         DisplayItem::MergeReady => &config.merge_ready,
         DisplayItem::Conflict => &config.conflict,
@@ -140,7 +143,7 @@ fn item_to_token(item: DisplayItem, config: &DisplayConfig) -> &TokenConfig {
     }
 }
 
-fn render_error(token: &ErrorToken, config: &DisplayConfig) -> String {
+fn render_error(token: &ErrorToken, config: &CompiledDisplayConfig) -> String {
     render_error_token(&config.error, &token.message)
 }
 
@@ -155,7 +158,7 @@ mod tests {
     };
 
     fn render_ok(p: Prompt) -> RenderResult {
-        render(Ok(p), &DisplayConfig::default())
+        render(Ok(p), &DisplayConfig::default().compile())
     }
 
     // ── RefreshMode 導出 ────────────────────────────────────────────────────
@@ -224,7 +227,7 @@ mod tests {
             Err(ErrorToken {
                 message: "unexpected error".to_owned(),
             }),
-            &DisplayConfig::default(),
+            &DisplayConfig::default().compile(),
         );
         assert_eq!(result.refresh_mode, RefreshMode::Warm);
     }
@@ -337,7 +340,7 @@ mod tests {
 
     #[test]
     fn error_renders_with_message() {
-        let config = DisplayConfig::default();
+        let config = DisplayConfig::default().compile();
         let token = ErrorToken {
             message: "authentication required".to_owned(),
         };

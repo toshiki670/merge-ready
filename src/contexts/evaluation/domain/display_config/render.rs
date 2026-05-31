@@ -1,46 +1,44 @@
-use super::{ErrorConfig, TokenConfig};
-use crate::contexts::evaluation::domain::format_parser::{Segment, parse_segments};
-use crate::contexts::evaluation::domain::style_spec::StyleSpec;
+use super::{CompiledErrorConfig, CompiledTokenConfig};
+use crate::contexts::evaluation::domain::format_parser::CompiledSegment;
 
 /// `pr_ids` が `Some` の場合は `$pr_ids` を置換する。`None` の場合は `$pr_ids` を literal のまま残す。
 /// 値は `#1734 #2669` のように `#` 付き・スペース区切り（複数 PR 時）か、空文字（単一 PR 時）。
 /// `(...)` ブロック内の変数がすべて空の場合、そのブロックは出力されない。
+///
+/// `token` は前計算済みの [`CompiledTokenConfig`]。`format` パースと `StyleSpec::parse`
+/// はロード時に済んでいるので、ここでは変数置換とツリー評価だけを行う。
 #[must_use]
-pub fn render_token(token: &TokenConfig, pr_ids: Option<&str>) -> String {
+pub fn render_token(token: &CompiledTokenConfig, pr_ids: Option<&str>) -> String {
     let mut vars: Vec<(&str, &str)> = vec![("symbol", &token.symbol), ("label", &token.label)];
     if let Some(ids) = pr_ids {
         vars.push(("pr_ids", ids));
     }
-    render_with_vars(&token.format, &vars)
+    eval_segments(&token.segments, &vars)
 }
 
 #[must_use]
-pub fn render_error_token(config: &ErrorConfig, message: &str) -> String {
+pub fn render_error_token(config: &CompiledErrorConfig, message: &str) -> String {
     let vars: Vec<(&str, &str)> = vec![("symbol", &config.symbol), ("message", message)];
-    render_with_vars(&config.format, &vars)
+    eval_segments(&config.segments, &vars)
 }
 
-fn render_with_vars(format: &str, vars: &[(&str, &str)]) -> String {
-    eval_segments(&parse_segments(format), vars)
-}
-
-fn eval_segments(segs: &[Segment], vars: &[(&str, &str)]) -> String {
+fn eval_segments(segs: &[CompiledSegment], vars: &[(&str, &str)]) -> String {
     segs.iter().map(|s| eval_segment(s, vars)).collect()
 }
 
-fn eval_segment(seg: &Segment, vars: &[(&str, &str)]) -> String {
+fn eval_segment(seg: &CompiledSegment, vars: &[(&str, &str)]) -> String {
     match seg {
-        Segment::Text(t) => substitute_vars(t, vars),
-        Segment::Styled { content, style_str } => StyleSpec::parse(style_str)
+        CompiledSegment::Text(t) => substitute_vars(t, vars),
+        CompiledSegment::Styled { content, style } => style
             .to_ansi_style()
-            .paint(eval_segments(&parse_segments(content), vars))
+            .paint(eval_segments(content, vars))
             .to_string(),
-        Segment::Conditional(inner) => eval_conditional(inner, vars),
+        CompiledSegment::Conditional(inner) => eval_conditional(inner, vars),
     }
 }
 
 /// `(...)` ブロックの評価: 内包する変数がすべて空（またはマップにない）場合は非表示。
-fn eval_conditional(inner: &[Segment], vars: &[(&str, &str)]) -> String {
+fn eval_conditional(inner: &[CompiledSegment], vars: &[(&str, &str)]) -> String {
     let refs = collect_var_refs(inner);
     if refs.is_empty() {
         return String::new();
@@ -57,19 +55,15 @@ fn eval_conditional(inner: &[Segment], vars: &[(&str, &str)]) -> String {
     }
 }
 
-/// Segment ツリーから `$varname` 参照を収集する。
-fn collect_var_refs(segs: &[Segment]) -> Vec<&str> {
+/// `CompiledSegment` ツリーから `$varname` 参照を収集する。
+fn collect_var_refs(segs: &[CompiledSegment]) -> Vec<&str> {
     let mut refs = Vec::new();
     for seg in segs {
-        let text = match seg {
-            Segment::Text(t) => t.as_str(),
-            Segment::Styled { content, .. } => content.as_str(),
-            Segment::Conditional(inner) => {
-                refs.extend(collect_var_refs(inner));
-                continue;
-            }
-        };
-        extract_var_names(text, &mut refs);
+        match seg {
+            CompiledSegment::Text(t) => extract_var_names(t, &mut refs),
+            CompiledSegment::Styled { content, .. } => refs.extend(collect_var_refs(content)),
+            CompiledSegment::Conditional(inner) => refs.extend(collect_var_refs(inner)),
+        }
     }
     refs
 }
@@ -135,7 +129,17 @@ fn substitute_vars(s: &str, vars: &[(&str, &str)]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::contexts::evaluation::domain::display_config::{ErrorConfig, TokenConfig};
+
+    // テストは `TokenConfig`/`ErrorConfig` を一度 compile してから render する。
+    // 期待する出力契約は前計算化の前後で不変。
+    fn render_token(token: &TokenConfig, pr_ids: Option<&str>) -> String {
+        super::render_token(&token.compile(), pr_ids)
+    }
+
+    fn render_error_token(config: &ErrorConfig, message: &str) -> String {
+        super::render_error_token(&config.compile(), message)
+    }
 
     #[test]
     fn render_error_token_substitutes_symbol_and_message() {

@@ -31,6 +31,8 @@ crossterm = "0.29.0"
 bitflags = "2.11.1"
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = { version = "0.7.18", default-features = false }
+# 設定ファイルの変更検知（非暗号学的な内容ハッシュ）に使う。独自実装を避け xxHash を利用。
+twox-hash = { version = "=2.1.2", default-features = false, features = ["xxhash3_64"] }
 
 [target.'cfg(unix)'.dependencies]
 # 全 unix で起動ユーザの uid を取得し、temp ディレクトリを名前空間分離する。

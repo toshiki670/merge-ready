@@ -26,7 +26,7 @@ use crate::contexts::daemon::infrastructure::paths::Paths;
 use crate::contexts::evaluation::application::errors::into_token;
 use crate::contexts::evaluation::infrastructure::gh::fetch_prompt;
 use crate::contexts::evaluation::infrastructure::logger::log_repository_error;
-use crate::contexts::evaluation::infrastructure::toml_loader::load_display_config;
+use crate::contexts::evaluation::infrastructure::toml_loader::load_compiled_display_config;
 use crate::contexts::evaluation::interface::prompt::render;
 use crate::shared::protocol::PrOutput;
 
@@ -41,7 +41,7 @@ fn refresh_callback(
             log_repository_error(e);
             into_token(e)
         });
-        let config = load_display_config();
+        let config = load_compiled_display_config().await;
         let result = render(prompt_result, &config);
 
         let pr_outputs = result

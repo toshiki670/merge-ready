@@ -459,6 +459,75 @@ fn test_daemon_start_sends_stop_to_live_old_version_daemon() {
     }
 }
 
+// ── #16b: 旧命名ディレクトリにいる生きた旧バージョンデーモンの停止（#390）─────
+
+/// #16b（#390 回帰）: PR #380 が temp ディレクトリ名を `merge-ready` →
+/// `merge-ready-{uid}` に変更したため、新デーモン（`merge-ready-{uid}/`）が pre-#380 の
+/// 旧命名ディレクトリ（`merge-ready/`）に居る旧デーモンを検知・停止できなくなっていた。
+///
+/// 新デーモンの起動時クリーンアップは、自分の `base_dir` だけでなく旧命名の兄弟ディレクトリ
+/// `merge-ready/` も走査し、そこで生きている旧バージョンデーモンを停止しなければならない。
+#[test]
+fn test_daemon_start_stops_live_old_version_in_legacy_dir() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+
+    // 隔離された親の下に pre-#380 形（merge-ready）と uid 名前空間形（merge-ready-0）を作る。
+    // 親が専用 tempdir なので、本物の $TMPDIR/merge-ready とは衝突しない。
+    let parent = tempfile::tempdir().expect("create parent tmp");
+    let legacy = parent.path().join("merge-ready");
+    let base = parent.path().join("merge-ready-0");
+    std::fs::create_dir_all(&legacy).expect("create legacy dir");
+    std::fs::create_dir_all(&base).expect("create base dir");
+
+    // 旧命名ディレクトリに「生きた旧バージョンデーモン」を用意する。
+    // 一度現バージョンで起動 → ファイルを daemon-0.0.0.* に rename して旧版を装う。
+    // Unix ソケットは rename 後も FD が有効なので socket 経由の Stop が届く。
+    let old_guard = DaemonHandle::start_in_dir(&env, &legacy);
+    let current_sock = versioned_socket(&legacy);
+    let current_pid_path = versioned_pid(&legacy);
+    let old_pid: u32 = std::fs::read_to_string(&current_pid_path)
+        .expect("read current pid")
+        .trim()
+        .parse()
+        .expect("parse pid");
+    let old_sock = legacy.join("daemon-0.0.0.sock");
+    let old_pid_path = legacy.join("daemon-0.0.0.pid");
+    std::fs::rename(&current_sock, &old_sock).expect("rename sock");
+    std::fs::rename(&current_pid_path, &old_pid_path).expect("rename pid");
+    // rename 済みファイルを参照する Drop による空振り stop を避ける。
+    std::mem::forget(old_guard);
+
+    // 新デーモンを uid 名前空間ディレクトリで起動 → 旧命名ディレクトリも走査して
+    // 旧デーモンに Stop を送るはず。
+    let _new_guard = DaemonHandle::start_in_dir(&env, &base);
+
+    // 旧 PID が終了するまで最大 5 秒待つ
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if !is_pid_alive(old_pid) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(
+        !is_pid_alive(old_pid),
+        "old daemon (pid={old_pid}) in legacy dir should be stopped by new daemon"
+    );
+
+    // 旧命名ディレクトリのファイルがクリーンアップされていること
+    let cleanup_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if !old_sock.exists() && !old_pid_path.exists() {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < cleanup_deadline,
+            "old daemon files in legacy dir were not cleaned up within 5s"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
 // ── #17: daemon status の出力フォーマット ────────────────────────────────────
 
 /// #17: `daemon status`（起動中）→ "running pid=<数字> entries=<数字> uptime=<数字>s version=<文字列>"

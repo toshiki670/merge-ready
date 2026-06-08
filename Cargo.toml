@@ -28,7 +28,7 @@ serde_json = "1.0"
 simplelog = "0.12"
 toml = "1.1"
 crossterm = "0.29"
-bitflags = "2.11"
+bitflags = "2.13"
 tokio = { version = "1.52", features = ["full"] }
 tokio-util = { version = "0.7", default-features = false }
 # 設定ファイルの変更検知（非暗号学的な内容ハッシュ）に使う。独自実装を避け xxHash を利用。

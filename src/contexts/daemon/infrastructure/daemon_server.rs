@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -24,6 +25,8 @@ use super::socket_watcher;
 use crate::contexts::daemon::domain::cache::RepoId;
 use crate::contexts::daemon::domain::daemon::DaemonError;
 
+const SOCKET_BASE_DIR_MODE: u32 = 0o700;
+
 /// Imperative Shell から渡される、副作用を含むリフレッシュ実装。
 /// async 関数ポインタとして受け取り、キャプチャを禁じ依存を明示する。
 pub(super) type RefreshFn =
@@ -38,7 +41,7 @@ pub async fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError>
     let config = server_config::DaemonServerConfig::from_env();
     let socket_path = paths.socket_path();
     if let Some(parent) = socket_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        ensure_socket_base_dir(parent)?;
     }
 
     let listener = socket_listener::bind(&paths).await?;
@@ -107,6 +110,25 @@ pub async fn run(on_refresh: RefreshFn, paths: Paths) -> Result<(), DaemonError>
         restart::cleanup(&paths);
     }
     Ok(())
+}
+
+fn ensure_socket_base_dir(path: &std::path::Path) -> Result<(), DaemonError> {
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(SOCKET_BASE_DIR_MODE)
+        .create(path)
+        .map_err(|e| {
+            log::error!("failed to create daemon base directory: {e}");
+            eprintln!("merge-ready daemon: failed to create base directory: {e}");
+            DaemonError::Failure
+        })?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(SOCKET_BASE_DIR_MODE)).map_err(
+        |e| {
+            log::error!("failed to restrict daemon base directory permissions: {e}");
+            eprintln!("merge-ready daemon: failed to restrict base directory permissions: {e}");
+            DaemonError::Failure
+        },
+    )
 }
 
 /// `accept_loop` の引数をまとめた所有データ。`tokio::spawn` する接続タスクへ

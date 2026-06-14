@@ -6,6 +6,7 @@ mod errors;
 mod errors_fixtures;
 mod merge_ready;
 mod pr_state;
+mod response_timeout;
 mod review;
 mod sanitize;
 mod style;

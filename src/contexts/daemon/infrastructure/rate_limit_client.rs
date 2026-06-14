@@ -11,7 +11,6 @@ use serde::Deserialize;
 use crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot;
 use crate::shared::process_gh::{GhProcessError, run_gh};
 
-#[allow(dead_code)] // 後続コミットで daemon_server が起動するまでの間
 pub(super) struct RateLimitClient {
     cache: Mutex<Option<RateLimitSnapshot>>,
     ttl: Duration,
@@ -35,7 +34,6 @@ struct ResourceInfo {
     reset: u64,
 }
 
-#[allow(dead_code)]
 impl RateLimitClient {
     pub(super) fn new(ttl: Duration) -> Self {
         Self {
@@ -50,11 +48,6 @@ impl RateLimitClient {
         if let Some(snap) = self.cached_if_fresh() {
             return Some(snap);
         }
-        self.force_refresh().await
-    }
-
-    /// 強制的に再取得する（403 受信時の即時参照用）。
-    pub(super) async fn force_refresh(&self) -> Option<RateLimitSnapshot> {
         let snap = raw_fetch().await?;
         let mut guard = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
         *guard = Some(snap);

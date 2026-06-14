@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use error::{GhError, classify_gh_error};
 use fetch::fetch_behind_by;
-use mapper::{aggregate_ci, translate_review, translate_sync, translate_unblocked};
+use mapper::{aggregate_ci, needs_compare, translate_review, translate_sync, translate_unblocked};
 use schema::{CheckBucket, CheckContext, GhPrNode, GraphQlResponse, Repository, context_to_bucket};
 use tokio::task::JoinSet;
 
@@ -154,13 +154,9 @@ async fn evaluate_single_pr(
     // CI は GraphQL レスポンス（rollup）から同期的に算出する。
     let ci = ci_from_node(&pr_view);
 
-    // branch sync の behind_by だけは GraphQL に対応フィールドが無いため
-    // PR ごとに REST compare を併用する（refresh あたり 1 GraphQL + N compare）。
-    let behind_by =
-        fetch_behind_by(&pr_view.base_ref_name, &pr_view.head_ref_name, Some(&cwd)).await;
-    let branch_sync = translate_sync(&pr_view.mergeable, behind_by);
-
-    // GitHub がまだマージ可能性を計算中（他のシグナルより優先）
+    // GitHub がまだマージ可能性を計算中（他のシグナルより優先）。
+    // behind_by は捨てられるので、無駄な REST compare を避けるため
+    // fetch_behind_by の前に early return する（push 直後の Hot 期で頻発するパス）。
     if matches!(
         pr_view.merge_state_status.as_str(),
         "MERGE_STATE_UNKNOWN" | "UNKNOWN"
@@ -170,6 +166,17 @@ async fn evaluate_single_pr(
             state: State::Calculating,
         });
     }
+
+    // branch sync の behind_by だけは GraphQL に対応フィールドが無いため
+    // PR ごとに REST compare を併用する（refresh あたり 1 GraphQL + N compare）。
+    // ただし CONFLICTING のときは translate_sync が behind_by を見ない（Conflict
+    // 優先）ため compare をスキップする。
+    let behind_by = if needs_compare(&pr_view.mergeable) {
+        fetch_behind_by(&pr_view.base_ref_name, &pr_view.head_ref_name, Some(&cwd)).await
+    } else {
+        None
+    };
+    let branch_sync = translate_sync(&pr_view.mergeable, behind_by);
 
     let review = translate_review(pr_view.review_decision.as_deref());
     let unblocked = translate_unblocked(pr_view.is_draft, &pr_view.merge_state_status);

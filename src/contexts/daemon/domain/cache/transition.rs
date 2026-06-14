@@ -18,8 +18,6 @@ use crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot;
 use crate::contexts::daemon::domain::refresh_policy::RefreshPolicy;
 use crate::shared::refresh_mode::RefreshMode;
 
-/// `bottleneck_ratio` の basis points スケール（10000 == 1.0）。
-const RATIO_SCALE_BP: u64 = 10_000;
 /// ボトルネック残量比率がこの値（basis points）以下になったら backoff へ。
 const BACKOFF_THRESHOLD_BP: u64 = 500; // 5%
 
@@ -293,16 +291,7 @@ fn should_enter_backoff(snapshot: &RateLimitSnapshot) -> bool {
     if snapshot.is_exhausted() {
         return true;
     }
-    let core_bp = ratio_bp(snapshot.core_remaining, snapshot.core_limit);
-    let graphql_bp = ratio_bp(snapshot.graphql_remaining, snapshot.graphql_limit);
-    core_bp.min(graphql_bp) <= BACKOFF_THRESHOLD_BP
-}
-
-fn ratio_bp(remaining: u32, limit: u32) -> u64 {
-    if limit == 0 {
-        return RATIO_SCALE_BP;
-    }
-    (u64::from(remaining).saturating_mul(RATIO_SCALE_BP)) / u64::from(limit)
+    snapshot.bottleneck_ratio_bp() <= BACKOFF_THRESHOLD_BP
 }
 
 /// `snapshot.reset_at`（壁時計）を `Instant`（モノトニック）へ変換し、

@@ -1,11 +1,8 @@
 use std::time::{Instant, SystemTime};
 
 use crate::contexts::daemon::domain::cache::{CacheEntryState, has_recent_query, is_cold};
-use crate::contexts::daemon::domain::rate_limit_snapshot::RateLimitSnapshot;
+use crate::contexts::daemon::domain::rate_limit_snapshot::{RATIO_SCALE_BP, RateLimitSnapshot};
 use crate::shared::refresh_mode::RefreshMode;
-
-/// `bottleneck_ratio` の basis points スケール（10000 == 1.0）。
-const RATIO_SCALE: u64 = 10_000;
 
 /// 安全マージン（残量から 5% を予備として控除）。`budget * SAFETY_NUM / SAFETY_DEN`。
 const SAFETY_NUM: u64 = 95;
@@ -152,7 +149,7 @@ impl RefreshPolicy {
 
         let mode = self.effective_mode(entry, now);
         let params = scaling_params(mode);
-        let ratio_bp = bottleneck_ratio_bp(snapshot);
+        let ratio_bp = snapshot.bottleneck_ratio_bp();
         let secs_until_reset = snapshot
             .secs_until_reset(now_wall)
             .min(RESET_WINDOW_CAP_SECS);
@@ -197,35 +194,17 @@ fn bottleneck_budget(snapshot: &RateLimitSnapshot) -> u32 {
     snapshot.core_remaining.min(snapshot.graphql_remaining)
 }
 
-/// `min(remaining/limit)` を basis points（0..=`RATIO_SCALE`）で返す。
-/// `limit == 0` のリソースは比率不定として `RATIO_SCALE`（=1.0）を採用し、
-/// 採用優先順位から外す。両方 0 なら `RATIO_SCALE`。
-fn bottleneck_ratio_bp(snapshot: &RateLimitSnapshot) -> u64 {
-    let core = ratio_bp(snapshot.core_remaining, snapshot.core_limit);
-    let graphql = ratio_bp(snapshot.graphql_remaining, snapshot.graphql_limit);
-    core.min(graphql)
-}
-
-fn ratio_bp(remaining: u32, limit: u32) -> u64 {
-    if limit == 0 {
-        return RATIO_SCALE;
-    }
-    let lim = u64::from(limit);
-    let rem = u64::from(remaining);
-    (rem.saturating_mul(RATIO_SCALE)) / lim
-}
-
 /// `base * (1 + alpha * (1 - ratio)^2)` を整数演算で計算する。
-/// `alpha_x10` は α を 10 倍したスケール、`ratio_bp` は ratio を `RATIO_SCALE` 倍したスケール。
+/// `alpha_x10` は α を 10 倍したスケール、`ratio_bp` は ratio を `RATIO_SCALE_BP` 倍したスケール。
 fn compute_ratio_term(base: u64, ratio_bp: u64, alpha_x10: u64) -> u64 {
-    let one_minus_r = RATIO_SCALE.saturating_sub(ratio_bp);
+    let one_minus_r = RATIO_SCALE_BP.saturating_sub(ratio_bp);
     // (1 - r)^2 in basis points
-    let one_minus_r_sq_bp = one_minus_r.saturating_mul(one_minus_r) / RATIO_SCALE;
-    // bonus = base * alpha_x10 * one_minus_r_sq_bp / (SCALE_X10 * RATIO_SCALE)
+    let one_minus_r_sq_bp = one_minus_r.saturating_mul(one_minus_r) / RATIO_SCALE_BP;
+    // bonus = base * alpha_x10 * one_minus_r_sq_bp / (SCALE_X10 * RATIO_SCALE_BP)
     let bonus_numer = base
         .saturating_mul(alpha_x10)
         .saturating_mul(one_minus_r_sq_bp);
-    let bonus = bonus_numer / (SCALE_X10.saturating_mul(RATIO_SCALE));
+    let bonus = bonus_numer / (SCALE_X10.saturating_mul(RATIO_SCALE_BP));
     base.saturating_add(bonus)
 }
 
@@ -247,14 +226,16 @@ fn compute_budget_term(
 ) -> u64 {
     let safety = u64::from(budget_remaining).saturating_mul(SAFETY_NUM) / SAFETY_DEN;
     let safety = safety.max(1);
-    let depletion_bp = RATIO_SCALE.saturating_sub(ratio_bp);
+    let depletion_bp = RATIO_SCALE_BP.saturating_sub(ratio_bp);
     // numer = cost * window * weight_x10 * depletion_bp
     let numer = total_cost_per_cycle
         .saturating_mul(secs_until_reset)
         .saturating_mul(weight_x10)
         .saturating_mul(depletion_bp);
-    // denom = safety * SCALE_X10 * RATIO_SCALE
-    let denom = safety.saturating_mul(SCALE_X10).saturating_mul(RATIO_SCALE);
+    // denom = safety * SCALE_X10 * RATIO_SCALE_BP
+    let denom = safety
+        .saturating_mul(SCALE_X10)
+        .saturating_mul(RATIO_SCALE_BP);
     if denom == 0 {
         return u64::MAX;
     }

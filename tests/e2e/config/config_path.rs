@@ -1,7 +1,8 @@
-//! `config_path()` の環境変数によるパス解決を検証する E2E テスト（シナリオ #49–50）
+//! `config_path()` の環境変数によるパス解決を検証する E2E テスト（シナリオ #49–51）
 //!
 //! - #49: `XDG_CONFIG_HOME` が設定されている → そちらの設定ファイルを優先する
 //! - #50: `XDG_CONFIG_HOME` と `HOME` 両方ある → `XDG_CONFIG_HOME` が勝つ
+//! - #51: `XDG_CONFIG_HOME` が空文字 → 無効として無視し `$HOME/.config` にフォールバックする
 
 use assert_cmd::Command;
 
@@ -31,6 +32,30 @@ fn test_xdg_config_home_is_used() {
         &env,
         &[("XDG_CONFIG_HOME", xdg_dir.path().to_str().unwrap())],
     );
+
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert()
+        .success()
+        .stdout("★ Ready for merge")
+        .stderr("");
+}
+
+/// #51: `XDG_CONFIG_HOME` が空文字 → 無効として無視し `$HOME/.config` を読む。
+///
+/// XDG Base Directory 仕様では空の値は未設定として扱う。空文字を `Some` として
+/// 受け入れると設定パスがカレントディレクトリ相対の `merge-ready.toml` に化けるため、
+/// 確実に `$HOME/.config` 側の設定が読まれることを検証する。
+#[test]
+fn test_empty_xdg_config_home_falls_back_to_home() {
+    let env = TestEnv::new(MERGE_READY_JSON, Some(CHECKS_PASS_JSON));
+    // HOME 側にデフォルト (`✓`) とは異なるシンボルを置く。空の XDG_CONFIG_HOME が
+    // 無視されればこれが読まれ、相対パスへ化けてデフォルトになることはない。
+    env.write_config("[merge_ready]\nsymbol = \"★\"");
+
+    let _daemon = DaemonHandle::start_with_env(&env, &[("XDG_CONFIG_HOME", "")]);
 
     DaemonHandle::wait_for_cache(&env, 5000);
 

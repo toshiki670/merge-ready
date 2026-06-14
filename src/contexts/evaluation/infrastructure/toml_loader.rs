@@ -109,14 +109,15 @@ fn merge_error(raw: Option<RawErrorConfig>, default: ErrorConfig) -> ErrorConfig
     }
 }
 
-// XDG_CONFIG_HOME が設定されていればそちらを優先し、なければ $HOME/.config にフォールバックする。
+// XDG_CONFIG_HOME が有効な絶対パスならそちらを優先し、無効（未設定・空・相対パス）なら
+// $HOME/.config にフォールバックする。
 #[must_use]
 pub fn config_path() -> Option<PathBuf> {
-    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
-        return Some(PathBuf::from(xdg).join("merge-ready.toml"));
-    }
-    let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".config").join("merge-ready.toml"))
+    let base = match super::xdg::base_dir("XDG_CONFIG_HOME") {
+        Some(dir) => dir,
+        None => PathBuf::from(std::env::var_os("HOME")?).join(".config"),
+    };
+    Some(base.join("merge-ready.toml"))
 }
 
 #[derive(Deserialize, Default)]

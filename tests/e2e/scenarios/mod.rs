@@ -5,6 +5,8 @@ mod default_branch;
 mod default_branch_fixtures;
 mod entry_expiry;
 mod initial_load;
+mod log_level;
+mod log_level_fixtures;
 mod multi_repo;
 mod multiple_prs;
 mod no_github_remote;

@@ -38,7 +38,7 @@ pub(super) async fn run(
                     let effects = state_handle.apply_rate_limit(event).await;
                     for e in effects {
                         if let Effect::EnterBackoff { until } = e {
-                            log::info!("rate_limit backoff until {until:?}");
+                            log::warn!("rate_limit backoff until {until:?}");
                         }
                     }
                 }

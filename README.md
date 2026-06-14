@@ -125,6 +125,16 @@ CWD              BRANCH          STATUS             CACHED AT
 
 `watch` polls the daemon once per second and redraws the table in place. If the daemon is not running it prints `daemon is not running` and exits immediately.
 
+### Diagnostics
+
+The daemon writes diagnostic logs to `merge-ready/error.log` under `$XDG_CACHE_HOME` (falling back to `~/.cache`).
+
+The log level defaults to `warn`, which records operationally important events such as rate-limit backoff entry, rate-limit fetch failures, and daemon self-termination. Set `MERGE_READY_LOG_LEVEL` to one of `off`, `error`, `warn`, `info`, `debug`, or `trace` (case-insensitive) to change the verbosity. Unknown values fall back to `warn`.
+
+```bash
+MERGE_READY_LOG_LEVEL=info merge-ready daemon start
+```
+
 ## Starship Integration
 
 Add merge status to your [Starship](https://starship.rs/) prompt by using a custom command module in `~/.config/starship.toml`:

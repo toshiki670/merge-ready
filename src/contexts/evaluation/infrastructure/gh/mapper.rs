@@ -13,6 +13,15 @@ pub(super) fn translate_sync(mergeable: &str, behind_by: Option<u64>) -> Option<
     }
 }
 
+/// REST compare（`behind_by`）が `translate_sync` の結果に影響するかを判定する。
+///
+/// `CONFLICTING` のときは `translate_sync` が `behind_by` を見ずに `Conflict` を
+/// 返すため、compare 呼び出しは無駄になる。呼び出し元はこれが `false` のとき
+/// compare をスキップできる（`translate_sync` の優先順位と整合させること）。
+pub(super) fn needs_compare(mergeable: &str) -> bool {
+    mergeable != "CONFLICTING"
+}
+
 pub(super) fn translate_review(decision: Option<&str>) -> Option<ReviewState> {
     match decision {
         Some("CHANGES_REQUESTED") => Some(ReviewState::ChangesRequested),
@@ -93,6 +102,15 @@ mod tests {
             translate_sync("MERGEABLE", None),
             Some(BranchSyncState::SyncUnknown)
         );
+    }
+
+    #[test]
+    fn needs_compare_skips_only_conflicting() {
+        // CONFLICTING は behind_by を使わない（Conflict 優先）ため compare 不要。
+        assert!(!needs_compare("CONFLICTING"));
+        // それ以外は behind_by が結果に影響しうるため compare が必要。
+        assert!(needs_compare("MERGEABLE"));
+        assert!(needs_compare("UNKNOWN"));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use std::fs::OpenOptions;
 use std::path::PathBuf;
 
-use simplelog::{Config, LevelFilter, WriteLogger};
+use simplelog::{ConfigBuilder, LevelFilter, WriteLogger};
 
 use crate::contexts::evaluation::domain::error::RepositoryError;
 
@@ -27,7 +27,10 @@ pub fn init() {
     let Ok(file) = OpenOptions::new().create(true).append(true).open(path) else {
         return;
     };
-    let _ = WriteLogger::init(log_level(), Config::default(), file);
+    // simplelog の既定書式は時刻のみ（`HH:MM:SS`）で日付を含まないため、
+    // 障害発生日を特定できるよう日付込みの RFC3339（UTC, 例 `2026-06-14T09:46:44Z`）にする。
+    let config = ConfigBuilder::new().set_time_format_rfc3339().build();
+    let _ = WriteLogger::init(log_level(), config, file);
 }
 
 /// `MERGE_READY_LOG_LEVEL` からロガーの記録レベルを決める。

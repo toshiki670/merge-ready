@@ -1,4 +1,3 @@
-use std::fmt::Write as _;
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -7,6 +6,7 @@ use crossterm::{
     terminal::{self, ClearType},
 };
 use tokio::signal::unix::{Signal, SignalKind, signal};
+use unicode_width::UnicodeWidthChar;
 
 use crate::contexts::daemon::application::port::{EntryView, WatchPort};
 
@@ -86,39 +86,54 @@ fn format_table(entries: &[EntryView]) -> String {
     let widths = TableWidths::from_rows(&header, &rows);
 
     let mut out = String::new();
-    let _ = writeln!(
-        out,
-        "{:<cwd_width$}  {:<branch_width$}  {:<pr_width$}  {:<status_width$}  {:>cached_at_width$}",
-        header.cwd,
-        header.branch,
-        header.pr,
-        header.status,
-        header.cached_at,
-        cwd_width = widths.cwd,
-        branch_width = widths.branch,
-        pr_width = widths.pr,
-        status_width = widths.status,
-        cached_at_width = widths.cached_at,
-    );
+    write_row(&mut out, &header, &widths);
     for row in &rows {
-        // Rust の幅指定子は `chars()` 数ベース。ANSI 込みの status を
-        // 見た目幅 `widths.status` で揃えるため、不可視 char 分を足し戻す。
-        let status_pad = widths.status - visible_len(&row.status) + row.status.chars().count();
-        let _ = writeln!(
-            out,
-            "{:<cwd_width$}  {:<branch_width$}  {:<pr_width$}  {:<status_pad$}  {:>cached_at_width$}",
-            row.cwd,
-            row.branch,
-            row.pr,
-            row.status,
-            row.cached_at,
-            cwd_width = widths.cwd,
-            branch_width = widths.branch,
-            pr_width = widths.pr,
-            cached_at_width = widths.cached_at,
-        );
+        write_row(&mut out, row, &widths);
     }
     out
+}
+
+#[derive(Clone, Copy)]
+enum Align {
+    Left,
+    Right,
+}
+
+/// 1 行を `widths` に従って整形して `out` に追記する。列間は空白 2 つで区切る。
+/// Rust の幅指定子 `{:<width$}` は `chars()` 数ベースで端末表示幅を考慮しないため、
+/// パディングは表示幅基準で自前に行う。
+fn write_row(out: &mut String, row: &TableRow, widths: &TableWidths) {
+    push_padded(out, &row.cwd, widths.cwd, Align::Left);
+    out.push_str("  ");
+    push_padded(out, &row.branch, widths.branch, Align::Left);
+    out.push_str("  ");
+    push_padded(out, &row.pr, widths.pr, Align::Left);
+    out.push_str("  ");
+    push_padded(out, &row.status, widths.status, Align::Left);
+    out.push_str("  ");
+    push_padded(out, &row.cached_at, widths.cached_at, Align::Right);
+    out.push('\n');
+}
+
+/// `cell` を表示幅 `width` に合わせてパディングして `out` に追記する。
+fn push_padded(out: &mut String, cell: &str, width: usize, align: Align) {
+    let pad = width.saturating_sub(display_width(cell));
+    match align {
+        Align::Left => {
+            out.push_str(cell);
+            push_spaces(out, pad);
+        }
+        Align::Right => {
+            push_spaces(out, pad);
+            out.push_str(cell);
+        }
+    }
+}
+
+fn push_spaces(out: &mut String, n: usize) {
+    for _ in 0..n {
+        out.push(' ');
+    }
 }
 
 struct TableRow {
@@ -152,16 +167,25 @@ struct TableWidths {
 impl TableWidths {
     fn from_rows(header: &TableRow, rows: &[TableRow]) -> Self {
         Self {
-            cwd: max_width(rows.iter().map(|row| row.cwd.len()), header.cwd.len()),
-            branch: max_width(rows.iter().map(|row| row.branch.len()), header.branch.len()),
-            pr: max_width(rows.iter().map(|row| row.pr.len()), header.pr.len()),
+            cwd: max_width(
+                rows.iter().map(|row| display_width(&row.cwd)),
+                display_width(&header.cwd),
+            ),
+            branch: max_width(
+                rows.iter().map(|row| display_width(&row.branch)),
+                display_width(&header.branch),
+            ),
+            pr: max_width(
+                rows.iter().map(|row| display_width(&row.pr)),
+                display_width(&header.pr),
+            ),
             status: max_width(
-                rows.iter().map(|row| visible_len(&row.status)),
-                header.status.len(),
+                rows.iter().map(|row| display_width(&row.status)),
+                display_width(&header.status),
             ),
             cached_at: max_width(
-                rows.iter().map(|row| row.cached_at.len()),
-                header.cached_at.len(),
+                rows.iter().map(|row| display_width(&row.cached_at)),
+                display_width(&header.cached_at),
             ),
         }
     }
@@ -175,9 +199,10 @@ fn format_pr_id(pr_id: Option<u64>) -> String {
     pr_id.map_or_else(String::new, |id| format!("#{id}"))
 }
 
-fn visible_len(s: &str) -> usize {
-    // ANSI エスケープシーケンス（ESC [ ... m）を除いた表示幅
-    let mut len = 0;
+/// ANSI エスケープシーケンス（ESC [ ... m）を除いた端末上の表示幅。
+/// CJK・絵文字は 2 桁、結合文字は 0 桁として数える（Unicode Annex #11）。
+fn display_width(s: &str) -> usize {
+    let mut width = 0;
     let mut in_escape = false;
     for c in s.chars() {
         if c == '\x1b' {
@@ -187,10 +212,10 @@ fn visible_len(s: &str) -> usize {
                 in_escape = false;
             }
         } else {
-            len += 1;
+            width += UnicodeWidthChar::width(c).unwrap_or(0);
         }
     }
-    len
+    width
 }
 
 fn format_cached_at(cached_at_secs: u64) -> String {
@@ -341,7 +366,7 @@ mod tests {
 
     #[test]
     fn format_table_right_aligns_cached_at_column() {
-        // status は ASCII（visible_len == len）にして他列の幅ぶれを排除し、
+        // status は ASCII（display_width == len）にして他列の幅ぶれを排除し、
         // CACHED AT 列の右揃えのみを検証する。
         let rows = vec![
             make_view("/repo", "main", Some(1), "Ready", 5),
@@ -351,7 +376,7 @@ mod tests {
         let lines: Vec<&str> = table.lines().collect();
         assert_eq!(lines.len(), 3, "header + 2 rows: {table:?}");
 
-        let widths: Vec<usize> = lines.iter().map(|l| visible_len(l)).collect();
+        let widths: Vec<usize> = lines.iter().map(|l| display_width(l)).collect();
         assert!(
             widths.windows(2).all(|w| w[0] == w[1]),
             "全行の表示幅が揃うべき: {widths:?} / {table:?}",
@@ -373,6 +398,39 @@ mod tests {
             lines[2].ends_with("   2h ago"),
             "短い相対時刻は右揃えされるべき: {:?}",
             lines[2],
+        );
+    }
+
+    #[rstest]
+    #[case("a", 1)]
+    #[case("feat/123", 8)]
+    // CJK は 1 文字 2 桁幅。
+    #[case("あ", 2)]
+    #[case("feat/機能追加", 13)]
+    // 結合文字（合成済み「が」= 「か」+ 濁点）は基底 2 桁 + 結合 0 桁。
+    #[case("か\u{3099}", 2)]
+    // ANSI SGR は表示幅 0。
+    #[case("\u{1b}[32m✓ Ready\u{1b}[0m", 7)]
+    fn display_width_counts_terminal_columns(#[case] input: &str, #[case] expected: usize) {
+        assert_eq!(display_width(input), expected);
+    }
+
+    /// 非 ASCII の cwd / branch を含む場合でも、全行が端末表示幅で揃うこと。
+    /// バイト長基準（旧 `len()`）では CJK 行以外が過剰パディングされて崩れる。
+    #[test]
+    fn format_table_aligns_columns_by_display_width_with_cjk() {
+        let rows = vec![
+            make_view("/repo", "feat/機能追加", Some(1), "✓ Ready", 5),
+            make_view("/repo", "main", Some(2), "✓ Ready", 5),
+        ];
+        let table = format_table(&rows);
+        let lines: Vec<&str> = table.lines().collect();
+        assert_eq!(lines.len(), 3, "header + 2 rows: {table:?}");
+
+        let widths: Vec<usize> = lines.iter().map(|l| display_width(l)).collect();
+        assert!(
+            widths.windows(2).all(|w| w[0] == w[1]),
+            "全行の表示幅が揃うべき: {widths:?} / {table:?}",
         );
     }
 }

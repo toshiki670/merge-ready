@@ -269,6 +269,64 @@ fn test_watch_right_aligns_cached_at_column() {
     );
 }
 
+/// SGR カラーコード（`...m` 終端）を除き、Unicode 表示幅（CJK=2 桁）で可視幅を返す。
+fn display_width(s: &str) -> usize {
+    use unicode_width::UnicodeWidthChar;
+    let mut width = 0;
+    let mut in_esc = false;
+    for c in s.chars() {
+        if c == '\x1b' {
+            in_esc = true;
+        } else if in_esc {
+            if c == 'm' {
+                in_esc = false;
+            }
+        } else {
+            width += UnicodeWidthChar::width(c).unwrap_or(0);
+        }
+    }
+    width
+}
+
+/// #409: BRANCH 列に CJK（マルチバイト・2 桁幅）を含む場合でも、列を端末表示幅で揃える。
+/// バイト長基準（旧実装）だと CJK ブランチ列が過剰に幅計算され、後続の CACHED AT 列の
+/// 右端がヘッダー行とズレる。ヘッダー行とデータ行の表示幅が一致することを検証する。
+#[test]
+fn test_watch_aligns_columns_by_display_width_with_cjk_branch() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+
+    // BRANCH 列に CJK を含めるため HEAD を上書きする（"機能追加" は各 2 桁幅）。
+    let branch = "feat/機能追加";
+    fs::write(
+        env.repo.path().join(".git/HEAD"),
+        format!("ref: refs/heads/{branch}\n"),
+    )
+    .expect("overwrite HEAD with cjk branch");
+
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    let output = spawn_watch_and_read(&env, 2, Duration::from_secs(5));
+    let lines: Vec<&str> = output.lines().collect();
+    assert!(lines.len() >= 2, "header + data 行が読めるべき: {output:?}");
+
+    let header = lines[0].strip_prefix(SCREEN_CLEAR).unwrap_or(lines[0]);
+    let data = lines[1];
+
+    assert!(
+        data.contains(branch),
+        "BRANCH 列に CJK ブランチが表示されるべき: {data:?}"
+    );
+    assert!(header.ends_with("CACHED AT"), "header tail: {header:?}");
+    assert!(data.ends_with("ago"), "data tail: {data:?}");
+
+    assert_eq!(
+        display_width(header),
+        display_width(data),
+        "CJK を含むデータ行とヘッダー行の表示幅が一致すべき (右端揃え): header={header:?}, data={data:?}",
+    );
+}
+
 /// #W7: 複数リポジトリがある場合、watch は CWD 昇順でソートして表示する
 #[test]
 fn test_watch_entries_sorted_by_cwd() {

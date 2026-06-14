@@ -383,12 +383,14 @@ mod tests {
     fn snapshot_at_bp(remaining_bp: u32, secs_until_reset: u64) -> RateLimitSnapshot {
         let limit: u32 = 10_000;
         let remaining = remaining_bp.min(limit);
+        let reset_at = SystemTime::now() + Duration::from_secs(secs_until_reset);
         RateLimitSnapshot {
             core_remaining: remaining,
             core_limit: limit,
             graphql_remaining: remaining,
             graphql_limit: limit,
-            reset_at: SystemTime::now() + Duration::from_secs(secs_until_reset),
+            core_reset_at: reset_at,
+            graphql_reset_at: reset_at,
             fetched_at: Instant::now(),
         }
     }

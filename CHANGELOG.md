@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.4] - 2026-06-14
+### Fixes
+- 空・相対の XDG_CONFIG_HOME/XDG_CACHE_HOME を無効として扱う ([#418](https://github.com/toshiki670/merge-ready/pull/418)) ([`981416a`](https://github.com/toshiki670/merge-ready/commit/981416a1ec7448dd5ec040a939bb5239f709ca7d))
+- Logger のレベルを MERGE_READY_LOG_LEVEL で可変にし既定を warn へ ([#419](https://github.com/toshiki670/merge-ready/pull/419)) ([`312956c`](https://github.com/toshiki670/merge-ready/commit/312956c5b77564faa1571d1c3da95cf35b18e348))
+- 相対 gitdir（submodule 等）を .git 基準で解決し branch を保持する ([#422](https://github.com/toshiki670/merge-ready/pull/422)) ([`3ae269f`](https://github.com/toshiki670/merge-ready/commit/3ae269f807ce93c2cf16f47448834e90a5d30939))
+- 認証失敗ログに gh stderr の原因を残す ([#426](https://github.com/toshiki670/merge-ready/pull/426)) ([`091ffc6`](https://github.com/toshiki670/merge-ready/commit/091ffc67854669a2fe05971e93b91082dfda7016))
+- Error.log のタイムスタンプを日付込み RFC3339 にする ([#427](https://github.com/toshiki670/merge-ready/pull/427)) ([`54997d3`](https://github.com/toshiki670/merge-ready/commit/54997d3776f26525684a43911a3c3fb2119cb051))
+- Backoff の reset 時刻をボトルネック側リソース基準にする ([#428](https://github.com/toshiki670/merge-ready/pull/428)) ([`63aabe7`](https://github.com/toshiki670/merge-ready/commit/63aabe74e59b7af0bc48920dcfe94219b378c458))
+- Watch テーブルの列揃えを端末表示幅（Unicode Annex #11）基準にする ([#429](https://github.com/toshiki670/merge-ready/pull/429)) ([`330ac5f`](https://github.com/toshiki670/merge-ready/commit/330ac5f385a410808f3b92e127904caa03d9128e))
+- Unix socket と base_dir の権限を制限する ([#433](https://github.com/toshiki670/merge-ready/pull/433)) ([`8eb1d96`](https://github.com/toshiki670/merge-ready/commit/8eb1d96cc39ab31994fa70e4f32198c680978888))
+- Daemon 応答を最後まで読み取る ([#434](https://github.com/toshiki670/merge-ready/pull/434)) ([`47c575d`](https://github.com/toshiki670/merge-ready/commit/47c575d69576734a3bcff53838f9e3ec11363168))
+- Error.log をサイズベースでローテーションする ([#436](https://github.com/toshiki670/merge-ready/pull/436)) ([`bf86f19`](https://github.com/toshiki670/merge-ready/commit/bf86f1929622b7008fab69d3aef91d0086eadac4))
+- Hot path ベンチを安定して実行できるようにする ([#438](https://github.com/toshiki670/merge-ready/pull/438)) ([`ab62df4`](https://github.com/toshiki670/merge-ready/commit/ab62df4a2500a38bdb078a076aa3debd4773af3d))
+- Daemon 応答読み取り全体に総タイムアウトを設ける ([#437](https://github.com/toshiki670/merge-ready/pull/437)) ([`596507b`](https://github.com/toshiki670/merge-ready/commit/596507bc61796d06a3d450eac75711f21f051c8d))
+### Performance
+- PID 生存確認・SIGTERM 送信を rustix の safe API に置換する ([#420](https://github.com/toshiki670/merge-ready/pull/420)) ([`4d72ea3`](https://github.com/toshiki670/merge-ready/commit/4d72ea3512ed7d5cd80c19a87926ec6ed99c0355))
+- Calculating / CONFLICTING 時に compare API をスキップする ([#421](https://github.com/toshiki670/merge-ready/pull/421)) ([`3907746`](https://github.com/toshiki670/merge-ready/commit/3907746e635d45cfcfac467912666d927576f081))
+
+
 ## [1.0.3] - 2026-05-31
 ### Fixes
 - Uptime/CACHED AT の表示を humantime で人間に読みやすい形式に変更 ([#395](https://github.com/toshiki670/merge-ready/pull/395)) ([`a2bee26`](https://github.com/toshiki670/merge-ready/commit/a2bee2699fbb5fd9ec17e7c6792cc75348184b58))

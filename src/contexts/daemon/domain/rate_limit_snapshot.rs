@@ -1,5 +1,17 @@
 use std::time::{Instant, SystemTime};
 
+/// `bottleneck_ratio` の basis points スケール（10000 == 1.0）。
+pub const RATIO_SCALE_BP: u64 = 10_000;
+
+/// `remaining / limit` を basis points（0..=`RATIO_SCALE_BP`）で返す。
+/// `limit == 0` のリソースは比率不定として `RATIO_SCALE_BP`（=1.0）を採用する。
+fn ratio_bp(remaining: u32, limit: u32) -> u64 {
+    if limit == 0 {
+        return RATIO_SCALE_BP;
+    }
+    (u64::from(remaining).saturating_mul(RATIO_SCALE_BP)) / u64::from(limit)
+}
+
 /// `gh api rate_limit` から得た残量スナップショット。
 ///
 /// `core` と `graphql` の両方を保持し、両者のうち消費比率の高い側を
@@ -26,6 +38,16 @@ impl RateLimitSnapshot {
     #[must_use]
     pub fn is_exhausted(&self) -> bool {
         self.core_remaining == 0 || self.graphql_remaining == 0
+    }
+
+    /// `min(core_ratio, graphql_ratio)` を basis points（0..=`RATIO_SCALE_BP`）で返す。
+    /// 消費比率の高い側（残量比率の小さい側）をボトルネックとみなす。
+    /// `limit == 0` のリソースは比率不定として採用優先順位から外れる。両方 0 なら
+    /// `RATIO_SCALE_BP`。
+    #[must_use]
+    pub fn bottleneck_ratio_bp(&self) -> u64 {
+        ratio_bp(self.core_remaining, self.core_limit)
+            .min(ratio_bp(self.graphql_remaining, self.graphql_limit))
     }
 }
 
@@ -81,5 +103,26 @@ mod tests {
     fn is_exhausted_false_when_both_have_remaining() {
         let s = snapshot(1, 5000, 1, 5000, SystemTime::now());
         assert!(!s.is_exhausted());
+    }
+
+    #[test]
+    fn bottleneck_ratio_bp_picks_smaller_side() {
+        // core 50% (5000 bp) と graphql 10% (1000 bp) → 小さい方 1000 bp。
+        let s = snapshot(5000, 10_000, 1000, 10_000, SystemTime::now());
+        assert_eq!(s.bottleneck_ratio_bp(), 1000);
+    }
+
+    #[test]
+    fn bottleneck_ratio_bp_full_when_remaining_is_full() {
+        let s = snapshot(10_000, 10_000, 10_000, 10_000, SystemTime::now());
+        assert_eq!(s.bottleneck_ratio_bp(), RATIO_SCALE_BP);
+    }
+
+    #[test]
+    fn bottleneck_ratio_bp_treats_zero_limit_as_full() {
+        // limit == 0 は比率不定 → RATIO_SCALE_BP として採用優先順位から外れ、
+        // もう一方（graphql 25% = 2500 bp）が採用される。
+        let s = snapshot(0, 0, 2500, 10_000, SystemTime::now());
+        assert_eq!(s.bottleneck_ratio_bp(), 2500);
     }
 }

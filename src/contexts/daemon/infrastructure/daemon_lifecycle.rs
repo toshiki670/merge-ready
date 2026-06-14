@@ -1,18 +1,13 @@
-use std::future::Future;
-use std::path::{Path, PathBuf};
-use std::pin::Pin;
+use std::path::Path;
 use std::time::Duration;
 
 use crate::contexts::daemon::application::port::{EntryView, WatchPort};
-use crate::contexts::daemon::domain::cache::RepoId;
 use crate::contexts::daemon::domain::daemon::{DaemonError, DaemonLifecyclePort, DaemonStatus};
 
+use super::daemon_server::RefreshFn;
 use super::paths::Paths;
 use super::{daemon_client::DaemonClient, daemon_server, pid};
 
-/// Imperative Shell から渡される、副作用を含むリフレッシュ実装。
-/// async 関数ポインタとして受け取ることで、キャプチャを禁じ依存を明示する。
-pub type RefreshFn = fn(RepoId, PathBuf) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 const STOP_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub struct DaemonLifecycle {
@@ -119,9 +114,14 @@ impl WatchPort for DaemonLifecycle {
 
 #[cfg(test)]
 mod tests {
+    use std::future::Future;
+    use std::path::PathBuf;
+    use std::pin::Pin;
+
     use tempfile::tempdir;
 
     use super::*;
+    use crate::contexts::daemon::domain::cache::RepoId;
 
     fn noop_refresh(
         _repo_id: RepoId,

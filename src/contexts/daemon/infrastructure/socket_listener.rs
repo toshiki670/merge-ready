@@ -46,7 +46,7 @@ async fn bind_with(
 
     let pid_path = paths.pid_path();
     match pid::read(&pid_path) {
-        Some(p) if pid::is_alive(p).await => {
+        Some(p) if pid::is_alive(p) => {
             log::error!("daemon is already running (pid {p})");
             eprintln!("merge-ready daemon is already running (pid {p})");
             return Err(DaemonError::AlreadyRunning);

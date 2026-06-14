@@ -31,8 +31,9 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{Criterion, SamplingMode, criterion_group, criterion_main};
 use tempfile::TempDir;
 
 /// Issue #139 の受け入れ条件: ウォーム起動時間の中央値上限（ミリ秒）
@@ -54,6 +55,8 @@ impl Drop for BenchEnv {
         let _ = Command::new(&bin)
             .args(["daemon", "stop"])
             .env("TMPDIR", self.tmp_dir.path())
+            .env("HOME", self.tmp_dir.path())
+            .env("MERGE_READY_BASE_DIR", self.tmp_dir.path())
             .output();
         if let Some(mut child) = self.daemon_process.take() {
             let _ = child.kill();
@@ -86,17 +89,6 @@ fn binary_path(name: &str) -> PathBuf {
         path.push(name);
     }
     path
-}
-
-fn dir_name() -> String {
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if let Ok(meta) = std::fs::metadata("/proc/self") {
-            return format!("merge-ready-{}", meta.uid());
-        }
-    }
-    "merge-ready".to_owned()
 }
 
 /// daemon 起動 + キャッシュウォームまでを完了させるセットアップ。
@@ -135,6 +127,7 @@ fn setup_bench_env() -> BenchEnv {
         .env("PATH", path_env(&env))
         .env("TMPDIR", env.tmp_dir.path())
         .env("HOME", env.tmp_dir.path())
+        .env("MERGE_READY_BASE_DIR", env.tmp_dir.path())
         .current_dir(env.repo_dir.path())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -147,24 +140,25 @@ fn setup_bench_env() -> BenchEnv {
     let socket = env
         .tmp_dir
         .path()
-        .join(dir_name())
         .join(format!("daemon-{}.sock", env!("CARGO_PKG_VERSION")));
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
     while std::time::Instant::now() < deadline {
         if socket.exists() {
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(10));
     }
     assert!(socket.exists(), "daemon did not start within 3s");
 
     // キャッシュが温まるまで待つ（計測対象外）
     let prompt_bin = binary_path("merge-ready-prompt");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
     loop {
         let out = Command::new(&prompt_bin)
             .env("PATH", path_env(&env))
             .env("TMPDIR", env.tmp_dir.path())
+            .env("HOME", env.tmp_dir.path())
+            .env("MERGE_READY_BASE_DIR", env.tmp_dir.path())
             .current_dir(env.repo_dir.path())
             .output()
             .expect("merge-ready-prompt failed");
@@ -176,7 +170,7 @@ fn setup_bench_env() -> BenchEnv {
             std::time::Instant::now() < deadline,
             "cache did not warm within 5s"
         );
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(Duration::from_millis(50));
     }
 
     env
@@ -197,6 +191,8 @@ fn assert_warm_startup_threshold(env: &BenchEnv) {
             Command::new(&prompt_bin)
                 .env("PATH", &path)
                 .env("TMPDIR", &tmpdir)
+                .env("HOME", &tmpdir)
+                .env("MERGE_READY_BASE_DIR", &tmpdir)
                 .current_dir(&repo_dir)
                 .output()
                 .expect("merge-ready-prompt failed");
@@ -229,17 +225,25 @@ fn bench_prompt_warm_startup(c: &mut Criterion) {
     let tmpdir = env.tmp_dir.path().to_owned();
     let repo_dir = env.repo_dir.path().to_owned();
 
-    c.bench_function("merge_ready_prompt_warm_startup", |b| {
+    let mut group = c.benchmark_group("merge_ready_prompt_warm_startup");
+    group
+        .sample_size(100)
+        .measurement_time(Duration::from_secs(7))
+        .sampling_mode(SamplingMode::Flat);
+    group.bench_function("prompt_process", |b| {
         b.iter(|| {
             // 計測対象: merge-ready-prompt の総実行時間（プロセス生成〜終了）
             Command::new(&prompt_bin)
                 .env("PATH", &path)
                 .env("TMPDIR", &tmpdir)
+                .env("HOME", &tmpdir)
+                .env("MERGE_READY_BASE_DIR", &tmpdir)
                 .current_dir(&repo_dir)
                 .output()
                 .expect("merge-ready-prompt failed")
         });
     });
+    group.finish();
 }
 
 criterion_group!(benches, bench_prompt_warm_startup);

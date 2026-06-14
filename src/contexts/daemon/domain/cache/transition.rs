@@ -294,8 +294,11 @@ fn should_enter_backoff(snapshot: &RateLimitSnapshot) -> bool {
     snapshot.bottleneck_ratio_bp() <= BACKOFF_THRESHOLD_BP
 }
 
-/// `snapshot.reset_at`（壁時計）を `Instant`（モノトニック）へ変換し、
+/// ボトルネック側の reset（壁時計）を `Instant`（モノトニック）へ変換し、
 /// `BACKOFF_SAFETY_MARGIN` を追加した値を返す。
+///
+/// backoff の要因となったリソース（core / graphql のうち消費比率の小さい側）の
+/// reset を使う。core 固定だと graphql 枯渇時に解除時刻がずれる（Issue #407）。
 ///
 /// `gh api rate_limit` が返す `reset` は秒単位の Unix epoch なので、reset の瞬間に
 /// resume すると整数秒の境界に複数の refresh が集中しうる。`SCHEDULER_TICK_SECS` の
@@ -307,7 +310,10 @@ fn reset_instant_from_snapshot(
     now_instant: Instant,
     now_wall: SystemTime,
 ) -> Option<Instant> {
-    let delta = snapshot.reset_at.duration_since(now_wall).ok()?;
+    let delta = snapshot
+        .bottleneck_reset_at()
+        .duration_since(now_wall)
+        .ok()?;
     Some(now_instant + delta + BACKOFF_SAFETY_MARGIN)
 }
 
@@ -853,12 +859,14 @@ mod tests {
     // ── on_rate_limit_observed ───────────────────────────────────
 
     fn make_snapshot(remaining: u32, limit: u32, secs_until_reset: u64) -> RateLimitSnapshot {
+        let reset_at = SystemTime::now() + Duration::from_secs(secs_until_reset);
         RateLimitSnapshot {
             core_remaining: remaining,
             core_limit: limit,
             graphql_remaining: remaining,
             graphql_limit: limit,
-            reset_at: SystemTime::now() + Duration::from_secs(secs_until_reset),
+            core_reset_at: reset_at,
+            graphql_reset_at: reset_at,
             fetched_at: Instant::now(),
         }
     }
@@ -920,5 +928,36 @@ mod tests {
             "EnterBackoff expected when below threshold: {effects:?}"
         );
         assert!(new_store.backoff_until().is_some());
+    }
+
+    #[test]
+    fn on_rate_limit_observed_backoff_uses_graphql_reset_when_graphql_is_bottleneck() {
+        // Issue #407: graphql だけ枯渇し core は健全かつ reset が遠い未来のケース。
+        // backoff の解除時刻は core ではなく graphql の reset を基準にする。
+        let store = CacheStore::new();
+        let now = Instant::now();
+        let now_wall = SystemTime::now();
+        let snapshot = RateLimitSnapshot {
+            core_remaining: 5_000,
+            core_limit: 5_000,
+            graphql_remaining: 0,
+            graphql_limit: 5_000,
+            core_reset_at: now_wall + Duration::from_hours(1),
+            graphql_reset_at: now_wall + Duration::from_mins(1),
+            fetched_at: now,
+        };
+        let event = RateLimitObservedEvent {
+            snapshot,
+            now,
+            now_wall,
+        };
+        let (new_store, _effects) = on_rate_limit_observed(store, &event);
+
+        let until = new_store.backoff_until().expect("backoff set");
+        // graphql reset(60s) + 安全マージン を基準にした Instant になる。
+        let expected = now + Duration::from_mins(1) + BACKOFF_SAFETY_MARGIN;
+        assert_eq!(until, expected);
+        // core reset(3600s) 基準では決してない。
+        assert!(until < now + Duration::from_hours(1));
     }
 }

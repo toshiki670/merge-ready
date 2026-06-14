@@ -214,7 +214,8 @@ mod tests {
             core_limit: 5000,
             graphql_remaining: 5000,
             graphql_limit: 5000,
-            reset_at: now_wall + Duration::from_mins(1),
+            core_reset_at: now_wall + Duration::from_mins(1),
+            graphql_reset_at: now_wall + Duration::from_mins(1),
             fetched_at: Instant::now(),
         };
         let event = RateLimitObservedEvent {
@@ -245,7 +246,8 @@ mod tests {
             core_limit: 5000,
             graphql_remaining: 5000,
             graphql_limit: 5000,
-            reset_at: start_wall + Duration::from_mins(1),
+            core_reset_at: start_wall + Duration::from_mins(1),
+            graphql_reset_at: start_wall + Duration::from_mins(1),
             fetched_at: start,
         };
         let first = handle
@@ -288,7 +290,8 @@ mod tests {
             core_limit: 5000,
             graphql_remaining: 5000,
             graphql_limit: 5000,
-            reset_at: start_wall + Duration::from_mins(1),
+            core_reset_at: start_wall + Duration::from_mins(1),
+            graphql_reset_at: start_wall + Duration::from_mins(1),
             fetched_at: start,
         };
         let first = handle

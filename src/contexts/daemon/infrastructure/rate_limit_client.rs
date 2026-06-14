@@ -100,7 +100,8 @@ fn parse_rate_limit_json(bytes: &[u8], fetched_at: Instant) -> Option<RateLimitS
         core_limit: response.resources.core.limit,
         graphql_remaining: response.resources.graphql.remaining,
         graphql_limit: response.resources.graphql.limit,
-        reset_at: UNIX_EPOCH + Duration::from_secs(response.resources.core.reset),
+        core_reset_at: UNIX_EPOCH + Duration::from_secs(response.resources.core.reset),
+        graphql_reset_at: UNIX_EPOCH + Duration::from_secs(response.resources.graphql.reset),
         fetched_at,
     })
 }
@@ -126,9 +127,15 @@ mod tests {
         assert_eq!(snap.core_limit, 5000);
         assert_eq!(snap.graphql_remaining, 4600);
         assert_eq!(snap.graphql_limit, 5000);
-        // reset_at は core.reset の unix epoch
-        let expected = UNIX_EPOCH + Duration::from_secs(1_778_924_570);
-        assert_eq!(snap.reset_at, expected);
+        // core / graphql の reset はそれぞれの resource の値から取る（別時刻）。
+        assert_eq!(
+            snap.core_reset_at,
+            UNIX_EPOCH + Duration::from_secs(1_778_924_570)
+        );
+        assert_eq!(
+            snap.graphql_reset_at,
+            UNIX_EPOCH + Duration::from_secs(1_778_921_661)
+        );
     }
 
     #[test]
@@ -156,7 +163,8 @@ mod tests {
             core_limit: 5000,
             graphql_remaining: 100,
             graphql_limit: 5000,
-            reset_at: SystemTime::now() + Duration::from_hours(1),
+            core_reset_at: SystemTime::now() + Duration::from_hours(1),
+            graphql_reset_at: SystemTime::now() + Duration::from_hours(1),
             fetched_at: Instant::now(),
         };
         *client.cache.lock().unwrap() = Some(snap);
@@ -171,7 +179,8 @@ mod tests {
             core_limit: 5000,
             graphql_remaining: 100,
             graphql_limit: 5000,
-            reset_at: SystemTime::now() + Duration::from_hours(1),
+            core_reset_at: SystemTime::now() + Duration::from_hours(1),
+            graphql_reset_at: SystemTime::now() + Duration::from_hours(1),
             // 2 秒前に取得 → TTL 1 秒では stale
             fetched_at: Instant::now()
                 .checked_sub(Duration::from_secs(2))

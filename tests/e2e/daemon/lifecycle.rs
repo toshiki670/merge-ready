@@ -4,6 +4,7 @@
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use std::os::unix::fs::PermissionsExt;
 
 use super::super::helpers::{DaemonHandle, TestEnv, apply_coverage_env};
 
@@ -233,6 +234,20 @@ fn test_daemon_status_includes_version() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
+}
+
+#[test]
+fn test_daemon_socket_permissions_are_owner_only() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+    let _daemon = DaemonHandle::start(&env);
+
+    let mode = std::fs::metadata(versioned_socket(env.home()))
+        .expect("read daemon socket metadata")
+        .permissions()
+        .mode()
+        & 0o777;
+
+    assert_eq!(mode, 0o600);
 }
 
 // ── #11: daemon stop ─────────────────────────────────────────────────────────

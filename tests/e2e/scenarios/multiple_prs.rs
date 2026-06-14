@@ -113,3 +113,47 @@ fn test_distinct_status_groups_each_aggregated() {
         ))
         .stderr("");
 }
+
+/// Receives and displays daemon responses that exceed the single-read buffer (#406 regression).
+///
+/// The prompt used to perform a single 512-byte `read()`, so responses longer
+/// than that were truncated before JSON decoding and appeared as `? loading`
+/// even while the daemon was healthy.
+#[test]
+fn test_long_response_exceeding_single_read_buffer_is_received_in_full() {
+    // Same-status PRs are aggregated into one token with all PR numbers, making
+    // the response line much larger than the former 512-byte read buffer.
+    let numbers = 1000..1110;
+    let pr_list_json = format!(
+        "[{}]",
+        numbers
+            .clone()
+            .map(|n| format!(
+                r#"{{"number":{n},"state":"OPEN","isDraft":true,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":null,"baseRefName":"","headRefName":""}}"#
+            ))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    let expected = numbers.fold(String::from("✎ Ready for review"), |mut s, n| {
+        use std::fmt::Write as _;
+        let _ = write!(s, " #{n}");
+        s
+    });
+    assert!(
+        expected.len() > 512,
+        "fixture must exceed the 512B single-read buffer (was {} bytes)",
+        expected.len()
+    );
+
+    let env = TestEnv::with_pr_list(&pr_list_json, Some(r"[]"));
+
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    let mut cmd = Command::cargo_bin(PROMPT_BIN).unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::diff(expected))
+        .stderr("");
+}

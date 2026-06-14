@@ -93,11 +93,56 @@ fn query_daemon() -> Option<String> {
     let req = prompt_ipc::Request { cwd };
     stream.write_all(req.encode().as_bytes()).ok()?;
 
-    // レスポンスはスタックバッファで受け取る（8KB BufReader ヒープ確保を回避）
-    let mut buf = [0u8; 512];
-    let n = stream.read(&mut buf).ok()?;
+    read_response(&mut stream)
+}
 
-    prompt_ipc::Response::decode(&buf[..n]).map(|r| r.output)
+/// Maximum number of bytes accepted for a daemon response.
+///
+/// The socket is only trusted at the same-user boundary, so keep a defensive
+/// cap to avoid unbounded allocation if another local process owns the socket.
+/// This mirrors the daemon-side request cap and leaves ample room for prompt
+/// status lines.
+const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+
+/// Reads one newline-terminated response from the daemon.
+///
+/// A Unix socket `read()` is not guaranteed to return a full line in one call,
+/// so long responses or short reads must be reassembled until newline or EOF.
+/// If the configured read timeout fires, the read error becomes `None` and the
+/// caller falls back to starting the daemon.
+///
+/// The common case, where a complete line fits in the first 512-byte read,
+/// still decodes directly from the stack buffer without allocating.
+fn read_response<R: Read>(reader: &mut R) -> Option<String> {
+    let mut chunk = [0u8; 512];
+    let n = reader.read(&mut chunk).ok()?;
+    if n == 0 {
+        return None;
+    }
+    // Hot path: the complete response line arrived in the first read.
+    if chunk[..n].contains(&b'\n') {
+        return prompt_ipc::Response::decode(&chunk[..n]).map(|r| r.output);
+    }
+
+    // Allocate only when the response line spans multiple reads.
+    let mut buf = chunk[..n].to_vec();
+    while buf.len() < MAX_RESPONSE_BYTES {
+        let n = reader.read(&mut chunk).ok()?;
+        if n == 0 {
+            return prompt_ipc::Response::decode(&buf).map(|r| r.output);
+        }
+
+        let remaining = MAX_RESPONSE_BYTES - buf.len();
+        let n = n.min(remaining);
+        let slice = &chunk[..n];
+        let reached_newline = slice.contains(&b'\n');
+        buf.extend_from_slice(slice);
+        if reached_newline {
+            return prompt_ipc::Response::decode(&buf).map(|r| r.output);
+        }
+    }
+
+    None
 }
 
 fn spawn_daemon() {
@@ -121,6 +166,103 @@ fn spawn_daemon() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::VecDeque;
+    use std::io;
+
+    /// Test reader that returns at most one queued chunk per `read()` call.
+    /// Remaining bytes are pushed back, and an empty queue returns EOF. This
+    /// deterministically reproduces short reads from a Unix socket.
+    struct ChunkedReader {
+        chunks: VecDeque<Vec<u8>>,
+    }
+
+    impl ChunkedReader {
+        fn new<I: IntoIterator<Item = Vec<u8>>>(chunks: I) -> Self {
+            Self {
+                chunks: chunks.into_iter().collect(),
+            }
+        }
+    }
+
+    impl Read for ChunkedReader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let Some(chunk) = self.chunks.pop_front() else {
+                return Ok(0);
+            };
+            let n = chunk.len().min(buf.len());
+            buf[..n].copy_from_slice(&chunk[..n]);
+            if n < chunk.len() {
+                self.chunks.push_front(chunk[n..].to_vec());
+            }
+            Ok(n)
+        }
+    }
+
+    /// Test reader that simulates a read after `set_read_timeout` expires.
+    struct TimeoutReader;
+
+    impl Read for TimeoutReader {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::WouldBlock, "timed out"))
+        }
+    }
+
+    fn output_line(output: &str) -> Vec<u8> {
+        let mut line = format!(r#"{{"tag":"output","output":"{output}"}}"#).into_bytes();
+        line.push(b'\n');
+        line
+    }
+
+    #[test]
+    fn read_response_decodes_single_read_complete_line() {
+        let mut reader = ChunkedReader::new([output_line("✓ Ready for merge")]);
+        assert_eq!(
+            read_response(&mut reader).as_deref(),
+            Some("✓ Ready for merge")
+        );
+    }
+
+    #[test]
+    fn read_response_reassembles_line_split_across_reads() {
+        let line = output_line("✓ Ready for merge #200 ✎ Ready for review #201");
+        let mid = line.len() / 2;
+        let mut reader = ChunkedReader::new([line[..mid].to_vec(), line[mid..].to_vec()]);
+        assert_eq!(
+            read_response(&mut reader).as_deref(),
+            Some("✓ Ready for merge #200 ✎ Ready for review #201"),
+        );
+    }
+
+    #[test]
+    fn read_response_reads_response_longer_than_chunk() {
+        let output = "x".repeat(600);
+        let line = output_line(&output);
+        assert!(line.len() > 512, "fixture must exceed the 512B chunk size");
+        let chunks: Vec<Vec<u8>> = line.chunks(512).map(<[u8]>::to_vec).collect();
+        let mut reader = ChunkedReader::new(chunks);
+        assert_eq!(read_response(&mut reader).as_deref(), Some(output.as_str()));
+    }
+
+    #[test]
+    fn read_response_returns_none_for_oversized_input_without_newline() {
+        let oversized = vec![b'a'; MAX_RESPONSE_BYTES + 4096];
+        let mut reader = ChunkedReader::new([oversized]);
+        assert!(read_response(&mut reader).is_none());
+    }
+
+    #[test]
+    fn read_response_rejects_oversized_complete_json_without_newline() {
+        let mut line = format!(r#"{{"tag":"output","output":"{}"}}"#, "x".repeat(64)).into_bytes();
+        line.extend(std::iter::repeat_n(b' ', MAX_RESPONSE_BYTES));
+        let mut reader = ChunkedReader::new([line]);
+        assert!(read_response(&mut reader).is_none());
+    }
+
+    #[test]
+    fn read_response_returns_none_on_read_error() {
+        let mut reader = TimeoutReader;
+        assert!(read_response(&mut reader).is_none());
+    }
 
     #[test]
     fn keeps_plain_text_unchanged() {

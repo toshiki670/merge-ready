@@ -15,6 +15,12 @@ const CONFLICTING_BEHIND: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":
 const CONFLICTING_DIRTY_CHANGES: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","reviewDecision":"CHANGES_REQUESTED"}"#;
 const MERGEABLE_BLOCKED: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":null,"baseRefName":"main","headRefName":"feat/test"}"#;
 
+// #410: compare スキップ検証用。ref を埋めることで「修正前なら compare を呼ぶ」
+// 条件を満たし、修正後に呼ばれないことを観測できる。
+const CONFLICTING_WITH_REFS: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY","reviewDecision":null,"baseRefName":"main","headRefName":"feat/test"}"#;
+const MERGE_STATE_UNKNOWN_WITH_REFS: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"MERGE_STATE_UNKNOWN","reviewDecision":null,"baseRefName":"main","headRefName":"feat/test"}"#;
+const UNKNOWN_WITH_REFS: &str = r#"{"state":"OPEN","isDraft":false,"mergeable":"UNKNOWN","mergeStateStatus":"UNKNOWN","reviewDecision":null,"baseRefName":"main","headRefName":"feat/test"}"#;
+
 // `statusCheckRollup.contexts.nodes` 形式
 const PASS_JSON: &str =
     r#"[{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"}]"#;
@@ -76,4 +82,52 @@ fn test_compare_api_error() {
 fn test_compare_invalid_json_shows_check_branch_sync() {
     let env = branch_sync_fixtures::with_invalid_compare_json(MERGEABLE_BLOCKED, PASS_JSON);
     assert_prompt(&env, "? Check branch sync");
+}
+
+// ── #410: compare スキップ（無駄な REST 呼び出しの抑制） ──────────────────────
+
+/// daemon を起動して最初の refresh 完了を待ち、出力を検証したうえで
+/// compare 呼び出しログが生成されていない（= compare ゼロ）ことを確認する。
+fn assert_prompt_without_compare(env: &TestEnv, log_path: &std::path::Path, expected: &str) {
+    let _daemon = DaemonHandle::start(env);
+    DaemonHandle::wait_for_cache(env, 5000);
+
+    let mut cmd = Command::cargo_bin("merge-ready-prompt").unwrap();
+    env.apply_with_cache(&mut cmd);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::diff(expected.to_owned()))
+        .stderr("");
+
+    // refresh が完了してキャッシュが埋まった後に compare ログが無いことは、
+    // evaluate_single_pr が compare を await する前に分岐したことを意味する。
+    assert!(
+        !log_path.exists(),
+        "compare API must not be called (found call log at {})",
+        log_path.display()
+    );
+}
+
+/// #410: `CONFLICTING` は `behind_by` を使わない（Conflict 優先）ため compare をスキップする。
+#[test]
+fn test_conflicting_skips_compare() {
+    let (env, log_path) =
+        branch_sync_fixtures::with_compare_call_log(CONFLICTING_WITH_REFS, Some(PASS_JSON));
+    assert_prompt_without_compare(&env, &log_path, "✗ Resolve conflict");
+}
+
+/// #410: `MERGE_STATE_UNKNOWN`（Calculating）は `behind_by` を捨てるため compare をスキップする。
+#[test]
+fn test_merge_state_unknown_skips_compare() {
+    let (env, log_path) =
+        branch_sync_fixtures::with_compare_call_log(MERGE_STATE_UNKNOWN_WITH_REFS, Some(PASS_JSON));
+    assert_prompt_without_compare(&env, &log_path, "⧖ Wait for status");
+}
+
+/// #410: `UNKNOWN`（Calculating）も同様に compare をスキップする。
+#[test]
+fn test_unknown_status_skips_compare() {
+    let (env, log_path) =
+        branch_sync_fixtures::with_compare_call_log(UNKNOWN_WITH_REFS, Some(PASS_JSON));
+    assert_prompt_without_compare(&env, &log_path, "⧖ Wait for status");
 }

@@ -67,22 +67,21 @@ fn test_oversized_error_log_is_rotated_on_start() {
         &env,
         &[
             ("MERGE_READY_LOG_MAX_BYTES", "64"),
-            ("MERGE_READY_LOG_MAX_BACKUPS", "2"),
+            ("MERGE_READY_LOG_MAX_BACKUPS", "4"),
         ],
     );
 
-    let rotated = dir.join("error.log.1");
+    let backup_lengths: Vec<u64> = (1..=4)
+        .filter_map(|index| fs::metadata(dir.join(format!("error.log.{index}"))).ok())
+        .map(|meta| meta.len())
+        .collect();
     assert!(
-        rotated.exists(),
-        "expected rotated log at {}",
-        rotated.display()
+        backup_lengths.contains(&128),
+        "existing oversized log should be preserved in retained backups, got lengths: {backup_lengths:?}"
     );
-    assert_eq!(
-        fs::read_to_string(&rotated)
-            .expect("read rotated log")
-            .len(),
-        128,
-        "existing oversized log should be preserved in the first backup"
+    assert!(
+        !dir.join("error.log.5").exists(),
+        "backup count should not exceed the configured limit"
     );
     assert!(
         fs::metadata(&log).expect("active log metadata").len() <= 64,

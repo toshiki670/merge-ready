@@ -1,13 +1,13 @@
 // merge-ready-prompt: 軽量なシェルプロンプト用バイナリ。
 
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use merge_ready::{prompt_ipc, prompt_socket_path};
 
-const READ_TIMEOUT_MS: u64 = 500;
+const RESPONSE_TIMEOUT_MS: u64 = 500;
 
 fn main() {
     let output = query_daemon().unwrap_or_else(|| {
@@ -84,16 +84,52 @@ fn query_daemon() -> Option<String> {
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
 
-    let stream = UnixStream::connect(prompt_socket_path()).ok()?;
-    stream
-        .set_read_timeout(Some(Duration::from_millis(READ_TIMEOUT_MS)))
-        .ok()?;
-    let mut stream = stream;
+    let mut stream = UnixStream::connect(prompt_socket_path()).ok()?;
 
     let req = prompt_ipc::Request { cwd };
     stream.write_all(req.encode().as_bytes()).ok()?;
 
-    read_response(&mut stream)
+    let deadline = Instant::now() + Duration::from_millis(RESPONSE_TIMEOUT_MS);
+    let mut reader = DeadlineReader::new(stream, deadline);
+    read_response(&mut reader)
+}
+
+trait ReadTimeout {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+}
+
+impl ReadTimeout for UnixStream {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        UnixStream::set_read_timeout(self, timeout)
+    }
+}
+
+struct DeadlineReader<R> {
+    inner: R,
+    deadline: Instant,
+}
+
+impl<R> DeadlineReader<R> {
+    fn new(inner: R, deadline: Instant) -> Self {
+        Self { inner, deadline }
+    }
+}
+
+impl<R: Read + ReadTimeout> Read for DeadlineReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let Some(remaining) = self
+            .deadline
+            .checked_duration_since(Instant::now())
+            .filter(|remaining| !remaining.is_zero())
+        else {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "response deadline exceeded",
+            ));
+        };
+        self.inner.set_read_timeout(Some(remaining))?;
+        self.inner.read(buf)
+    }
 }
 
 /// Maximum number of bytes accepted for a daemon response.
@@ -166,8 +202,10 @@ fn spawn_daemon() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
     use std::collections::VecDeque;
     use std::io;
+    use std::rc::Rc;
 
     /// Test reader that returns at most one queued chunk per `read()` call.
     /// Remaining bytes are pushed back, and an empty queue returns EOF. This
@@ -204,6 +242,41 @@ mod tests {
     impl Read for TimeoutReader {
         fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
             Err(io::Error::new(io::ErrorKind::WouldBlock, "timed out"))
+        }
+    }
+
+    struct RecordingReader {
+        chunks: VecDeque<Vec<u8>>,
+        timeouts: Rc<RefCell<Vec<Option<Duration>>>>,
+    }
+
+    impl RecordingReader {
+        fn new<I: IntoIterator<Item = Vec<u8>>>(
+            chunks: I,
+            timeouts: Rc<RefCell<Vec<Option<Duration>>>>,
+        ) -> Self {
+            Self {
+                chunks: chunks.into_iter().collect(),
+                timeouts,
+            }
+        }
+    }
+
+    impl Read for RecordingReader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let Some(chunk) = self.chunks.pop_front() else {
+                return Ok(0);
+            };
+            let n = chunk.len().min(buf.len());
+            buf[..n].copy_from_slice(&chunk[..n]);
+            Ok(n)
+        }
+    }
+
+    impl ReadTimeout for RecordingReader {
+        fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+            self.timeouts.borrow_mut().push(timeout);
+            Ok(())
         }
     }
 
@@ -262,6 +335,44 @@ mod tests {
     fn read_response_returns_none_on_read_error() {
         let mut reader = TimeoutReader;
         assert!(read_response(&mut reader).is_none());
+    }
+
+    #[test]
+    fn deadline_reader_refreshes_timeout_before_each_read() {
+        let line = output_line("✓ Ready for merge");
+        let mid = line.len() / 2;
+        let timeouts = Rc::new(RefCell::new(Vec::new()));
+        let inner = RecordingReader::new(
+            [line[..mid].to_vec(), line[mid..].to_vec()],
+            Rc::clone(&timeouts),
+        );
+        let mut reader =
+            DeadlineReader::new(inner, std::time::Instant::now() + Duration::from_secs(10));
+
+        assert_eq!(
+            read_response(&mut reader).as_deref(),
+            Some("✓ Ready for merge")
+        );
+
+        let recorded = timeouts.borrow();
+        assert_eq!(recorded.len(), 2);
+        assert!(recorded.iter().all(Option::is_some));
+    }
+
+    #[test]
+    fn deadline_reader_returns_none_after_total_deadline() {
+        let timeouts = Rc::new(RefCell::new(Vec::new()));
+        let inner = RecordingReader::new([output_line("too late")], Rc::clone(&timeouts));
+        let expired_deadline = std::time::Instant::now()
+            .checked_sub(Duration::from_millis(1))
+            .expect("1ms before now is representable");
+        let mut reader = DeadlineReader::new(inner, expired_deadline);
+
+        assert!(read_response(&mut reader).is_none());
+        assert!(
+            timeouts.borrow().is_empty(),
+            "expired deadline must fail before updating per-read timeout"
+        );
     }
 
     #[test]

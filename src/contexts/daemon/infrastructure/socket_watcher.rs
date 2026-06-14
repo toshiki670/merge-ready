@@ -24,7 +24,7 @@ pub(super) async fn run(paths: Arc<Paths>, interval_secs: u64, cancel: Cancellat
             () = cancel.cancelled() => break,
             _ = ticker.tick() => {
                 if !paths.socket_path().exists() {
-                    log::info!("daemon socket disappeared, self-terminating");
+                    log::warn!("daemon socket disappeared, self-terminating");
                     cancel.cancel();
                     break;
                 }

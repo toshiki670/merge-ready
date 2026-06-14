@@ -27,7 +27,27 @@ pub fn init() {
     let Ok(file) = OpenOptions::new().create(true).append(true).open(path) else {
         return;
     };
-    let _ = WriteLogger::init(LevelFilter::Error, Config::default(), file);
+    let _ = WriteLogger::init(log_level(), Config::default(), file);
+}
+
+/// `MERGE_READY_LOG_LEVEL` からロガーの記録レベルを決める。
+/// 既定は `warn`（backoff 突入・`rate_limit` 取得失敗・daemon 自己終了といった
+/// 運用上重要なイベントを残すため）。
+fn log_level() -> LevelFilter {
+    parse_log_level(std::env::var("MERGE_READY_LOG_LEVEL").ok().as_deref())
+}
+
+/// `off`/`error`/`warn`/`info`/`debug`/`trace`（大文字小文字無視）を解釈する。
+/// 未設定・空・不明値は `warn`。
+fn parse_log_level(value: Option<&str>) -> LevelFilter {
+    match value.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+        Some("off") => LevelFilter::Off,
+        Some("error") => LevelFilter::Error,
+        Some("info") => LevelFilter::Info,
+        Some("debug") => LevelFilter::Debug,
+        Some("trace") => LevelFilter::Trace,
+        _ => LevelFilter::Warn,
+    }
 }
 
 // XDG_CACHE_HOME が有効な絶対パスならそちらを優先し、無効（未設定・空・相対パス）なら
@@ -64,5 +84,37 @@ pub fn log_repository_error(e: RepositoryError) {
             category: ErrorCategory::RateLimit,
             detail: None,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_log_level_unset_defaults_to_warn() {
+        assert_eq!(parse_log_level(None), LevelFilter::Warn);
+    }
+
+    #[test]
+    fn parse_log_level_unknown_defaults_to_warn() {
+        assert_eq!(parse_log_level(Some("verbose")), LevelFilter::Warn);
+        assert_eq!(parse_log_level(Some("")), LevelFilter::Warn);
+    }
+
+    #[test]
+    fn parse_log_level_recognises_each_level() {
+        assert_eq!(parse_log_level(Some("off")), LevelFilter::Off);
+        assert_eq!(parse_log_level(Some("error")), LevelFilter::Error);
+        assert_eq!(parse_log_level(Some("warn")), LevelFilter::Warn);
+        assert_eq!(parse_log_level(Some("info")), LevelFilter::Info);
+        assert_eq!(parse_log_level(Some("debug")), LevelFilter::Debug);
+        assert_eq!(parse_log_level(Some("trace")), LevelFilter::Trace);
+    }
+
+    #[test]
+    fn parse_log_level_is_case_and_whitespace_insensitive() {
+        assert_eq!(parse_log_level(Some("  INFO ")), LevelFilter::Info);
+        assert_eq!(parse_log_level(Some("Debug")), LevelFilter::Debug);
     }
 }

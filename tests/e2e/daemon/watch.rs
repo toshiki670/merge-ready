@@ -1,5 +1,6 @@
 //! `merge-ready watch` コマンドの E2E テスト（シナリオ #W1–#W7）
 
+use std::fs;
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
 use std::sync::mpsc;
@@ -140,6 +141,43 @@ fn test_watch_leaves_pr_column_empty_without_pr() {
         "unexpected output: {output:?}"
     );
     assert!(!output.contains('#'), "unexpected output: {output:?}");
+}
+
+// ── #408: 相対 gitdir（submodule）の BRANCH 解決 ─────────────────────────────
+
+/// #408: submodule の `.git` ファイルは相対 `gitdir:`（例 `gitdir: ../.git/modules/sub`）
+/// を持つ。daemon プロセスの cwd 基準で誤って解決すると HEAD が読めず branch が空になり、
+/// watch の BRANCH 列が空欄になる。相対 `gitdir` を `.git` を含むディレクトリ基準で解決し、
+/// BRANCH 列にブランチ名が表示されることを検証する。
+#[test]
+fn test_watch_resolves_branch_for_relative_gitdir_submodule() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+
+    // env.repo を superproject root と見立てて submodule レイアウトを作る:
+    //   <repo>/.git/modules/sub/HEAD  submodule の実 git storage
+    //   <repo>/sub/.git               file: "gitdir: ../.git/modules/sub"
+    // prompt の cwd は <repo>/sub、daemon の cwd は <repo>（= 別ディレクトリ）。この差に
+    // より、相対 gitdir を daemon の cwd 基準で解決するバグが顕在化する。
+    let branch = "feat/in-submodule";
+    let storage = env.repo.path().join(".git/modules/sub");
+    fs::create_dir_all(&storage).expect("create submodule git storage");
+    fs::write(storage.join("HEAD"), format!("ref: refs/heads/{branch}\n")).expect("write HEAD");
+
+    let submodule = env.repo.path().join("sub");
+    fs::create_dir_all(&submodule).expect("create submodule workdir");
+    fs::write(submodule.join(".git"), "gitdir: ../.git/modules/sub\n").expect("write .git file");
+
+    let _daemon = DaemonHandle::start(&env);
+
+    // submodule dir から prompt を発行してキャッシュを温める。
+    DaemonHandle::wait_for_cache_in_dir(&env, &submodule, 5000);
+
+    let output = spawn_watch_and_read(&env, 2, Duration::from_secs(5));
+
+    assert!(
+        output.contains(branch),
+        "BRANCH 列に submodule のブランチが表示されるべき: {output:?}"
+    );
 }
 
 // ── #W7: 複数リポジトリのソート順 ────────────────────────────────────────────

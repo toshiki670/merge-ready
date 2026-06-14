@@ -101,6 +101,15 @@ impl DaemonHandle {
 
     /// キャッシュに有効な値が入るまで最大 `max_ms` ミリ秒ポーリングする。
     pub fn wait_for_cache(env: &TestEnv, max_ms: u64) {
+        Self::wait_for_cache_in_dir(env, env.repo.path(), max_ms);
+    }
+
+    /// `cwd` から `merge-ready-prompt` を実行し、キャッシュに有効な値が入るまで
+    /// 最大 `max_ms` ミリ秒ポーリングする。
+    ///
+    /// daemon の cwd とは別のディレクトリ（submodule など）から prompt を発行して
+    /// キャッシュを温めたいケース用。
+    pub fn wait_for_cache_in_dir(env: &TestEnv, cwd: &Path, max_ms: u64) {
         let bin = assert_cmd::cargo::cargo_bin("merge-ready-prompt");
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
         loop {
@@ -109,7 +118,7 @@ impl DaemonHandle {
                 .env("HOME", env.home())
                 .env("TMPDIR", env.home())
                 .env("MERGE_READY_BASE_DIR", env.home())
-                .current_dir(env.repo.path());
+                .current_dir(cwd);
             apply_coverage_env(&mut cmd);
             let out = run_prompt_with_timeout(&mut cmd);
             let stdout = String::from_utf8_lossy(&out.stdout);

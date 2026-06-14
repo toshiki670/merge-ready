@@ -23,6 +23,9 @@ pub fn repo_id_from_cwd(cwd: &str) -> Option<String> {
 /// カレントディレクトリから上に向かって `.git` を探す。
 ///
 /// worktree またはサブモジュールの場合 `.git` はファイル（`"gitdir: <path>"` 形式）。
+/// submodule の `gitdir:` は通常 `.git` ファイルからの相対パス（例 `../.git/modules/sub`）
+/// なので、`.git` ファイルを含むディレクトリ基準で絶対パスへ解決する。相対のまま返すと、
+/// 後段の `read_head` が daemon プロセスの cwd 基準で HEAD を探して失敗する。
 fn find_git_dir(start: &Path) -> Option<(PathBuf, PathBuf)> {
     let mut dir = start.to_path_buf();
     loop {
@@ -32,8 +35,13 @@ fn find_git_dir(start: &Path) -> Option<(PathBuf, PathBuf)> {
         }
         if dot_git.is_file() {
             let content = fs::read_to_string(&dot_git).ok()?;
-            let real = content.strip_prefix("gitdir: ")?.trim();
-            return Some((dir, PathBuf::from(real)));
+            let real = Path::new(content.strip_prefix("gitdir: ")?.trim());
+            let git_dir = if real.is_absolute() {
+                real.to_path_buf()
+            } else {
+                dir.join(real)
+            };
+            return Some((dir, git_dir));
         }
         if !dir.pop() {
             return None;

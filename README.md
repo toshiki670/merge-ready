@@ -131,6 +131,8 @@ The daemon writes diagnostic logs to `merge-ready/error.log` under `$XDG_CACHE_H
 
 The log level defaults to `warn`, which records operationally important events such as rate-limit backoff entry, rate-limit fetch failures, and daemon self-termination. Set `MERGE_READY_LOG_LEVEL` to one of `off`, `error`, `warn`, `info`, `debug`, or `trace` (case-insensitive) to change the verbosity. Unknown values fall back to `warn`.
 
+Logs are rotated in the application before `error.log` grows without bound. The active file is limited to 1 MiB by default, with up to four backups kept as `error.log.1`, `error.log.2`, and so on. Set `MERGE_READY_LOG_MAX_BYTES` and `MERGE_READY_LOG_MAX_BACKUPS` to positive integers to tune those limits; invalid values fall back to the defaults.
+
 ```bash
 MERGE_READY_LOG_LEVEL=info merge-ready daemon start
 ```

@@ -49,6 +49,10 @@ impl DaemonHandle {
             .env("TMPDIR", env.home())
             .env("MERGE_READY_BASE_DIR", base_dir)
             .env("XDG_CONFIG_HOME", env.home().join(".config"))
+            // ログ出力先も隔離 HOME 配下に固定し、実行環境の XDG_CACHE_HOME が
+            // 紛れ込んでテスト用ログが外部へ漏れるのを防ぐ。個別テストは
+            // extra_envs で上書きできる。
+            .env("XDG_CACHE_HOME", env.home().join(".cache"))
             .current_dir(env.repo.path())
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())

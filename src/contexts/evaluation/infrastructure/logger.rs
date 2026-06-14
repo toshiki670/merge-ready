@@ -20,7 +20,7 @@ pub struct LogRecord {
 }
 
 /// デーモン起動時に一度だけ呼ぶ。
-/// `$HOME/.cache/merge-ready/error.log` への追記ロガーを初期化する。
+/// `<cache>/merge-ready/error.log` への追記ロガーを初期化する。
 /// 失敗は静かに無視する（ログが書けなくてもデーモンは止まらない）。
 pub fn init() {
     let Some(path) = log_path() else { return };
@@ -30,9 +30,14 @@ pub fn init() {
     let _ = WriteLogger::init(LevelFilter::Error, Config::default(), file);
 }
 
+// XDG_CACHE_HOME が有効な絶対パスならそちらを優先し、無効（未設定・空・相対パス）なら
+// $HOME/.cache にフォールバックする。設定 (XDG 対応) とログの解決方針を揃える。
 fn log_path() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    let dir = std::path::Path::new(&home).join(".cache/merge-ready");
+    let base = match super::xdg::base_dir("XDG_CACHE_HOME") {
+        Some(dir) => dir,
+        None => PathBuf::from(std::env::var_os("HOME")?).join(".cache"),
+    };
+    let dir = base.join("merge-ready");
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("error.log"))
 }

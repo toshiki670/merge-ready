@@ -38,7 +38,7 @@ impl DaemonLifecyclePort for DaemonLifecycle {
         let pid_path = self.paths.pid_path();
         let client = DaemonClient::new(self.paths.socket_path());
         let running_pid = match pid::read(&pid_path) {
-            Some(p) if pid::is_alive(p).await => Some(p),
+            Some(p) if pid::is_alive(p) => Some(p),
             _ => None,
         };
         if client.stop().await {
@@ -50,7 +50,7 @@ impl DaemonLifecyclePort for DaemonLifecycle {
         let Some(p) = running_pid.or_else(|| pid::read(&pid_path)) else {
             return false;
         };
-        if !pid::is_alive(p).await {
+        if !pid::is_alive(p) {
             pid::remove(&pid_path);
             return false;
         }
@@ -70,7 +70,7 @@ impl DaemonLifecyclePort for DaemonLifecycle {
 
     async fn get_pid(&self) -> Option<u32> {
         match pid::read(&self.paths.pid_path()) {
-            Some(p) if pid::is_alive(p).await => Some(p),
+            Some(p) if pid::is_alive(p) => Some(p),
             _ => None,
         }
     }
@@ -85,12 +85,7 @@ async fn wait_or_terminate(p: u32, pid_path: &Path) -> bool {
 
 async fn terminate_and_wait(p: u32, pid_path: &Path) -> bool {
     // ソケット経由が失敗した、または終了が遅い場合は SIGTERM でフォールバックする。
-    let signalled = tokio::process::Command::new("kill")
-        .args(["-TERM", &p.to_string()])
-        .status()
-        .await
-        .is_ok_and(|s| s.success());
-    signalled && pid::wait_until_gone(p, pid_path, STOP_TIMEOUT).await
+    pid::terminate(p) && pid::wait_until_gone(p, pid_path, STOP_TIMEOUT).await
 }
 
 impl WatchPort for DaemonLifecycle {

@@ -36,7 +36,7 @@ async fn cleanup_one(old_pid_path: &std::path::Path) {
     let old_sock = old_pid_path.with_file_name(format!("{stem}.sock"));
 
     match pid::read(old_pid_path) {
-        Some(p) if pid::is_alive(p).await => {
+        Some(p) if pid::is_alive(p) => {
             let client = DaemonClient::new(old_sock.clone());
             let _ = client.stop().await;
             // 旧デーモンが Stop を完了するまで待ち、ファイルを掃除する

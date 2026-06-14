@@ -59,10 +59,11 @@ async fn run_gh(cwd: &Path, args: &[&str]) -> Result<Vec<u8>, GhError> {
 
 fn log_and_convert(e: GhError) -> RepositoryError {
     match &e {
-        GhError::AuthRequired => {
+        GhError::AuthRequired(detail) => {
             log_record(&LogRecord {
                 category: ErrorCategory::Auth,
-                detail: None,
+                // gh stderr（失敗理由）を載せる。空なら従来どおり detail なし。
+                detail: (!detail.is_empty()).then(|| detail.clone()),
             });
         }
         GhError::Timeout => {

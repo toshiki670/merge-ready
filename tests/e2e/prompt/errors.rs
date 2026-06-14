@@ -103,6 +103,35 @@ fn test_error_log_written() {
     assert!(!content.is_empty(), "error.log が空");
 }
 
+/// #425: 認証失敗時、`error.log` の `[Auth]` 行に gh stderr 由来の detail（原因）が
+/// 記録されること。`[Auth]` のみで detail が無いと障害解析ができないため。
+#[test]
+fn test_auth_error_log_includes_stderr_detail() {
+    let stderr = "HTTP 401: Bad credentials (https://api.github.com/graphql)";
+    let env = TestEnv::with_error(stderr, 1);
+    let log_path = env.home().join(".cache/merge-ready/error.log");
+    let _daemon = DaemonHandle::start(&env);
+    DaemonHandle::wait_for_cache(&env, 5000);
+
+    cmd(&env)
+        .assert()
+        .success()
+        .stdout("✗ authentication required");
+
+    // `[Auth]` 行そのものに detail が載っていることを検証する。daemon の
+    // rate_limit fetcher も別行で stderr を warn 出力するため、ファイル全体への
+    // `contains` では誤って通過してしまう（その行は `[Auth]` を含まない）。
+    let content = std::fs::read_to_string(&log_path).unwrap();
+    let auth_line = content
+        .lines()
+        .find(|l| l.contains("[Auth]"))
+        .unwrap_or_else(|| panic!("no [Auth] line in error.log, got: {content}"));
+    assert!(
+        auth_line.contains("HTTP 401: Bad credentials"),
+        "expected gh stderr detail on the [Auth] line, got: {auth_line:?}"
+    );
+}
+
 // ── JSON 解析失敗 ─────────────────────────────────────────────────────────────
 
 /// `gh api graphql` が exit 0 で不正な JSON を返した場合 → `✗ unexpected error`

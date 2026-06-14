@@ -4,6 +4,7 @@
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use std::os::unix::fs::PermissionsExt;
 
 use super::super::helpers::{DaemonHandle, TestEnv, apply_coverage_env};
 
@@ -233,6 +234,80 @@ fn test_daemon_status_includes_version() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
+}
+
+#[test]
+fn test_daemon_socket_and_base_dir_permissions_are_restricted_under_loose_umask() {
+    let env = TestEnv::new(OPEN_PR_VIEW_JSON, Some(CI_PASS_JSON));
+    let base = env.home().join("daemon-base");
+
+    let bin = assert_cmd::cargo::cargo_bin(BIN);
+    let mut cmd = std::process::Command::new("sh");
+    cmd.arg("-c")
+        .arg("umask 000; exec \"$1\" daemon start")
+        .arg("merge-ready-daemon-start")
+        .arg(&bin)
+        .env("PATH", env.path_env())
+        .env("HOME", env.home())
+        .env("TMPDIR", env.home())
+        .env("MERGE_READY_BASE_DIR", &base)
+        .env("XDG_CONFIG_HOME", env.home().join(".config"))
+        .env("XDG_CACHE_HOME", env.home().join(".cache"))
+        .current_dir(env.repo.path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    apply_coverage_env(&mut cmd);
+    let mut child = cmd.spawn().expect("spawn daemon start via sh");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(START_TIMEOUT_MS);
+    let status = loop {
+        if let Ok(Some(s)) = child.try_wait() {
+            break s;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("daemon did not start within {START_TIMEOUT_MS}ms");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    assert!(status.success(), "daemon start should succeed");
+
+    let socket_mode = std::fs::metadata(versioned_socket(&base))
+        .expect("read daemon socket metadata")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(
+        socket_mode, 0o600,
+        "socket permissions must be 0o600 regardless of umask, got {socket_mode:o}"
+    );
+
+    let dir_mode = std::fs::metadata(&base)
+        .expect("read daemon base dir metadata")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(
+        dir_mode, 0o700,
+        "base dir permissions must be 0o700 regardless of umask, got {dir_mode:o}"
+    );
+
+    if let Ok(pid_str) = std::fs::read_to_string(versioned_pid(&base))
+        && let Ok(pid) = pid_str.trim().parse::<u32>()
+    {
+        let _ = std::process::Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while std::time::Instant::now() < deadline {
+            if !is_pid_alive(pid) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
 }
 
 // ── #11: daemon stop ─────────────────────────────────────────────────────────

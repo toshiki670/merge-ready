@@ -1,3 +1,4 @@
+use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
 use tokio::net::UnixListener;
@@ -7,6 +8,7 @@ use crate::contexts::daemon::domain::daemon::DaemonError;
 
 const BIND_RETRY_INTERVAL_MS: u64 = 100;
 const BIND_RETRY_MAX: usize = 10;
+const SOCKET_FILE_MODE: u32 = 0o600;
 
 pub(super) async fn bind(paths: &Paths) -> Result<UnixListener, DaemonError> {
     bind_with(
@@ -66,6 +68,16 @@ async fn bind_with(
         retry_interval,
     )
     .await?;
+    std::fs::set_permissions(
+        &socket_path,
+        std::fs::Permissions::from_mode(SOCKET_FILE_MODE),
+    )
+    .map_err(|e| {
+        log::error!("failed to restrict daemon socket permissions: {e}");
+        eprintln!("merge-ready daemon: failed to restrict socket permissions: {e}");
+        let _ = std::fs::remove_file(&socket_path);
+        DaemonError::Failure
+    })?;
     pid::write(std::process::id(), &pid_path);
     Ok(listener)
 }

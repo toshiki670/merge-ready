@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.5] - 2026-07-21
+
+
 ## [1.0.4] - 2026-06-14
 ### Fixes
 - 空・相対の XDG_CONFIG_HOME/XDG_CACHE_HOME を無効として扱う ([#418](https://github.com/toshiki670/merge-ready/pull/418)) ([`981416a`](https://github.com/toshiki670/merge-ready/commit/981416a1ec7448dd5ec040a939bb5239f709ca7d))

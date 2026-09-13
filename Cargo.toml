@@ -62,7 +62,7 @@ path = "tests/e2e/mod.rs"
 assert_cmd = "2.2"
 criterion = { version = "0.8", features = ["html_reports"] }
 predicates = "3.1"
-rstest = "0.26"
+rstest = "0.27"
 serde_json = "1.0"
 tempfile = "3.27"
 # watch テーブルの列揃えを E2E で検証する際、端末表示幅を独立して計測するために使う。
